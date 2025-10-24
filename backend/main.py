@@ -1,3 +1,5 @@
+# backend/main.py
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -11,6 +13,7 @@ from backend.routes import (
     prompt,
     interview,
     workitem,
+    goal, # <--- NEW IMPORT
 )
 
 
@@ -20,13 +23,7 @@ app = FastAPI(title="Job Application Assistant API")
 registry = Registry("./backend/data/db.json")
 
 # Allow frontend on localhost
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# ... (existing middleware) ...
 
 # Register all routes
 app.include_router(cv.router, prefix="/cv", tags=["CV"])
@@ -37,6 +34,7 @@ app.include_router(coverletter.router, prefix="/coverletter", tags=["CoverLetter
 app.include_router(prompt.router, prefix="/prompt", tags=["Prompt"])
 app.include_router(interview.router, prefix="/interview", tags=["Interview"])
 app.include_router(workitem.router, prefix="/workitem", tags=["WorkItem"])
+app.include_router(goal.router, prefix="/goal", tags=["Goal"]) # <--- NEW REGISTRATION
 
 
 @app.get("/")
