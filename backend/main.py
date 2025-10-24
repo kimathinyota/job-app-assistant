@@ -10,7 +10,9 @@ from backend.routes import (
     coverletter,
     prompt,
     interview,
+    workitem,
 )
+
 
 app = FastAPI(title="Job Application Assistant API")
 
@@ -34,6 +36,7 @@ app.include_router(application.router, prefix="/application", tags=["Application
 app.include_router(coverletter.router, prefix="/coverletter", tags=["CoverLetter"])
 app.include_router(prompt.router, prefix="/prompt", tags=["Prompt"])
 app.include_router(interview.router, prefix="/interview", tags=["Interview"])
+app.include_router(workitem.router, prefix="/workitem", tags=["WorkItem"])
 
 
 @app.get("/")

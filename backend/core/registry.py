@@ -1,6 +1,6 @@
 from typing import Optional, List, Dict
 from backend.core.database import TinyDBManager
-from backend.core.models import BaseEntity, CV, JobDescription, JobDescriptionFeature, Mapping, MappingPair, Experience, DerivedCV, CoverLetter, Application, Interview, InterviewStage, InterviewQuestion
+from backend.core.models import BaseEntity, CV, JobDescription, JobDescriptionFeature, Mapping, MappingPair, Experience, DerivedCV, CoverLetter, Application, Interview, InterviewStage, InterviewQuestion, WorkItem
 
 
 
@@ -165,3 +165,29 @@ class Registry:
 
     def get_interview(self, interview_id: str) -> Optional[Interview]:
         return self._get("interviews", Interview, interview_id)
+    
+    # Inside Registry class
+
+    # ---- Work Items ----
+    def create_work_item(self, **kwargs):
+        from backend.core.models import WorkItem
+        work = WorkItem.create(**kwargs)
+        self._add("work_items", work)
+        return work
+
+    def all_work_items(self):
+        return [WorkItem(**item) for item in self.db.table("work_items").all()]
+
+    def get_work_item(self, work_id: str):
+        table = self.db.table("work_items")
+        item = table.get(where("id") == work_id)
+        return WorkItem(**item) if item else None
+
+    def mark_work_item_completed(self, work_id: str, reflection: Optional[str] = None):
+        work = self.get_work_item(work_id)
+        if not work:
+            return {"error": "WorkItem not found"}
+        work.mark_completed(reflection)
+        self._update("work_items", work)
+        return work
+
