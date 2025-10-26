@@ -1,29 +1,34 @@
-// frontend/src/components/CVList.jsx
+// frontend/src/components/cv/CVList.jsx (Used as the selector component)
 import React from 'react';
 
-// Displays a list of CV objects.
-const CVList = ({ cvs }) => {
-    if (cvs.length === 0) {
-        return <p style={{ color: '#888' }}>No CVs found. Create one above to get started!</p>;
-    }
+const CVSelector = ({ cvs, onSelect, selectedCVId }) => {
+    if (cvs.length === 0) return null;
+
+    const getStyle = (cv) => ({
+        padding: '8px 12px',
+        border: selectedCVId === cv.id ? '2px solid #007bff' : '1px solid #ddd',
+        borderRadius: '5px',
+        cursor: 'pointer',
+        backgroundColor: selectedCVId === cv.id ? '#e6f7ff' : '#fff',
+        fontWeight: selectedCVId === cv.id ? 'bold' : 'normal',
+        transition: 'all 0.2s',
+        boxShadow: selectedCVId === cv.id ? '0 0 5px rgba(0, 123, 255, 0.5)' : 'none'
+    });
 
     return (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '20px', justifyContent: 'left', margin: '20px 0' }}>
-            {cvs.map((cv) => (
-                <div key={cv.id} style={{ border: '1px solid #ccc', padding: '15px', borderRadius: '5px', width: '300px', backgroundColor: '#fff', color: '#333', textAlign: 'left', boxShadow: '0 2px 5px rgba(0,0,0,0.1)' }}>
-                    <strong style={{ display: 'block', fontSize: '1.2em', marginBottom: '5px' }}>{cv.name}</strong> 
-                    <p style={{ fontSize: '12px', color: '#aaa', marginTop: '0' }}>ID: {cv.id}</p>
-                    <p style={{ fontSize: '0.9em', color: '#555' }}>{cv.summary || "No summary provided."}</p>
-                    <p style={{ fontSize: '0.8em', color: '#777' }}>
-                        Updated: {new Date(cv.updated_at).toLocaleDateString()}
-                    </p>
-                    <button style={{ padding: '5px 10px', marginTop: '10px', cursor: 'pointer', backgroundColor: '#007bff', color: 'white', border: 'none' }}>
-                        View/Edit Details
-                    </button>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginBottom: '20px', padding: '10px 0', borderBottom: '1px solid #eee' }}>
+            <span style={{ fontWeight: 'bold', marginRight: '10px', alignSelf: 'center' }}>Select Base CV:</span>
+            {cvs.map(cv => (
+                <div 
+                    key={cv.id} 
+                    onClick={() => onSelect(cv.id)} 
+                    style={getStyle(cv)}
+                >
+                    {cv.name}
                 </div>
             ))}
         </div>
     );
 };
 
-export default CVList;
+export default CVSelector;
