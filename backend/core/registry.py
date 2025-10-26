@@ -152,6 +152,47 @@ class Registry:
         self._update("cvs", cv)
         return ach
 
+    # UPDATE methods
+    def update_cv_experience(self, cv_id: str, exp_id: str, update_data: ExperienceUpdate):
+        return self._update_nested_item(cv_id, 'experiences', exp_id, update_data.model_dump(exclude_none=True))
+    
+    def update_cv_education(self, cv_id: str, edu_id: str, update_data: EducationUpdate):
+        return self._update_nested_item(cv_id, 'education', edu_id, update_data.model_dump(exclude_none=True))
+
+    def update_cv_skill(self, cv_id: str, skill_id: str, update_data: SkillUpdate):
+        return self._update_nested_item(cv_id, 'skills', skill_id, update_data.model_dump(exclude_none=True))
+
+    def update_cv_achievement(self, cv_id: str, ach_id: str, update_data: AchievementUpdate):
+        return self._update_nested_item(cv_id, 'achievements', ach_id, update_data.model_dump(exclude_none=True))
+
+    def update_cv_project(self, cv_id: str, proj_id: str, update_data: ProjectUpdate):
+        return self._update_nested_item(cv_id, 'projects', proj_id, update_data.model_dump(exclude_none=True))
+
+    def update_cv_hobby(self, cv_id: str, hobby_id: str, update_data: HobbyUpdate):
+        return self._update_nested_item(cv_id, 'hobbies', hobby_id, update_data.model_dump(exclude_none=True))
+
+    # DELETE methods
+    def delete_cv_experience(self, cv_id: str, exp_id: str):
+        return self._delete_nested_item(cv_id, 'experiences', exp_id)
+    
+    def delete_cv_education(self, cv_id: str, edu_id: str):
+        return self._delete_nested_item(cv_id, 'education', edu_id)
+
+    def delete_cv_skill(self, cv_id: str, skill_id: str):
+        # NOTE: Does not unlink from experiences/projects/achievements, which is fine for simplicity but a cleanup task for a full relational DB.
+        return self._delete_nested_item(cv_id, 'skills', skill_id)
+
+    def delete_cv_achievement(self, cv_id: str, ach_id: str):
+        # NOTE: Does not unlink from experiences/projects/education, cleanup is expected on the frontend/future logic layer.
+        return self._delete_nested_item(cv_id, 'achievements', ach_id)
+    
+    def delete_cv_project(self, cv_id: str, proj_id: str):
+        return self._delete_nested_item(cv_id, 'projects', proj_id)
+    
+    def delete_cv_hobby(self, cv_id: str, hobby_id: str):
+        return self._delete_nested_item(cv_id, 'hobbies', hobby_id)
+
+
     # --- NESTED LINKING METHODS ---
 
     def _get_nested_entity(self, cv: CV, entity_list_name: str, entity_id: str) -> Union[Experience, Education, Project, Hobby, Achievement]:
@@ -195,6 +236,21 @@ class Registry:
         
         return entity
 
+    def unlink_skill_from_entity(self, cv_id: str, entity_id: str, skill_id: str, entity_list_name: str):
+        """Removes a skill ID from a specific nested entity's skill_ids list."""
+        cv = self.get_cv(cv_id)
+        if not cv: raise ValueError("CV not found")
+        
+        entity = self._get_nested_entity(cv, entity_list_name, entity_id)
+        
+        if skill_id in entity.skill_ids:
+            entity.skill_ids.remove(skill_id)
+            cv.touch()
+            self._update("cvs", cv)
+            return {"status": "success", "message": f"Skill {skill_id} unlinked from {entity_list_name[:-1]} {entity_id}."}
+        
+        raise ValueError(f"Skill {skill_id} was not linked to {entity_list_name[:-1]} {entity_id}.")
+    
     def link_achievement_to_context(self, cv_id: str, context_id: str, ach_id: str, context_list_name: str):
         """Adds an achievement ID to a specific context's achievement_ids list (Experience, Project, etc.)."""
         cv = self.get_cv(cv_id)
@@ -215,6 +271,20 @@ class Registry:
         
         return context
 
+    def unlink_achievement_from_context(self, cv_id: str, context_id: str, ach_id: str, context_list_name: str):
+        """Removes an achievement ID from a specific context's achievement_ids list."""
+        cv = self.get_cv(cv_id)
+        if not cv: raise ValueError("CV not found")
+        
+        context = self._get_nested_entity(cv, context_list_name, context_id)
+        
+        if ach_id in context.achievement_ids:
+            context.achievement_ids.remove(ach_id)
+            cv.touch()
+            self._update("cvs", cv)
+            return {"status": "success", "message": f"Achievement {ach_id} unlinked from {context_list_name[:-1]} {context_id}."}
+        
+        raise ValueError(f"Achievement {ach_id} was not linked to {context_list_name[:-1]} {context_id}.")
 
     # ---- Mappings ----
     def create_mapping(self, job_id: str, base_cv_id: str):
@@ -241,6 +311,36 @@ class Registry:
 
     def all_mappings(self):
         return self._all("mappings", Mapping)
+    
+
+    # --- MAPPING PAIR NESTED CRUD ---
+    def update_mapping_pair(self, mapping_id: str, pair_id: str, update_data: MappingPairUpdate):
+        mapping = self.get_mapping(mapping_id)
+        if not mapping: raise ValueError("Mapping not found")
+
+        pair = next((p for p in mapping.pairs if p.id == pair_id), None)
+        if not pair: raise ValueError("Mapping Pair not found")
+
+        to_update = update_data.model_dump(exclude_none=True)
+        for key, value in to_update.items():
+            setattr(pair, key, value)
+        
+        mapping.touch()
+        self._update("mappings", mapping)
+        return pair
+    
+    def delete_mapping_pair(self, mapping_id: str, pair_id: str):
+        mapping = self.get_mapping(mapping_id)
+        if not mapping: raise ValueError("Mapping not found")
+
+        initial_len = len(mapping.pairs)
+        mapping.pairs = [p for p in mapping.pairs if p.id != pair_id]
+        
+        if len(mapping.pairs) == initial_len: raise ValueError("Mapping Pair not found")
+
+        mapping.touch()
+        self._update("mappings", mapping)
+        return {"status": "success", "id": pair_id, "message": "Mapping Pair deleted."}
 
 
     # ---- Applications ----
@@ -298,6 +398,64 @@ class Registry:
         para.draft_text = draft_text # Optionally set draft text
         self._update("coverletters", cover)
         return para
+    
+
+    # --- COVER LETTER NESTED CRUD ---
+    def update_cover_letter_idea(self, cover_id: str, idea_id: str, update_data: IdeaUpdate):
+        cover = self.get_cover_letter(cover_id)
+        if not cover: raise ValueError("CoverLetter not found")
+
+        idea = next((i for i in cover.ideas if i.id == idea_id), None)
+        if not idea: raise ValueError("Idea not found")
+        
+        to_update = update_data.model_dump(exclude_none=True)
+        for key, value in to_update.items():
+            setattr(idea, key, value)
+        
+        cover.touch()
+        self._update("coverletters", cover)
+        return idea
+
+    def delete_cover_letter_idea(self, cover_id: str, idea_id: str):
+        cover = self.get_cover_letter(cover_id)
+        if not cover: raise ValueError("CoverLetter not found")
+
+        initial_len = len(cover.ideas)
+        cover.ideas = [i for i in cover.ideas if i.id != idea_id]
+        
+        if len(cover.ideas) == initial_len: raise ValueError("Idea not found")
+
+        cover.touch()
+        self._update("coverletters", cover)
+        return {"status": "success", "id": idea_id, "message": "Idea deleted."}
+
+    def update_cover_letter_paragraph(self, cover_id: str, para_id: str, update_data: ParagraphUpdate):
+        cover = self.get_cover_letter(cover_id)
+        if not cover: raise ValueError("CoverLetter not found")
+
+        paragraph = next((p for p in cover.paragraphs if p.id == para_id), None)
+        if not paragraph: raise ValueError("Paragraph not found")
+        
+        to_update = update_data.model_dump(exclude_none=True)
+        for key, value in to_update.items():
+            setattr(paragraph, key, value)
+        
+        cover.touch()
+        self._update("coverletters", cover)
+        return paragraph
+
+    def delete_cover_letter_paragraph(self, cover_id: str, para_id: str):
+        cover = self.get_cover_letter(cover_id)
+        if not cover: raise ValueError("CoverLetter not found")
+
+        initial_len = len(cover.paragraphs)
+        cover.paragraphs = [p for p in cover.paragraphs if p.id != para_id]
+        
+        if len(cover.paragraphs) == initial_len: raise ValueError("Paragraph not found")
+
+        cover.touch()
+        self._update("coverletters", cover)
+        return {"status": "success", "id": para_id, "message": "Paragraph deleted."}
 
     # ---- Interviews ----
     def create_interview(self, application_id: str):
@@ -333,6 +491,60 @@ class Registry:
 
     def get_interview(self, interview_id: str):
         return self._get("interviews", Interview, interview_id)
+    
+    # --- INTERVIEW NESTED CRUD ---
+    def update_interview_stage(self, interview_id: str, stage_id: str, update_data: InterviewStageUpdate):
+        interview = self.get_interview(interview_id)
+        if not interview: raise ValueError("Interview not found")
+
+        stage = next((s for s in interview.stages if s.id == stage_id), None)
+        if not stage: raise ValueError("Interview Stage not found")
+        
+        to_update = update_data.model_dump(exclude_none=True)
+        for key, value in to_update.items():
+            setattr(stage, key, value)
+        
+        interview.touch()
+        self._update("interviews", interview)
+        return stage
+
+    def update_interview_question(self, interview_id: str, question_id: str, update_data: InterviewQuestionUpdate):
+        interview = self.get_interview(interview_id)
+        if not interview: raise ValueError("Interview not found")
+
+        question_found = False
+        for stage in interview.stages:
+            question = next((q for q in stage.questions if q.id == question_id), None)
+            if question:
+                to_update = update_data.model_dump(exclude_none=True)
+                for key, value in to_update.items():
+                    setattr(question, key, value)
+                question_found = True
+                break
+        
+        if not question_found: raise ValueError("Interview Question not found")
+
+        interview.touch()
+        self._update("interviews", interview)
+        return question
+
+    def delete_interview_question(self, interview_id: str, question_id: str):
+        interview = self.get_interview(interview_id)
+        if not interview: raise ValueError("Interview not found")
+
+        question_deleted = False
+        for stage in interview.stages:
+            initial_len = len(stage.questions)
+            stage.questions = [q for q in stage.questions if q.id != question_id]
+            if len(stage.questions) < initial_len:
+                question_deleted = True
+                break
+        
+        if not question_deleted: raise ValueError("Interview Question not found")
+
+        interview.touch()
+        self._update("interviews", interview)
+        return {"status": "success", "id": question_id, "message": "Interview Question deleted."}
 
 
     # ---- Work Items ----

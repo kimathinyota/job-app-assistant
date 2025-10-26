@@ -1,3 +1,5 @@
+# backend/core/models.py
+
 from __future__ import annotations
 from typing import List, Dict, Optional, Literal, Union, Any
 from datetime import datetime
@@ -456,6 +458,70 @@ class GoalUpdate(BaseModel):
     status: Optional[Literal["active", "paused", "completed"]] = None
     due_date: Optional[datetime] = None
     reflection: Optional[str] = None
+
+# --- NESTED ITEM UPDATE MODELS ---
+
+class SkillUpdate(BaseModel):
+    name: Optional[str] = None
+    category: Optional[Literal["technical", "soft", "language", "other"]] = None
+    level: Optional[str] = None
+    importance: Optional[int] = Field(default=None, ge=1, le=5)
+    description: Optional[str] = None
+
+class ExperienceUpdate(BaseModel):
+    title: Optional[str] = None
+    company: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    description: Optional[str] = None
+
+class EducationUpdate(BaseModel):
+    institution: Optional[str] = None
+    degree: Optional[str] = None
+    field: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+
+class ProjectUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    related_experience_id: Optional[str] = None
+    related_education_id: Optional[str] = None
+
+class HobbyUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+class AchievementUpdate(BaseModel):
+    text: Optional[str] = None
+    context: Optional[str] = None
+
+class JobFeatureUpdate(BaseModel):
+    type: Optional[Literal["requirement", "responsibility", "value", "nice_to_have", "qualification", "benefit", "other"]] = None
+    description: Optional[str] = None
+
+class MappingPairUpdate(BaseModel):
+    annotation: Optional[str] = None
+
+class IdeaUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    annotation: Optional[str] = None
+
+class ParagraphUpdate(BaseModel):
+    order: Optional[int] = None
+    purpose: Optional[str] = None
+    draft_text: Optional[str] = None
+
+class InterviewStageUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    status: Optional[Literal["pending", "completed"]] = None
+
+class InterviewQuestionUpdate(BaseModel):
+    question: Optional[str] = None
+    answer: Optional[str] = None
+    stage: Optional[str] = None
 
 
 # ---------------------------------------------------------------------
