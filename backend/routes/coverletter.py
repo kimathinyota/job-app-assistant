@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, HTTPException
 from backend.core.registry import Registry
-from typing import Optional
+from typing import Optional, List # Ensure List is imported
 
 router = APIRouter()
 registry = Registry()
@@ -25,5 +25,26 @@ def delete_cover_letter(cover_id: str):
     """Delete a CoverLetter record by ID."""
     try:
         return registry.delete_cover_letter(cover_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+# ---------------------------------------------------------------------
+# NESTED ADD ENDPOINTS (Cover Letter Components)
+# ---------------------------------------------------------------------
+
+@router.post("/{cover_id}/idea")
+def add_idea(cover_id: str, title: str, description: Optional[str] = None, mapping_pair_ids: List[str] = []):
+    """Add a new core idea/talking point for the cover letter."""
+    try:
+        return registry.add_cover_letter_idea(cover_id, title=title, description=description, mapping_pair_ids=mapping_pair_ids)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+@router.post("/{cover_id}/paragraph")
+def add_paragraph(cover_id: str, idea_ids: List[str], purpose: str, draft_text: Optional[str] = None):
+    """Add a paragraph structure based on existing ideas (used for generation outline)."""
+    try:
+        return registry.add_cover_letter_paragraph(cover_id, idea_ids=idea_ids, purpose=purpose, draft_text=draft_text)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
