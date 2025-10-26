@@ -25,6 +25,15 @@ registry = Registry("./backend/data/db.json")
 # Allow frontend on localhost
 # ... (existing middleware) ...
 
+# backend/main.py (Snippet)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"], # <--- Must be present and correct
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Register all routes
 app.include_router(cv.router, prefix="/cv", tags=["CV"])
 app.include_router(job.router, prefix="/job", tags=["Job"])
