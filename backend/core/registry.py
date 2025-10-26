@@ -1,4 +1,6 @@
-from typing import Optional, List, Dict
+# backend/core/registry.py
+
+from typing import Optional, List, Dict, Any
 from backend.core.database import TinyDBManager
 from tinydb import where
 from backend.core.models import *
@@ -14,7 +16,8 @@ class Registry:
 
     def _insert(self, table: str, obj: BaseEntity):
         """Insert or replace entity in TinyDB."""
-        self.db.upsert(table, obj)
+        # Note: self.db.insert maps to TinyDBManager.insert which performs upsert
+        self.db.insert(table, obj)
         return obj
 
     def _get(self, table: str, cls, obj_id: str):
@@ -28,19 +31,48 @@ class Registry:
 
     def _update(self, table: str, obj: BaseEntity):
         """Update an existing entity."""
-        self.db.update(table, obj)
+        # Note: self.db.insert maps to TinyDBManager.insert which performs upsert
+        self.db.insert(table, obj)
+
+    def _delete(self, table: str, obj_id: str):
+        """Delete an entity by ID."""
+        if not self._get(table, BaseEntity, obj_id):
+            raise ValueError(f"{table} with ID {obj_id} not found")
+        self.db.remove(table, obj_id)
+        return {"status": "success", "id": obj_id, "message": f"{table} deleted"}
+
+    def _update_entity(self, table: str, cls: BaseModel, obj_id: str, update_data: dict):
+        """Generic function to update an entity using data from an Update model."""
+        obj = self._get(table, cls, obj_id)
+        if not obj:
+            raise ValueError(f"{cls.__name__} with ID {obj_id} not found")
+
+        # Filter out None values from the update request data
+        to_update = {k: v for k, v in update_data.items() if v is not None}
+
+        # Apply updates to the model instance and update timestamp
+        updated_data = obj.model_copy(update=to_update)
+        updated_data.touch()
+        self._update(table, updated_data)
+        return updated_data
+
 
     # ---- Jobs ----
     def create_job(self, title: str, company: str, notes: Optional[str] = None):
         job = JobDescription.create(title=title, company=company, notes=notes)
         return self._insert("jobs", job)
 
+    def update_job(self, job_id: str, update_data: JobDescriptionUpdate):
+        return self._update_entity("jobs", JobDescription, job_id, update_data.model_dump())
+
+    def delete_job(self, job_id: str):
+        return self._delete("jobs", job_id)
+
     def add_job_feature(self, job_id: str, description: str, type: str = "requirement"):
         job = self.get_job(job_id)
         if not job:
             raise ValueError("Job not found")
-        feature = JobDescriptionFeature.create(description=description, type=type)
-        job.add_feature(feature)
+        feature = job.add_feature(description, type)
         self._update("jobs", job)
         return feature
 
@@ -50,10 +82,17 @@ class Registry:
     def all_jobs(self):
         return self._all("jobs", JobDescription)
 
+
     # ---- CVs ----
     def create_cv(self, name: str, summary: Optional[str] = None):
         cv = CV.create(name=name, summary=summary)
         return self._insert("cvs", cv)
+
+    def update_cv(self, cv_id: str, update_data: CVUpdate):
+        return self._update_entity("cvs", CV, cv_id, update_data.model_dump())
+
+    def delete_cv(self, cv_id: str):
+        return self._delete("cvs", cv_id)
 
     def get_cv(self, cv_id: str):
         return self._get("cvs", CV, cv_id)
@@ -61,17 +100,24 @@ class Registry:
     def all_cvs(self):
         return self._all("cvs", CV)
 
+
     # ---- Mappings ----
     def create_mapping(self, job_id: str, base_cv_id: str):
         mapping = Mapping.create(job_id=job_id, base_cv_id=base_cv_id)
         return self._insert("mappings", mapping)
 
-    def add_mapping_pair(self, mapping_id: str, feature, experience, annotation: Optional[str] = None):
+    def update_mapping(self, mapping_id: str, update_data: MappingUpdate):
+        return self._update_entity("mappings", Mapping, mapping_id, update_data.model_dump())
+
+    def delete_mapping(self, mapping_id: str):
+        return self._delete("mappings", mapping_id)
+
+    def add_mapping_pair(self, mapping_id: str, feature: JobDescriptionFeature, experience: Experience, annotation: Optional[str] = None):
         mapping = self.get_mapping(mapping_id)
         if not mapping:
             raise ValueError("Mapping not found")
-        pair = MappingPair.create(feature, experience, annotation)
-        mapping.add_pair(pair)
+        
+        pair = mapping.add_pair(feature, experience, annotation)
         self._update("mappings", mapping)
         return pair
 
@@ -81,13 +127,21 @@ class Registry:
     def all_mappings(self):
         return self._all("mappings", Mapping)
 
+
     # ---- Applications ----
     def create_application(
         self, job_id: str, base_cv_id: str,
         mapping_id: Optional[str] = None, derived_cv_id: Optional[str] = None
     ):
-        app = Application.create(job_id, base_cv_id, mapping_id, derived_cv_id)
+        app = Application.create(job_id=job_id, base_cv_id=base_cv_id, mapping_id=mapping_id, derived_cv_id=derived_cv_id)
         return self._insert("applications", app)
+
+    def update_application(self, app_id: str, update_data: ApplicationUpdate):
+        return self._update_entity("applications", Application, app_id, update_data.model_dump())
+
+    def delete_application(self, app_id: str):
+        # NOTE: In a real app, deleting an application should clean up related interviews, work items, cover letters, etc.
+        return self._delete("applications", app_id)
 
     def get_application(self, app_id: str):
         return self._get("applications", Application, app_id)
@@ -95,10 +149,14 @@ class Registry:
     def all_applications(self):
         return self._all("applications", Application)
 
+
     # ---- Cover Letters ----
     def create_cover_letter(self, job_id: str, base_cv_id: str, mapping_id: str):
-        cover = CoverLetter.create(job_id, base_cv_id, mapping_id)
+        cover = CoverLetter.create(job_id=job_id, base_cv_id=base_cv_id, mapping_id=mapping_id)
         return self._insert("coverletters", cover)
+
+    def delete_cover_letter(self, cover_id: str):
+        return self._delete("coverletters", cover_id)
 
     def get_cover_letter(self, cover_id: str):
         return self._get("coverletters", CoverLetter, cover_id)
@@ -108,12 +166,17 @@ class Registry:
         interview = Interview.create(application_id=application_id)
         return self._insert("interviews", interview)
 
+    def delete_interview(self, interview_id: str):
+        return self._delete("interviews", interview_id)
+
     def add_interview_stage(self, interview_id: str, name: str, description: Optional[str] = None):
         interview = self.get_interview(interview_id)
         if not interview:
             raise ValueError("Interview not found")
-        stage = InterviewStage.create(name, description)
-        interview.add_stage(stage)
+        # Stage creation/addition logic remains here (as defined in original models)
+        stage = InterviewStage.create(name=name, description=description)
+        interview.stages.append(stage)
+        interview.current_stage = name
         self._update("interviews", interview)
         return stage
 
@@ -124,31 +187,59 @@ class Registry:
         stage = next((s for s in interview.stages if s.name == stage_name), None)
         if not stage:
             raise ValueError("Stage not found")
-        q = InterviewQuestion.create(question, answer)
-        stage.add_question(q)
+        # Question creation/addition logic remains here (as defined in original models)
+        q = InterviewQuestion.create(question=question, answer=answer)
+        stage.questions.append(q)
         self._update("interviews", interview)
         return q
 
     def get_interview(self, interview_id: str):
         return self._get("interviews", Interview, interview_id)
 
+
     # ---- Work Items ----
+    # Renamed 'type' parameter in WorkItem.create calls to 'work_type' to avoid conflict in WorkItem model constructor
     def create_work_item(
         self,
         title: str,
-        description: Optional[str] = None,
-        work_type: str = "task",
+        work_type: str = "research",
         related_application_id: Optional[str] = None,
-        related_goal_id: Optional[str] = None
+        related_interview_id: Optional[str] = None,
+        related_job_id: Optional[str] = None,
+        related_goal_id: Optional[str] = None,
+        effort_hours: Optional[float] = None,
+        tags: List[str] = [],
+        reflection: Optional[str] = None,
+        outcome: Optional[str] = None,
     ):
         work = WorkItem.create(
             title=title,
-            description=description,
-            work_type=work_type,
+            type=work_type, # Fixed parameter mapping to WorkItem model field
             related_application_id=related_application_id,
-            related_goal_id=related_goal_id
+            related_interview_id=related_interview_id,
+            related_job_id=related_job_id,
+            related_goal_id=related_goal_id,
+            effort_hours=effort_hours,
+            tags=tags,
+            reflection=reflection,
+            outcome=outcome,
         )
         return self._insert("work_items", work)
+
+    def update_work_item(self, work_id: str, update_data: WorkItemUpdate):
+        return self._update_entity("work_items", WorkItem, work_id, update_data.model_dump())
+
+    def delete_work_item(self, work_id: str):
+        # Also remove the ID from any linked Goal
+        work = self.get_work_item(work_id)
+        if work and work.related_goal_id:
+            goal = self.get_goal(work.related_goal_id)
+            if goal:
+                goal.work_item_ids = [w_id for w_id in goal.work_item_ids if w_id != work_id]
+                self._update("goals", goal)
+                self._update_goal_progress(goal.id) # Recalculate progress
+
+        return self._delete("work_items", work_id)
 
     def get_work_item(self, work_id: str):
         return self._get("work_items", WorkItem, work_id)
@@ -156,10 +247,39 @@ class Registry:
     def all_work_items(self):
         return self._all("work_items", WorkItem)
 
+    def mark_work_item_completed(self, work_id: str, reflection: Optional[str] = None):
+        """Mark a WorkItem as completed and update its linked Goal's progress."""
+        work_item = self.get_work_item(work_id)
+        if not work_item:
+            raise ValueError(f"WorkItem with ID {work_id} not found")
+
+        work_item.mark_completed(reflection)
+        self._update("work_items", work_item)
+
+        if work_item.related_goal_id:
+            self._update_goal_progress(work_item.related_goal_id)
+
+        return work_item
+
+
     # ---- Goals ----
     def create_goal(self, title: str, description: Optional[str] = None, metric: Optional[str] = None):
         goal = Goal.create(title=title, description=description, metric=metric)
         return self._insert("goals", goal)
+
+    def update_goal(self, goal_id: str, update_data: GoalUpdate):
+        return self._update_entity("goals", Goal, goal_id, update_data.model_dump())
+
+    def delete_goal(self, goal_id: str):
+        # Remove related_goal_id from all linked WorkItems
+        goal = self.get_goal(goal_id)
+        if goal:
+            for work_id in goal.work_item_ids:
+                work = self.get_work_item(work_id)
+                if work:
+                    work.related_goal_id = None
+                    self._update("work_items", work)
+        return self._delete("goals", goal_id)
 
     def get_goal(self, goal_id: str):
         return self._get("goals", Goal, goal_id)
@@ -172,10 +292,88 @@ class Registry:
         work = self.get_work_item(work_id)
         if not goal or not work:
             raise ValueError("Goal or WorkItem not found")
+
         goal.add_work_item(work)
+        work.related_goal_id = goal.id # Set FK on WorkItem
         self._update("goals", goal)
         self._update("work_items", work)
+
+        self._update_goal_progress(goal_id)
+
         return goal
+
+    def _update_goal_progress(self, goal_id: str):
+        """Internal helper to recalculate goal progress based on linked work items."""
+        goal = self.get_goal(goal_id)
+        if not goal:
+            return
+
+        linked_work_items: List[WorkItem] = []
+        for work_id in goal.work_item_ids:
+            work_item = self.get_work_item(work_id)
+            if work_item:
+                linked_work_items.append(work_item)
+
+        total_work = len(linked_work_items)
+        completed_work = len([w for w in linked_work_items if w.status == "completed"])
+
+        goal.update_progress(completed_work, total_work)
+        self._update("goals", goal)
+
+        return goal
+
+
+    # ---- AI Prompt Generation Logic ----
+    def generate_cv_prompt(self, base_cv_id: str, job_id: str) -> AIPromptResponse:
+        """Constructs a structured prompt payload for CV generation."""
+        cv = self.get_cv(base_cv_id)
+        job = self.get_job(job_id)
+        mapping = next((m for m in self.all_mappings() if m.job_id == job_id and m.base_cv_id == base_cv_id), None)
+
+        if not cv or not job or not mapping:
+            raise ValueError("CV, Job, or related Mapping not found for prompt generation.")
+
+        structured_payload = CVGenerationPrompt(
+            instruction="You are an expert career assistant. Your task is to generate a new Derived CV by selecting and rephrasing experiences and skills from the provided Base CV that directly address the features/requirements in the Job Description, as guided by the Mapping Data.",
+            job_description=job,
+            base_cv=cv,
+            mapping_data=mapping,
+        )
+
+        return AIPromptResponse(
+            job_id=job_id,
+            cv_id=base_cv_id,
+            prompt_type="CV",
+            structured_payload=structured_payload,
+        )
+
+    def generate_coverletter_prompt(self, mapping_id: str) -> AIPromptResponse:
+        """Constructs a structured prompt payload for Cover Letter generation."""
+        mapping = self.get_mapping(mapping_id)
+        if not mapping:
+            raise ValueError("Mapping not found.")
+
+        job = self.get_job(mapping.job_id)
+        cv = self.get_cv(mapping.base_cv_id)
+        cover_letter = next((cl for cl in self._all("coverletters", CoverLetter) if cl.mapping_id == mapping_id), None)
+
+        if not job or not cv or not cover_letter:
+            raise ValueError("Job, CV, or Cover Letter Ideas not found for prompt generation.")
+
+        structured_payload = CoverLetterGenerationPrompt(
+            instruction="You are an expert copywriter. Generate a professional cover letter. Use the Cover Letter Ideas and Paragraph structure as the outline, ensuring the text powerfully connects the Base CV experiences to the Job Description requirements using the Mapping Data as evidence.",
+            job_description=job,
+            base_cv=cv,
+            mapping_data=mapping,
+            cover_letter_ideas=cover_letter.ideas,
+        )
+
+        return AIPromptResponse(
+            job_id=job.id,
+            cv_id=cv.id,
+            prompt_type="CoverLetter",
+            structured_payload=structured_payload,
+        )
 
     # ---- Relationship Helpers ----
     def get_job_for_application(self, app_id: str):
@@ -189,3 +387,4 @@ class Registry:
     def get_cv_for_application(self, app_id: str):
         app = self.get_application(app_id)
         return self.get_cv(app.base_cv_id) if app else None
+    
