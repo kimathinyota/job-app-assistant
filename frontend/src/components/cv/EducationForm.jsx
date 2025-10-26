@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
+import SkillLinker from './SkillLinker'; 
 
-const EducationForm = ({ onSubmit, cvId }) => {
+const EducationForm = ({ onSubmit, cvId, allSkills, onSkillCreate }) => {
     const [institution, setInstitution] = useState('');
     const [degree, setDegree] = useState('');
     const [field, setField] = useState('');
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
+    const [selectedSkillIds, setSelectedSkillIds] = useState([]); 
 
     const handleSubmit = (e) => {
         e.preventDefault();
@@ -15,13 +17,15 @@ const EducationForm = ({ onSubmit, cvId }) => {
                 degree, 
                 field: field || 'N/A', 
                 start_date: startDate || null, 
-                end_date: endDate || null
+                end_date: endDate || null,
+                skill_ids: selectedSkillIds 
             }, 'Education');
             setInstitution('');
             setDegree('');
             setField('');
             setStartDate('');
             setEndDate('');
+            setSelectedSkillIds([]); // Reset selection
         }
     };
 
@@ -38,7 +42,15 @@ const EducationForm = ({ onSubmit, cvId }) => {
                 <input type="text" value={endDate} onChange={(e) => setEndDate(e.target.value)} placeholder="End Date (e.g., Present)" style={{ flex: 1, padding: '8px' }} />
             </div>
             
-            <button type="submit" style={{ backgroundColor: '#17a2b8', color: 'white', padding: '8px 15px', border: 'none', borderRadius: '4px' }}>
+            <SkillLinker 
+                cvId={cvId}
+                allSkills={allSkills} 
+                selectedSkillIds={selectedSkillIds} 
+                setSelectedSkillIds={setSelectedSkillIds}
+                onCreateNewSkill={onSkillCreate} 
+            />
+
+            <button type="submit" style={{ backgroundColor: '#17a2b8', color: 'white', padding: '8px 15px', border: 'none', borderRadius: '4px', marginTop: '10px' }}>
                 Create Education
             </button>
         </form>

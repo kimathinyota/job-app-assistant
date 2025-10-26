@@ -6,7 +6,7 @@ const SkillLinker = ({ allSkills, selectedSkillIds, setSelectedSkillIds, onCreat
     const [newSkillName, setNewSkillName] = useState('');
     const [newSkillCategory, setNewSkillCategory] = useState('technical');
     
-    // Handler for existing skills
+    // Handler for existing skills: Toggles selection status
     const handleToggleSkill = (skillId) => {
         if (selectedSkillIds.includes(skillId)) {
             setSelectedSkillIds(selectedSkillIds.filter(id => id !== skillId));
@@ -19,14 +19,13 @@ const SkillLinker = ({ allSkills, selectedSkillIds, setSelectedSkillIds, onCreat
     const handleCreateAndLink = (e) => {
         e.preventDefault();
         if (newSkillName.trim()) {
-            // Call the parent handler to create the skill in the master list
-            // and immediately select its ID (handled by the manager page logic)
+            // Call the parent handler (CVManagerPage) to create the skill
             onCreateNewSkill(cvId, { 
                 name: newSkillName, 
                 category: newSkillCategory 
             });
             
-            // Clear the form fields
+            // Clear the form fields (the selector will update upon data refresh)
             setNewSkillName('');
             setNewSkillCategory('technical');
         }

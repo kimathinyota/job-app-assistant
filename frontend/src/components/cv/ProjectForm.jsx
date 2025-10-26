@@ -1,15 +1,23 @@
 import React, { useState } from 'react';
+import SkillLinker from './SkillLinker';
 
-const ProjectForm = ({ onSubmit, cvId }) => {
+const ProjectForm = ({ onSubmit, cvId, allSkills, onSkillCreate }) => {
     const [title, setTitle] = useState('');
     const [description, setDescription] = useState('');
+    const [selectedSkillIds, setSelectedSkillIds] = useState([]); // NEW STATE
 
     const handleSubmit = (e) => {
         e.preventDefault();
         if (title.trim() && description.trim()) {
-            onSubmit(cvId, { title, description }, 'Project');
+            onSubmit(cvId, { 
+                title, 
+                description,
+                skill_ids: selectedSkillIds // PASS THE LINKED SKILL IDs
+            }, 'Project');
+            
             setTitle('');
             setDescription('');
+            setSelectedSkillIds([]); // Reset selection
         }
     };
 
@@ -20,7 +28,15 @@ const ProjectForm = ({ onSubmit, cvId }) => {
             <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Project Title" required style={{ width: '95%', padding: '8px', marginBottom: '8px' }} />
             <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Project Description (Required)" required style={{ width: '95%', padding: '8px', minHeight: '60px', marginBottom: '10px' }} />
             
-            <button type="submit" style={{ backgroundColor: '#ffc107', color: '#333', padding: '8px 15px', border: 'none', borderRadius: '4px' }}>
+            <SkillLinker 
+                cvId={cvId}
+                allSkills={allSkills} 
+                selectedSkillIds={selectedSkillIds} 
+                setSelectedSkillIds={setSelectedSkillIds}
+                onCreateNewSkill={onSkillCreate} 
+            />
+            
+            <button type="submit" style={{ backgroundColor: '#ffc107', color: '#333', padding: '8px 15px', border: 'none', borderRadius: '4px', marginTop: '10px' }}>
                 Create Project
             </button>
         </form>
