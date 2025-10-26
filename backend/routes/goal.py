@@ -1,8 +1,9 @@
 # backend/routes/goal.py
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from typing import Optional
 from backend.core.registry import Registry
+from backend.core.models import GoalUpdate # Import the update model
 
 router = APIRouter()
 registry = Registry()
@@ -24,9 +25,31 @@ def list_goals():
 @router.get("/{goal_id}")
 def get_goal(goal_id: str):
     """Fetch a specific goal by ID."""
-    return registry.get_goal(goal_id)
+    goal = registry.get_goal(goal_id)
+    if not goal:
+        raise HTTPException(status_code=404, detail="Goal not found")
+    return goal
+
+@router.patch("/{goal_id}")
+def update_goal(goal_id: str, data: GoalUpdate):
+    """Update goal metadata (title, status, due_date, etc.)."""
+    try:
+        return registry.update_goal(goal_id, data)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+@router.delete("/{goal_id}")
+def delete_goal(goal_id: str):
+    """Delete a goal by ID, and unlink it from any WorkItems."""
+    try:
+        return registry.delete_goal(goal_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 @router.post("/{goal_id}/add-work/{work_id}")
 def add_work_item_to_goal(goal_id: str, work_id: str):
     """Link an existing WorkItem to a Goal and update goal progress."""
-    return registry.add_work_to_goal(goal_id, work_id)
+    try:
+        return registry.add_work_to_goal(goal_id, work_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
