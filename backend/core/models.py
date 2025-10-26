@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import List, Dict, Optional, Literal
+from typing import List, Dict, Optional, Literal, Union, Any
 from datetime import datetime
 from pydantic import BaseModel, Field
 import uuid
@@ -400,3 +400,88 @@ class Goal(BaseEntity):
         self.reflection = reflection or self.reflection
         self.progress = 1.0
         self.touch()
+
+
+# ---------------------------------------------------------------------
+# API Update Models (for PATCH operations)
+# ---------------------------------------------------------------------
+
+class CVUpdate(BaseModel):
+    name: Optional[str] = None
+    summary: Optional[str] = None
+    contact_info: Optional[Dict[str, str]] = None
+    # Nested lists like experiences or skills require dedicated sub-routes/registry methods to manage properly, 
+    # so we don't include List[T] here for partial updates.
+
+class JobDescriptionUpdate(BaseModel):
+    title: Optional[str] = None
+    company: Optional[str] = None
+    notes: Optional[str] = None
+
+class ApplicationStatus(BaseModel):
+    """A minimal model used specifically for the PUT /application/{id}/status route."""
+    status: Literal["draft", "applied", "interview", "offer", "rejected"]
+
+class ApplicationUpdate(BaseModel):
+    status: Optional[Literal["draft", "applied", "interview", "offer", "rejected"]] = None
+    notes: Optional[str] = None
+
+class MappingUpdate(BaseModel):
+    # This model is primarily a placeholder for consistency; core changes are via mapping pairs.
+    pass
+
+class WorkItemUpdate(BaseModel):
+    title: Optional[str] = None
+    type: Optional[Literal[
+        "research",
+        "cv_update",
+        "application",
+        "interview_prep",
+        "coding_test",
+        "learning",
+        "networking",
+        "reflection",
+    ]] = None
+    status: Optional[Literal["planned", "in_progress", "completed"]] = None
+    effort_hours: Optional[float] = None
+    tags: Optional[List[str]] = None
+    reflection: Optional[str] = None
+    outcome: Optional[str] = None
+    # Relationship IDs can be handled via separate linking routes (e.g., add_work_to_goal)
+
+class GoalUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    metric: Optional[str] = None
+    status: Optional[Literal["active", "paused", "completed"]] = None
+    due_date: Optional[datetime] = None
+    reflection: Optional[str] = None
+
+
+# ---------------------------------------------------------------------
+# AI Prompt Generation Models
+# ---------------------------------------------------------------------
+
+class CVGenerationPrompt(BaseModel):
+    """Structured data payload for a CV generation LLM service."""
+    instruction: str = Field(description="System instruction to the LLM to act as a career assistant.")
+    job_description: JobDescription
+    base_cv: CV
+    mapping_data: Mapping
+    goal: str = Field(description="Generate a derived CV by prioritizing experience in the CV that is linked to job requirements in the mapping_data.")
+
+class CoverLetterGenerationPrompt(BaseModel):
+    """Structured data payload for a Cover Letter generation LLM service."""
+    instruction: str = Field(description="System instruction to the LLM to act as a copywriter generating a professional cover letter.")
+    job_description: JobDescription
+    base_cv: CV
+    mapping_data: Mapping
+    cover_letter_ideas: List[Idea] = Field(default_factory=list)
+    goal: str = Field(description="Draft a cover letter using the cover_letter_ideas, ensuring all points are relevant to the job_description features linked in mapping_data.")
+
+class AIPromptResponse(BaseModel):
+    """The unified response model for AI generation endpoints."""
+    job_id: str
+    cv_id: str
+    prompt_type: Literal["CV", "CoverLetter"]
+    structured_payload: Union[CVGenerationPrompt, CoverLetterGenerationPrompt]
