@@ -99,6 +99,121 @@ class Registry:
 
     def all_cvs(self):
         return self._all("cvs", CV)
+    
+    # --- NESTED ADD METHODS ---
+
+    def add_cv_experience(self, cv_id: str, title: str, company: str, **kwargs) -> Experience:
+        cv = self.get_cv(cv_id)
+        if not cv:
+            raise ValueError("CV not found")
+        exp = cv.add_experience(title=title, company=company, **kwargs)
+        self._update("cvs", cv)
+        return exp
+
+    def add_cv_education(self, cv_id: str, institution: str, degree: str, field: str, **kwargs) -> Education:
+        cv = self.get_cv(cv_id)
+        if not cv:
+            raise ValueError("CV not found")
+        edu = Education.create(institution=institution, degree=degree, field=field, **kwargs)
+        cv.education.append(edu)
+        cv.touch()
+        self._update("cvs", cv)
+        return edu
+
+    def add_cv_skill(self, cv_id: str, name: str, category: str = "technical", **kwargs) -> Skill:
+        cv = self.get_cv(cv_id)
+        if not cv:
+            raise ValueError("CV not found")
+        skill = cv.add_skill(name=name, category=category, **kwargs)
+        self._update("cvs", cv)
+        return skill
+
+    def add_cv_project(self, cv_id: str, title: str, description: str, **kwargs) -> Project:
+        cv = self.get_cv(cv_id)
+        if not cv:
+            raise ValueError("CV not found")
+        proj = cv.add_project(title=title, description=description, **kwargs)
+        self._update("cvs", cv)
+        return proj
+
+    def add_cv_hobby(self, cv_id: str, name: str, description: Optional[str] = None) -> Hobby:
+        cv = self.get_cv(cv_id)
+        if not cv:
+            raise ValueError("CV not found")
+        hobby = cv.add_hobby(name=name, description=description)
+        self._update("cvs", cv)
+        return hobby
+
+    def add_cv_achievement(self, cv_id: str, text: str, context: Optional[str] = None) -> Achievement:
+        cv = self.get_cv(cv_id)
+        if not cv:
+            raise ValueError("CV not found")
+        ach = cv.add_achievement(text=text, context=context)
+        self._update("cvs", cv)
+        return ach
+
+    # --- NESTED LINKING METHODS ---
+
+    def _get_nested_entity(self, cv: CV, entity_list_name: str, entity_id: str) -> Union[Experience, Education, Project, Hobby, Achievement]:
+        """Helper to find a specific nested entity by ID within the CV."""
+        if entity_list_name == 'skills':
+             entity = next((e for e in cv.skills if e.id == entity_id), None)
+        elif entity_list_name == 'experiences':
+             entity = next((e for e in cv.experiences if e.id == entity_id), None)
+        elif entity_list_name == 'education':
+             entity = next((e for e in cv.education if e.id == entity_id), None)
+        elif entity_list_name == 'projects':
+             entity = next((e for e in cv.projects if e.id == entity_id), None)
+        elif entity_list_name == 'hobbies':
+             entity = next((e for e in cv.hobbies if e.id == entity_id), None)
+        elif entity_list_name == 'achievements':
+             entity = next((e for e in cv.achievements if e.id == entity_id), None)
+        else:
+             raise ValueError(f"Unknown entity type: {entity_list_name}")
+        
+        if not entity:
+            raise ValueError(f"{entity_list_name.capitalize()} with ID {entity_id} not found in CV.")
+        return entity
+
+    def link_skill_to_entity(self, cv_id: str, entity_id: str, skill_id: str, entity_list_name: str):
+        """Adds a skill ID to a specific nested entity's skill_ids list (Experience, Project, etc.)."""
+        cv = self.get_cv(cv_id)
+        if not cv:
+            raise ValueError("CV not found")
+
+        # 1. Find the target entity (Experience, Project, etc.)
+        entity = self._get_nested_entity(cv, entity_list_name, entity_id)
+
+        # 2. Check if the skill exists in the master CV list
+        skill = self._get_nested_entity(cv, 'skills', skill_id)
+        
+        # 3. Perform the link (only works if entity has the SkillLinkMixin)
+        if skill_id not in entity.skill_ids:
+            entity.skill_ids.append(skill_id)
+            cv.touch()
+            self._update("cvs", cv)
+        
+        return entity
+
+    def link_achievement_to_context(self, cv_id: str, context_id: str, ach_id: str, context_list_name: str):
+        """Adds an achievement ID to a specific context's achievement_ids list (Experience, Project, etc.)."""
+        cv = self.get_cv(cv_id)
+        if not cv:
+            raise ValueError("CV not found")
+
+        # 1. Find the target context entity (Experience, Education, etc.)
+        context = self._get_nested_entity(cv, context_list_name, context_id)
+
+        # 2. Check if the achievement exists in the master CV list
+        achievement = self._get_nested_entity(cv, 'achievements', ach_id)
+        
+        # 3. Perform the link
+        if ach_id not in context.achievement_ids:
+            context.achievement_ids.append(ach_id)
+            cv.touch()
+            self._update("cvs", cv)
+        
+        return context
 
 
     # ---- Mappings ----
@@ -160,6 +275,29 @@ class Registry:
 
     def get_cover_letter(self, cover_id: str):
         return self._get("coverletters", CoverLetter, cover_id)
+    
+    # --- NESTED ADD METHODS ---
+
+    def add_cover_letter_idea(self, cover_id: str, title: str, description: Optional[str] = None, mapping_pair_ids: List[str] = []) -> Idea:
+        cover = self.get_cover_letter(cover_id)
+        if not cover:
+            raise ValueError("CoverLetter not found")
+        
+        idea = Idea.create(title=title, description=description, mapping_pair_ids=mapping_pair_ids)
+        cover.ideas.append(idea)
+        cover.touch()
+        self._update("coverletters", cover)
+        return idea
+    
+    def add_cover_letter_paragraph(self, cover_id: str, idea_ids: List[str], purpose: str, draft_text: Optional[str] = None) -> Paragraph:
+        cover = self.get_cover_letter(cover_id)
+        if not cover:
+            raise ValueError("CoverLetter not found")
+        
+        para = cover.add_paragraph(idea_ids=idea_ids, purpose=purpose)
+        para.draft_text = draft_text # Optionally set draft text
+        self._update("coverletters", cover)
+        return para
 
     # ---- Interviews ----
     def create_interview(self, application_id: str):
