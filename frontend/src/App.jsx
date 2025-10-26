@@ -1,25 +1,40 @@
 // frontend/src/App.jsx
 import React, { useState, useEffect } from 'react';
-import { fetchAllCVs, createBaseCV } from './api/client';
-import CVList from './components/CVList';
-import CVForm from './components/CVForm';
-import './App.css'; // Keep original styles
+import { fetchAllCVs } from './api/client';
+import './App.css'; 
+
+// --- Import Core Components ---
+import NavMenu from './components/NavMenu'; 
+import DashboardHome from './components/DashboardHome'; 
+import CVManagerPage from './components/CVManagerPage';
+import AppTrackerPage from './components/AppTrackerPage';
+import GoalTrackerPage from './components/GoalTrackerPage'; 
+
+
+// Define the available views mapping
+const views = {
+    'Dashboard': DashboardHome,
+    'CV_Manager': CVManagerPage,
+    'Application_Tracker': AppTrackerPage,
+    'Goal_Tracker': GoalTrackerPage,
+};
+
 
 function App() {
-    // State to hold the list of CVs fetched from the backend
-    const [cvs, setCvs] = useState([]);
+    const [activeView, setActiveView] = useState('Dashboard');
+    const [cvs, setCvs] = useState([]); // Keep base CV state high up
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
-    // Function to load data and refresh state
-    const loadCvs = async () => {
+    // Function to load data and refresh state (fetches base CVs for dashboard metric)
+    const loadCoreData = async () => {
         setLoading(true);
         setError(null);
         try {
             const data = await fetchAllCVs();
             setCvs(data);
         } catch (err) {
-            setError('Failed to load CVs. Ensure backend is running and CORS is configured.');
+            setError('Failed to load core data. Ensure backend is running.');
             console.error(err);
         } finally {
             setLoading(false);
@@ -28,36 +43,29 @@ function App() {
 
     // Load data when the component mounts
     useEffect(() => {
-        loadCvs();
+        loadCoreData();
     }, []);
 
-    // Function passed to the form to handle creation and then refresh the list
-    const handleCreate = async (name, summary) => {
-        try {
-            await createBaseCV(name, summary);
-            // After successful creation, reload the data
-            await loadCvs(); 
-            alert(`CV '${name}' created successfully!`);
-        } catch (err) {
-            alert('Error creating CV. Check console for details.');
-            console.error(err);
-        }
-    };
+    const ActiveComponent = views[activeView];
 
     return (
-        <div style={{ padding: '20px', maxWidth: '1200px', margin: '0 auto', textAlign: 'center' }}>
-            <h1 style={{ fontSize: '2.5em' }}>Job Application Assistant</h1>
+        <div style={{ padding: '20px', maxWidth: '1400px', margin: '0 auto', textAlign: 'center', backgroundColor: '#f9f9f9', minHeight: '100vh' }}>
+            <h1 style={{ fontSize: '2.5em', borderBottom: '1px solid #ddd', paddingBottom: '10px', color: '#333' }}>
+                Job Application Assistant
+            </h1>
             
-            <section style={{ border: '1px solid #ccc', padding: '20px', borderRadius: '8px', marginBottom: '30px' }}>
-                <CVForm onCreate={handleCreate} />
-            </section>
+            <NavMenu activeView={activeView} setActiveView={setActiveView} />
 
-            <section style={{ textAlign: 'left' }}>
-                <h2 style={{ borderBottom: '2px solid #ccc', paddingBottom: '10px' }}>Your Master CVs ({cvs.length})</h2>
-                {loading && <p>Loading CV data...</p>}
-                {error && <p style={{ color: 'red', fontWeight: 'bold' }}>Error: {error}</p>}
-                {!loading && !error && <CVList cvs={cvs} />}
-            </section>
+            <main style={{ marginTop: '30px', minHeight: '600px', backgroundColor: 'white', padding: '30px', borderRadius: '10px', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}>
+                {loading ? (
+                    <p style={{ fontSize: '1.5em', color: '#007bff' }}>Loading initial data...</p>
+                ) : error ? (
+                    <p style={{ color: 'red', fontWeight: 'bold' }}>Error: {error}</p>
+                ) : (
+                    // Render the active component and pass core data/state functions
+                    <ActiveComponent cvs={cvs} setActiveView={setActiveView} reloadData={loadCoreData} />
+                )}
+            </main>
         </div>
     );
 }
