@@ -12,8 +12,8 @@ import {
 
 
 // --- Component Imports ---
-// import CVSelector from './cv/CVList'; 
-// import NestedList from './cv/NestedList'; 
+import CVSelector from './cv/CVList'; 
+import NestedList from './cv/NestedList'; 
 import ExperienceForm from './cv/ExperienceForm';
 import EducationForm from './cv/EducationForm'; 
 import ProjectForm from './cv/ProjectForm';     
