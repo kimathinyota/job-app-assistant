@@ -136,119 +136,133 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
         <div style={{ textAlign: 'left' }}>
             <h2>CV Manager & Editor</h2>
             
-            {/* 1. CV Selector (Use CVList) */}
-            {/* ... */}
+            {/* 1. CV Selector (Use CVList) - *** ADDED THIS SECTION *** */}
+            <CVSelector 
+                cvs={cvs}
+                onSelect={setSelectedCVId}
+                selectedCVId={selectedCVId}
+            />
 
             {/* Detail/Editor Area */}
             <div style={{ marginTop: '20px', border: '1px solid #ccc', padding: '20px', borderRadius: '8px', backgroundColor: '#fff' }}>
                 {loadingDetails ? (
                     <p style={{ textAlign: 'center' }}>Loading detailed components...</p>
                 ) : detailedCV ? (
-                    <div style={{ display: 'flex', gap: '30px', flexWrap: 'wrap' }}>
-                        
-                        {/* --- LEFT COLUMN: INPUT FORMS (350px) --- */}
-                        <div style={{ flex: '1 1 350px', minWidth: '350px' }}>
-                            <h3 style={{ borderBottom: '1px solid #eee', paddingBottom: '10px' }}>Add New Components</h3>
-                            
-                            {/* Experience Form (CONTEXTUAL SKILL CREATION/LINKING) */}
-                            <ExperienceForm 
-                                onSubmit={handleAddNestedItem} 
-                                cvId={detailedCV.id}
-                                allSkills={masterSkills} 
-                                onSkillCreate={handleCreateSkillAndLink} 
-                            />
-                            {/* Education Form */}
-                            <EducationForm 
-                                onSubmit={handleAddNestedItem} 
-                                cvId={detailedCV.id}
-                                allSkills={masterSkills}
-                                onSkillCreate={handleCreateSkillAndLink} 
-                            />
-                            {/* Project Form (CONTEXTUAL SKILL CREATION/LINKING) */}
-                            <ProjectForm 
-                                onSubmit={handleAddNestedItem} 
-                                cvId={detailedCV.id}
-                                allSkills={masterSkills}
-                                onSkillCreate={handleCreateSkillAndLink}
-                            />
-                            {/* Master Skill Form (STANDALONE) */}
-                            <SkillForm 
-                                onSubmit={(cvId, data) => handleAddNestedItem(cvId, data, addSkill, 'Skill')} 
-                                cvId={detailedCV.id}
-                            />
-                            {/* Master Achievement Form */}
-                             <AchievementForm 
-                                onSubmit={(cvId, data) => handleAddNestedItem(cvId, data, addAchievement, 'Achievement')} 
-                                cvId={detailedCV.id}
-                            />
+                    <>
+                        {/* *** ADDED NAME AND SUMMARY DISPLAY *** */}
+                        <div style={{ marginBottom: '20px', paddingBottom: '20px', borderBottom: '2px solid #007bff' }}>
+                            <h3 style={{ margin: 0, color: '#007bff' }}>{detailedCV.name}</h3>
+                            <p style={{ margin: '5px 0 0 0', fontStyle: 'italic', color: '#555' }}>
+                                {detailedCV.summary || "No summary provided."}
+                            </p>
                         </div>
-                        
-                        {/* --- RIGHT COLUMN: DATA LISTS (600px+) --- */}
-                        <div style={{ flex: '2 1 600px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                            <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
-                                <div style={{ flex: '1 1 45%' }}>
-                                    <NestedList 
-                                        cvId={detailedCV.id}
-                                        items={detailedCV.experiences}
-                                        title="Experiences"
-                                        listName="experiences"
-                                        onRefresh={fetchAndSetDetails}
-                                        onDelete={handleDeleteNested}
-                                    />
-                                </div>
-                                <div style={{ flex: '1 1 45%' }}>
-                                    <NestedList 
-                                        cvId={detailedCV.id}
-                                        items={detailedCV.education}
-                                        title="Education"
-                                        listName="education"
-                                        onRefresh={fetchAndSetDetails}
-                                        onDelete={handleDeleteNested}
-                                    />
-                                </div>
-                            </div>
-
-                            <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
-                                <div style={{ flex: '1 1 45%' }}>
-                                    <NestedList 
-                                        cvId={detailedCV.id}
-                                        items={detailedCV.projects}
-                                        title="Projects"
-                                        listName="projects"
-                                        onRefresh={fetchAndSetDetails}
-                                        onDelete={handleDeleteNested}
-                                    />
-                                </div>
-                                <div style={{ flex: '1 1 45%' }}>
-                                    <NestedList 
-                                        cvId={detailedCV.id}
-                                        items={detailedCV.skills}
-                                        title="Master Skills"
-                                        listName="skills"
-                                        onRefresh={fetchAndSetDetails}
-                                        onDelete={handleDeleteNested}
-                                    />
-                                </div>
+                    
+                        <div style={{ display: 'flex', gap: '30px', flexWrap: 'wrap' }}>
+                            
+                            {/* --- LEFT COLUMN: INPUT FORMS (350px) --- */}
+                            <div style={{ flex: '1 1 350px', minWidth: '350px' }}>
+                                <h3 style={{ borderBottom: '1px solid #eee', paddingBottom: '10px' }}>Add New Components</h3>
+                                
+                                {/* Experience Form (CONTEXTUAL SKILL CREATION/LINKING) */}
+                                <ExperienceForm 
+                                    onSubmit={handleAddNestedItem} 
+                                    cvId={detailedCV.id}
+                                    allSkills={masterSkills} 
+                                    onSkillCreate={handleCreateSkillAndLink} 
+                                />
+                                {/* Education Form */}
+                                <EducationForm 
+                                    onSubmit={handleAddNestedItem} 
+                                    cvId={detailedCV.id}
+                                    allSkills={masterSkills}
+                                    onSkillCreate={handleCreateSkillAndLink} 
+                                />
+                                {/* Project Form (CONTEXTUAL SKILL CREATION/LINKING) */}
+                                <ProjectForm 
+                                    onSubmit={handleAddNestedItem} 
+                                    cvId={detailedCV.id}
+                                    allSkills={masterSkills}
+                                    onSkillCreate={handleCreateSkillAndLink}
+                                />
+                                {/* Master Skill Form (STANDALONE) */}
+                                <SkillForm 
+                                    onSubmit={(cvId, data) => handleAddNestedItem(cvId, data, addSkill, 'Skill')} 
+                                    cvId={detailedCV.id}
+                                />
+                                {/* Master Achievement Form */}
+                                 <AchievementForm 
+                                    onSubmit={(cvId, data) => handleAddNestedItem(cvId, data, addAchievement, 'Achievement')} 
+                                    cvId={detailedCV.id}
+                                />
                             </div>
                             
-                            <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
-                                <div style={{ flex: '1 1 45%' }}>
-                                     <NestedList 
-                                        cvId={detailedCV.id}
-                                        items={detailedCV.achievements}
-                                        title="Master Achievements"
-                                        listName="achievements"
-                                        onRefresh={fetchAndSetDetails}
-                                        onDelete={handleDeleteNested}
-                                    />
+                            {/* --- RIGHT COLUMN: DATA LISTS (600px+) --- */}
+                            <div style={{ flex: '2 1 600px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                                <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
+                                    <div style={{ flex: '1 1 45%' }}>
+                                        <NestedList 
+                                            cvId={detailedCV.id}
+                                            items={detailedCV.experiences}
+                                            title="Experiences"
+                                            listName="experiences"
+                                            onRefresh={fetchAndSetDetails}
+                                            onDelete={handleDeleteNested}
+                                        />
+                                    </div>
+                                    <div style={{ flex: '1 1 45%' }}>
+                                        <NestedList 
+                                            cvId={detailedCV.id}
+                                            items={detailedCV.education}
+                                            title="Education"
+                                            listName="education"
+                                            onRefresh={fetchAndSetDetails}
+                                            onDelete={handleDeleteNested}
+                                        />
+                                    </div>
                                 </div>
-                            </div>
 
-                            <button onClick={() => handleDeleteCV(detailedCV.id)} style={{ backgroundColor: '#dc3545', color: 'white', padding: '10px' }}>
-                                Delete Current CV
-                            </button>
+                                <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
+                                    <div style={{ flex: '1 1 45%' }}>
+                                        <NestedList 
+                                            cvId={detailedCV.id}
+                                            items={detailedCV.projects}
+                                            title="Projects"
+                                            listName="projects"
+                                            onRefresh={fetchAndSetDetails}
+                                            onDelete={handleDeleteNested}
+                                        />
+                                    </div>
+                                    <div style={{ flex: '1 1 45%' }}>
+                                        <NestedList 
+                                            cvId={detailedCV.id}
+                                            items={detailedCV.skills}
+                                            title="Master Skills"
+                                            listName="skills"
+                                            onRefresh={fetchAndSetDetails}
+                                            onDelete={handleDeleteNested}
+                                        />
+                                    </div>
+                                </div>
+                                
+                                <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
+                                    <div style={{ flex: '1 1 45%' }}>
+                                         <NestedList 
+                                            cvId={detailedCV.id}
+                                            items={detailedCV.achievements}
+                                            title="Master Achievements"
+                                            listName="achievements"
+                                            onRefresh={fetchAndSetDetails}
+                                            onDelete={handleDeleteNested}
+                                        />
+                                    </div>
+                                </div>
+
+                                <button onClick={() => handleDeleteCV(detailedCV.id)} style={{ backgroundColor: '#dc3545', color: 'white', padding: '10px' }}>
+                                    Delete Current CV
+                                </button>
+                            </div>
                         </div>
-                    </div>
+                    </>
                 ) : (
                     <p style={{ textAlign: 'center', color: '#777' }}>Select a CV above to begin editing its components.</p>
                 )}
