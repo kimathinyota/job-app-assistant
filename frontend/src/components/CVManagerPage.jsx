@@ -2,12 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { 
     deleteBaseCV, 
     fetchCVDetails, 
-    updateBaseCV, // <-- IMPORTED
+    updateBaseCV,
     addExperience, 
     addSkill,
     addAchievement,
     addEducation, 
     addProject,   
+    addHobby, // <-- Includes Hobbies
     deleteNestedItem
 } from '../api/cvClient'; 
 
@@ -19,6 +20,7 @@ import EducationForm from './cv/EducationForm';
 import ProjectForm from './cv/ProjectForm';     
 import SkillForm from './cv/SkillForm'; 
 import AchievementForm from './cv/AchievementForm';
+import HobbyForm from './cv/HobbyForm'; // <-- Includes Hobbies
 
 // --- STYLED HELPER COMPONENTS (for the new dashboard) ---
 
@@ -53,6 +55,7 @@ const CVSectionDashboard = ({ cv, onSelectSection }) => (
         <SectionButton title="Projects" count={cv.projects.length} onClick={() => onSelectSection('Projects')} />
         <SectionButton title="Master Skills" count={cv.skills.length} onClick={() => onSelectSection('Skills')} />
         <SectionButton title="Master Achievements" count={cv.achievements.length} onClick={() => onSelectSection('Achievements')} />
+        <SectionButton title="Hobbies" count={cv.hobbies.length} onClick={() => onSelectSection('Hobbies')} /> {/* <-- Includes Hobbies */}
     </div>
 );
 
@@ -128,17 +131,34 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
         }
     };
 
+    /**
+     * --- *** THIS IS THE CORRECT, FIXED VERSION *** ---
+     * This function now creates the skill, updates the local state,
+     * and returns the new skill object so the SkillLinker can auto-select it.
+     */
     const handleCreateSkillAndLink = async (cvId, skillData) => {
         try {
-            const newSkill = await addSkill(cvId, skillData);
+            // 1. Create the new skill in the master list
+            const response = await addSkill(cvId, skillData);
+            const newSkill = response.data; // Get the new skill from the API response
             alert(`New Skill "${newSkill.name}" created successfully!`);
-            await reloadData(); 
-            fetchAndSetDetails(cvId); 
+            
+            // 2. Update local state instead of full reload
+            setDetailedCV(prevCV => ({
+                ...prevCV,
+                skills: [...prevCV.skills, newSkill] // Add new skill to master list
+            }));
+
+            // 3. Return the new skill object
+            return newSkill; 
+            
         } catch (error) {
             alert('Failed to create new skill. Check console.');
             console.error(error);
+            return null; // Return null on failure
         }
     };
+
 
     const handleDeleteCV = async (cvId) => {
         if (window.confirm("Are you sure you want to delete this master CV? This is irreversible.")) {
@@ -155,14 +175,23 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
         }
     };
 
+    /**
+     * --- *** THIS IS THE CORRECT, FIXED VERSION *** ---
+     * It now re-fetches details *after* adding an item, which is
+     * necessary to show the newly created item (and its skill links).
+     */
     const handleAddNestedItem = async (cvId, data, addFunction, itemType) => {
         try {
             await addFunction(cvId, data);
             alert(`${itemType} added successfully!`);
             
+            // If the added item is a top-level resource (like Achievement/Skill), refresh everything.
             if (itemType === 'Achievement' || itemType === 'Skill') {
-                 await reloadData();
+                 await reloadData(); // Reloads master list
+                 fetchAndSetDetails(cvId); // Reloads details
             } else {
+                 // For Experience, Project, Education, Hobby, just reload the details
+                 // to show the new item in its list.
                  fetchAndSetDetails(cvId); 
             }
         } catch (error) {
@@ -233,6 +262,13 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
                 items: detailedCV.achievements, 
                 listName: 'achievements',
                 addFn: addAchievement
+            },
+            // <-- Includes Hobbies -->
+            'Hobbies': {
+                Form: HobbyForm,
+                items: detailedCV.hobbies,
+                listName: 'hobbies',
+                addFn: addHobby
             },
         };
 

@@ -15,17 +15,32 @@ const SkillLinker = ({ allSkills, selectedSkillIds, setSelectedSkillIds, onCreat
         }
     };
     
-    // Handler for creating and linking a new skill
-    const handleCreateAndLink = (e) => {
+    /**
+     * --- *** MODIFIED THIS FUNCTION *** ---
+     * It's now async and uses the returned skill to auto-select it.
+     */
+    const handleCreateAndLink = async (e) => {
         e.preventDefault();
         if (newSkillName.trim()) {
             // Call the parent handler (CVManagerPage) to create the skill
-            onCreateNewSkill(cvId, { 
+            // AND AWAIT THE RETURNED SKILL OBJECT
+            const newSkill = await onCreateNewSkill(cvId, { 
                 name: newSkillName, 
                 category: newSkillCategory 
             });
             
-            // Clear the form fields (the selector will update upon data refresh)
+            // If the skill was created successfully
+            if (newSkill) {
+                // --- NEW LOGIC ---
+                // Automatically select this new skill in the list
+                if (!selectedSkillIds.includes(newSkill.id)) {
+                    // Use the setter function passed from the parent form
+                    setSelectedSkillIds(prevIds => [...prevIds, newSkill.id]);
+                }
+                // -----------------
+            }
+            
+            // Clear the form fields
             setNewSkillName('');
             setNewSkillCategory('technical');
         }

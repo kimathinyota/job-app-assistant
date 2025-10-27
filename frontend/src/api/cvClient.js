@@ -65,6 +65,9 @@ export const addProject = (cvId, data) =>
 export const addAchievement = (cvId, data) => 
     apiClient.post(`/cv/${cvId}/achievement`, null, { params: data });
 
+// *** --- NEWLY ADDED --- ***
+export const addHobby = (cvId, data) => 
+    apiClient.post(`/cv/${cvId}/hobby`, null, { params: data });
 
 // --- NESTED ITEM DELETION ---
 
