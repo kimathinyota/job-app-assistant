@@ -8,7 +8,8 @@ import {
     addEducation, 
     addProject,   
     deleteNestedItem
-} from '../api/client'; 
+} from '../api/cvClient'; 
+
 
 // --- Component Imports ---
 // import CVSelector from './cv/CVList'; 

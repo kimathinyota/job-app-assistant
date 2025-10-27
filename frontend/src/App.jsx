@@ -56,13 +56,13 @@ function App() {
             
             <NavMenu activeView={activeView} setActiveView={setActiveView} />
 
-            <main style={{ marginTop: '30px', minHeight: '600px', backgroundColor: 'white', padding: '30px', borderRadius: '10px', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}>
+            <main>
                 {loading ? (
                     <p style={{ fontSize: '1.5em', color: '#007bff' }}>Loading initial data...</p>
                 ) : error ? (
                     <p style={{ color: 'red', fontWeight: 'bold' }}>Error: {error}</p>
                 ) : (
-                    // Render the active component and pass core data/state functions
+                    // Renders the active component and passes state
                     <ActiveComponent cvs={cvs} setActiveView={setActiveView} reloadData={loadCoreData} />
                 )}
             </main>

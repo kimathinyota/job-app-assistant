@@ -1,7 +1,6 @@
-// frontend/src/api/cvClient.js
 import axios from 'axios';
 
-const API_BASE_URL = 'http://localhost:8000';
+const API_BASE_URL = 'http://localhost:8000'; // Make sure this matches your FastAPI port
 
 const apiClient = axios.create({
     baseURL: API_BASE_URL,
@@ -10,12 +9,19 @@ const apiClient = axios.create({
     },
 });
 
-// --- BASE CV CRUD (from previous steps, included here for context) ---
+// --- BASE CV CRUD ---
 
 export const fetchAllCVs = async () => {
     const response = await apiClient.get('/cv/');
     return response.data;
 };
+
+// NEW: Fetches the full details of a single CV
+export const fetchCVDetails = async (cvId) => {
+    const response = await apiClient.get(`/cv/${cvId}`);
+    return response.data; // Should return the full CV object with nested lists
+};
+
 
 export const createBaseCV = async (name, summary) => {
     const params = new URLSearchParams({ name, summary: summary || '' });
@@ -30,7 +36,7 @@ export const deleteBaseCV = async (cvId) => {
 
 
 // --- NESTED ITEM ADDITION (CREATE) ---
-// Note: These use query parameters, matching the structure of your FastAPI endpoints
+// Note: Uses query parameters (params in Axios config)
 
 export const addExperience = (cvId, data) => 
     apiClient.post(`/cv/${cvId}/experience`, null, { params: data });
@@ -48,18 +54,28 @@ export const addAchievement = (cvId, data) =>
     apiClient.post(`/cv/${cvId}/achievement`, null, { params: data });
 
 
-// --- LINKING / UNLINKING ---
+// --- NESTED ITEM DELETION ---
 
-// Links a master skill to a context (Experience, Project, Achievement)
-export const linkSkill = (cvId, entityId, skillId, entityType) => {
-    // entityType should be the plural form used in the URL (e.g., 'experiences', 'projects')
-    return apiClient.post(`/cv/${cvId}/${entityType}/${entityId}/skill/${skillId}`);
-};
-
-// Deletes a nested item (Experience, Education, etc.)
+// Deletes a specific nested item (Experience, Skill, etc.)
 export const deleteNestedItem = (cvId, itemId, listName) => 
     apiClient.delete(`/cv/${cvId}/${listName}/${itemId}`);
 
-// --- Add more client methods here as needed for other nested CRUD/Linking operations ---
 
-export default apiClient;
+// --- NESTED LINKING / UNLINKING ---
+
+// Links a master skill to a context (Experience, Project, Achievement)
+export const linkSkill = (cvId, entityId, skillId, entityType) => {
+    // entityType should be the plural form used in the URL (e.g., 'experiences', 'projects', 'achievements')
+    return apiClient.post(`/cv/${cvId}/${entityType}/${entityId}/skill/${skillId}`);
+};
+
+// Links a master achievement to a context (Experience, Project)
+export const linkAchievement = (cvId, entityId, achId, entityType) => {
+    // entityType should be the plural form (e.g., 'experiences', 'projects')
+    return apiClient.post(`/cv/${cvId}/${entityType}/${entityId}/achievement/${achId}`);
+};
+
+// --- Add more client methods for nested UPDATE (PATCH) and UNLINK (DELETE) here ---
+
+export default apiClient; // Ensure apiClient is exported if needed elsewhere, though usually named exports are preferred.
+
