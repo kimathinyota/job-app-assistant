@@ -1,6 +1,6 @@
 # backend/routes/cv.py
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query # <-- Import Query
 from backend.core.registry import Registry
 from backend.core.models import CVUpdate # Import the update model
 
@@ -10,7 +10,7 @@ from typing import Optional, List # Ensure List is imported
 router = APIRouter()
 registry = Registry()
 
-# ... (Existing top-level CRUD endpoints) ...
+# ... (Existing top-level CRUD endpoints: create_cv, list_cvs, etc. No changes needed here) ...
 
 @router.post("/")
 def create_cv(name: str, summary: Optional[str] = None):
@@ -58,11 +58,21 @@ def add_experience(
     company: str, 
     start_date: Optional[str] = None, 
     end_date: Optional[str] = None, 
-    description: Optional[str] = None
+    description: Optional[str] = None,
+    skill_ids: Optional[List[str]] = Query(None) # <-- *** ADDED THIS LINE ***
 ):
     """Add a new experience entry to the CV."""
     try:
-        return registry.add_cv_experience(cv_id, title=title, company=company, start_date=start_date, end_date=end_date, description=description)
+        # *** ADDED skill_ids TO THE CALL ***
+        return registry.add_cv_experience(
+            cv_id, 
+            title=title, 
+            company=company, 
+            start_date=start_date, 
+            end_date=end_date, 
+            description=description, 
+            skill_ids=skill_ids
+        )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -73,11 +83,21 @@ def add_education(
     degree: str, 
     field: str, 
     start_date: Optional[str] = None, 
-    end_date: Optional[str] = None
+    end_date: Optional[str] = None,
+    skill_ids: Optional[List[str]] = Query(None) # <-- *** ADDED THIS LINE ***
 ):
     """Add a new education entry to the CV."""
     try:
-        return registry.add_cv_education(cv_id, institution=institution, degree=degree, field=field, start_date=start_date, end_date=end_date)
+        # *** ADDED skill_ids TO THE CALL ***
+        return registry.add_cv_education(
+            cv_id, 
+            institution=institution, 
+            degree=degree, 
+            field=field, 
+            start_date=start_date, 
+            end_date=end_date, 
+            skill_ids=skill_ids
+        )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -102,27 +122,51 @@ def add_project(
     title: str, 
     description: str, 
     related_experience_id: Optional[str] = None, 
-    related_education_id: Optional[str] = None
+    related_education_id: Optional[str] = None,
+    skill_ids: Optional[List[str]] = Query(None) # <-- *** ADDED THIS LINE ***
 ):
     """Add a new project to the CV."""
     try:
-        return registry.add_cv_project(cv_id, title=title, description=description, related_experience_id=related_experience_id, related_education_id=related_education_id)
+        # *** ADDED skill_ids TO THE CALL ***
+        return registry.add_cv_project(
+            cv_id, 
+            title=title, 
+            description=description, 
+            related_experience_id=related_experience_id, 
+            related_education_id=related_education_id, 
+            skill_ids=skill_ids
+        )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+# ... (rest of the file, e.g., add_hobby, add_achievement, and linking endpoints, remains unchanged) ...
+
 
 @router.post("/{cv_id}/hobby")
-def add_hobby(cv_id: str, name: str, description: Optional[str] = None):
+def add_hobby(
+    cv_id: str, 
+    name: str, 
+    description: Optional[str] = None,
+    skill_ids: Optional[List[str]] = Query(None) # <-- *** ADDED THIS LINE ***
+):
     """Add a new hobby to the CV."""
     try:
-        return registry.add_cv_hobby(cv_id, name=name, description=description)
+        # *** ADDED skill_ids TO THE CALL ***
+        return registry.add_cv_hobby(
+            cv_id, 
+            name=name, 
+            description=description, 
+            skill_ids=skill_ids
+        )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    
 
 @router.post("/{cv_id}/achievement")
-def add_achievement(cv_id: str, text: str, context: Optional[str] = None):
+def add_achievement(cvId: str, text: str, context: Optional[str] = None):
     """Add a new global achievement to the CV's master list."""
     try:
-        return registry.add_cv_achievement(cv_id, text=text, context=context)
+        return registry.add_cv_achievement(cvId, text=text, context=context)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 

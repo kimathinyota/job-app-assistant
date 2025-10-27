@@ -102,19 +102,33 @@ class Registry:
     
     # --- NESTED ADD METHODS ---
 
-    def add_cv_experience(self, cv_id: str, title: str, company: str, **kwargs) -> Experience:
+    def add_cv_experience(self, cv_id: str, title: str, company: str, skill_ids: Optional[List[str]] = None, **kwargs) -> Experience:
         cv = self.get_cv(cv_id)
         if not cv:
             raise ValueError("CV not found")
+        
+        # Pass all kwargs (like start_date, description) to the creator
         exp = cv.add_experience(title=title, company=company, **kwargs)
+        
+        # *** NEW: Set skill_ids if they were provided ***
+        if skill_ids:
+            exp.skill_ids = skill_ids
+        
         self._update("cvs", cv)
         return exp
 
-    def add_cv_education(self, cv_id: str, institution: str, degree: str, field: str, **kwargs) -> Education:
+    def add_cv_education(self, cv_id: str, institution: str, degree: str, field: str, skill_ids: Optional[List[str]] = None, **kwargs) -> Education:
         cv = self.get_cv(cv_id)
         if not cv:
             raise ValueError("CV not found")
+        
+        # Pass all kwargs (like start_date, end_date) to the creator
         edu = Education.create(institution=institution, degree=degree, field=field, **kwargs)
+        
+        # *** NEW: Set skill_ids if they were provided ***
+        if skill_ids:
+            edu.skill_ids = skill_ids
+            
         cv.education.append(edu)
         cv.touch()
         self._update("cvs", cv)
@@ -128,21 +142,35 @@ class Registry:
         self._update("cvs", cv)
         return skill
 
-    def add_cv_project(self, cv_id: str, title: str, description: str, **kwargs) -> Project:
+    def add_cv_project(self, cv_id: str, title: str, description: str, skill_ids: Optional[List[str]] = None, **kwargs) -> Project:
         cv = self.get_cv(cv_id)
         if not cv:
             raise ValueError("CV not found")
+        
+        # Pass all kwargs (like related_experience_id) to the creator
         proj = cv.add_project(title=title, description=description, **kwargs)
+        
+        # *** NEW: Set skill_ids if they were provided ***
+        if skill_ids:
+            proj.skill_ids = skill_ids
+            
         self._update("cvs", cv)
         return proj
 
-    def add_cv_hobby(self, cv_id: str, name: str, description: Optional[str] = None) -> Hobby:
+    def add_cv_hobby(self, cv_id: str, name: str, description: Optional[str] = None, skill_ids: Optional[List[str]] = None) -> Hobby:
         cv = self.get_cv(cv_id)
         if not cv:
             raise ValueError("CV not found")
+        
         hobby = cv.add_hobby(name=name, description=description)
+        
+        # *** NEW: Set skill_ids if they were provided ***
+        if skill_ids:
+            hobby.skill_ids = skill_ids
+            
         self._update("cvs", cv)
         return hobby
+
 
     def add_cv_achievement(self, cv_id: str, text: str, context: Optional[str] = None) -> Achievement:
         cv = self.get_cv(cv_id)
