@@ -157,29 +157,37 @@ class Registry:
         self._update("cvs", cv)
         return proj
 
-    def add_cv_hobby(self, cv_id: str, name: str, description: Optional[str] = None, skill_ids: Optional[List[str]] = None) -> Hobby:
+    def add_cv_hobby(self, cv_id: str, name: str, description: Optional[str] = None, skill_ids: Optional[List[str]] = None, achievement_ids: Optional[List[str]] = None) -> Hobby: # <-- ADD achievement_ids parameter
         cv = self.get_cv(cv_id)
         if not cv:
             raise ValueError("CV not found")
         
         hobby = cv.add_hobby(name=name, description=description)
         
-        # *** NEW: Set skill_ids if they were provided ***
+        # Set skill_ids if they were provided
         if skill_ids:
             hobby.skill_ids = skill_ids
+            
+        # *** NEW: Set achievement_ids if they were provided ***
+        if achievement_ids:
+            hobby.achievement_ids = achievement_ids
             
         self._update("cvs", cv)
         return hobby
 
-
-    def add_cv_achievement(self, cv_id: str, text: str, context: Optional[str] = None) -> Achievement:
+    def add_cv_achievement(self, cv_id: str, text: str, context: Optional[str] = None, skill_ids: Optional[List[str]] = None) -> Achievement: # <-- ADD skill_ids parameter
         cv = self.get_cv(cv_id)
         if not cv:
             raise ValueError("CV not found")
+            
         ach = cv.add_achievement(text=text, context=context)
+        
+        # *** NEW: Set skill_ids if they were provided ***
+        if skill_ids:
+            ach.skill_ids = skill_ids
+            
         self._update("cvs", cv)
         return ach
-
     # UPDATE methods
     def update_cv_experience(self, cv_id: str, exp_id: str, update_data: ExperienceUpdate):
         return self._update_nested_item(cv_id, 'experiences', exp_id, update_data.model_dump(exclude_none=True))

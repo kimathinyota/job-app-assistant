@@ -147,30 +147,41 @@ def add_hobby(
     cv_id: str, 
     name: str, 
     description: Optional[str] = None,
-    skill_ids: Optional[List[str]] = Query(None) # <-- *** ADDED THIS LINE ***
+    skill_ids: Optional[List[str]] = Query(None), 
+    achievement_ids: Optional[List[str]] = Query(None) # <-- *** ADDED THIS LINE ***
 ):
     """Add a new hobby to the CV."""
     try:
-        # *** ADDED skill_ids TO THE CALL ***
+        # Pass achievement_ids to the registry method
         return registry.add_cv_hobby(
             cv_id, 
             name=name, 
             description=description, 
-            skill_ids=skill_ids
+            skill_ids=skill_ids,
+            achievement_ids=achievement_ids # <-- *** ADDED HERE ***
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     
 
 @router.post("/{cv_id}/achievement")
-def add_achievement(cvId: str, text: str, context: Optional[str] = None):
+def add_achievement(
+    cv_id: str, # <-- Corrected parameter name from cvId
+    text: str, 
+    context: Optional[str] = None,
+    skill_ids: Optional[List[str]] = Query(None) # <-- *** ADDED THIS LINE ***
+):
     """Add a new global achievement to the CV's master list."""
     try:
-        return registry.add_cv_achievement(cvId, text=text, context=context)
+        # Pass skill_ids to the registry method
+        return registry.add_cv_achievement(
+            cv_id, # <-- Corrected parameter name
+            text=text, 
+            context=context, 
+            skill_ids=skill_ids # <-- *** ADDED HERE ***
+        )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
-
-
 # ---------------------------------------------------------------------
 # NESTED LINKING ENDPOINTS (Skills and Achievements)
 # ---------------------------------------------------------------------
