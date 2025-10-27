@@ -1,6 +1,7 @@
 // frontend/src/App.jsx
 import React, { useState, useEffect } from 'react';
-import { fetchAllCVs } from './api/client';
+// OLD: import { fetchAllCVs } from './api/client';
+import { fetchAllCVs } from './api/cvClient'; // *** FIXED IMPORT ***
 import './App.css'; 
 
 // --- Import Core Components ---

@@ -29,6 +29,18 @@ export const createBaseCV = async (name, summary) => {
     return response.data;
 };
 
+/**
+ * --- NEWLY ADDED ---
+ * Updates the base details (name, summary) of a CV.
+ * Maps to: PATCH /cv/{cvId}
+ */
+export const updateBaseCV = async (cvId, updateData) => {
+    // updateData should be an object like { name: "New Name", summary: "New Summary" }
+    const response = await apiClient.patch(`/cv/${cvId}`, updateData);
+    return response.data;
+};
+
+
 export const deleteBaseCV = async (cvId) => {
     const response = await apiClient.delete(`/cv/${cvId}`);
     return response.data;
@@ -78,4 +90,3 @@ export const linkAchievement = (cvId, entityId, achId, entityType) => {
 // --- Add more client methods for nested UPDATE (PATCH) and UNLINK (DELETE) here ---
 
 export default apiClient; // Ensure apiClient is exported if needed elsewhere, though usually named exports are preferred.
-
