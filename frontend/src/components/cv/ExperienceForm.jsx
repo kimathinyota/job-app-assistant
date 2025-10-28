@@ -18,6 +18,10 @@ const ExperienceForm = ({
     // State for form fields
     const [title, setTitle] = useState('');
     const [company, setCompany] = useState('');
+    // --- ADDED START/END DATE STATE ---
+    const [startDate, setStartDate] = useState('');
+    const [endDate, setEndDate] = useState('');
+    // --- END ADDED STATE ---
     const [description, setDescription] = useState('');
     // State for linked items
     const [selectedSkillIds, setSelectedSkillIds] = useState([]);
@@ -30,11 +34,15 @@ const ExperienceForm = ({
 
     const isEditing = Boolean(initialData); // Flag to check if we are editing
 
-    // --- NEW: useEffect to populate form when initialData changes ---
+    // --- useEffect to populate form when initialData changes ---
     useEffect(() => {
         if (isEditing) {
             setTitle(initialData.title || '');
             setCompany(initialData.company || '');
+            // --- POPULATE DATES ---
+            setStartDate(initialData.start_date || '');
+            setEndDate(initialData.end_date || '');
+            // --- END POPULATE DATES ---
             setDescription(initialData.description || '');
             // IMPORTANT: Assume initialData contains the *IDs* of already linked skills/achievements
             setSelectedSkillIds(initialData.skill_ids || []);
@@ -46,6 +54,10 @@ const ExperienceForm = ({
             // Reset form when switching from edit to create (e.g., after saving or cancelling)
             setTitle('');
             setCompany('');
+            // --- RESET DATES ---
+            setStartDate('');
+            setEndDate('');
+            // --- END RESET DATES ---
             setDescription('');
             setSelectedSkillIds([]);
             setPendingSkills([]);
@@ -62,6 +74,10 @@ const ExperienceForm = ({
         const dataToSend = {
             title,
             company,
+            // --- INCLUDE DATES ---
+            start_date: startDate || null, // Send null if empty
+            end_date: endDate || null,   // Send null if empty
+            // --- END INCLUDE DATES ---
             description: description || null, // Send null if empty for backend clarity
             // Use different keys for update vs create is complex here.
             // Let's rely on the parent (CVManagerPage) to handle the API call difference.
@@ -83,6 +99,10 @@ const ExperienceForm = ({
         if (!isEditing) {
             setTitle('');
             setCompany('');
+            // --- RESET DATES ON CREATE ---
+            setStartDate('');
+            setEndDate('');
+            // --- END RESET DATES ---
             setDescription('');
             setSelectedSkillIds([]);
             setPendingSkills([]);
@@ -98,15 +118,36 @@ const ExperienceForm = ({
                 {isEditing ? 'Edit Experience' : '+ Add New Experience'}
             </h3>
 
-            {/* Input fields remain the same */}
+            {/* Title and Company Inputs */}
             <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Job Title" required style={{ display: 'block', width: '95%', marginBottom: '10px', padding: '8px' }} />
             <input type="text" value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Company" required style={{ display: 'block', width: '95%', marginBottom: '10px', padding: '8px' }} />
+
+            {/* --- ADDED DATE INPUTS --- */}
+            <div style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
+                <input
+                  type="text"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  placeholder="Start Date (e.g., Jan 2020)"
+                  style={{ flex: 1, padding: '8px' }}
+                />
+                <input
+                  type="text"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  placeholder="End Date (e.g., Present)"
+                  style={{ flex: 1, padding: '8px' }}
+                />
+            </div>
+            {/* --- END ADDED DATE INPUTS --- */}
+
+            {/* Description Textarea */}
             <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Description..." style={{ display: 'block', width: '95%', padding: '8px', minHeight: '60px', marginBottom: '10px' }} />
 
             {/* --- SKILLS Section --- */}
             <div style={{ marginTop: '15px' }}>
                 <strong style={{ display: 'block', marginBottom: '5px' }}>Skills:</strong>
-                <button type="button" onClick={() => setIsSkillModalOpen(true)} style={{ /* styles */ }}>
+                <button type="button" onClick={() => setIsSkillModalOpen(true)} style={{ marginLeft: '10px', backgroundColor: '#6c757d', color: 'white', padding: '5px 10px', borderRadius: '5px' }}>
                     Manage Skills
                 </button>
                 <SelectedSkillsDisplay
@@ -116,10 +157,10 @@ const ExperienceForm = ({
                 />
             </div>
 
-            {/* --- ACHIEVEMENTS Section (Placeholder/Future) --- */}
+            {/* --- ACHIEVEMENTS Section --- */}
             <div style={{ marginTop: '15px' }}>
                  <strong style={{ display: 'block', marginBottom: '5px' }}>Achievements:</strong>
-                 <button type="button" onClick={() => setIsAchievementModalOpen(true)} style={{ /* styles */ }}>
+                 <button type="button" onClick={() => setIsAchievementModalOpen(true)} style={{ marginLeft: '10px', backgroundColor: '#6c757d', color: 'white', padding: '5px 10px', borderRadius: '5px' }}>
                      Manage Achievements
                  </button>
                  <AchievementDisplayGrid
@@ -151,17 +192,16 @@ const ExperienceForm = ({
                  pendingAchievements={pendingAchievements}
                  setPendingAchievements={setPendingAchievements} // Pass setter
                  allSkills={allSkills} // Pass skills for AchievementForm inside modal
-                 // Note: AchievementManagerModal needs internal AchievementForm logic
              />
 
             {/* --- Action Buttons --- */}
             <div style={{ marginTop: '20px' }}>
-                <button type="submit" style={{ /* styles */ }}>
+                <button type="submit" style={{ backgroundColor: '#007bff', color: 'white', padding: '8px 15px', borderRadius: '5px' }}>
                     {isEditing ? 'Save Changes' : 'Add Experience'}
                 </button>
                 {/* Show Cancel button only when editing */}
                 {isEditing && (
-                    <button type="button" onClick={onCancelEdit} style={{ marginLeft: '10px', backgroundColor: '#6c757d', color: 'white', /* styles */ }}>
+                    <button type="button" onClick={onCancelEdit} style={{ marginLeft: '10px', backgroundColor: '#6c757d', color: 'white', padding: '8px 15px', borderRadius: '5px' }}>
                         Cancel Edit
                     </button>
                 )}
