@@ -468,12 +468,15 @@ class SkillUpdate(BaseModel):
     importance: Optional[int] = Field(default=None, ge=1, le=5)
     description: Optional[str] = None
 
+# Add near other update models
 class ExperienceUpdate(BaseModel):
     title: Optional[str] = None
     company: Optional[str] = None
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     description: Optional[str] = None
+    skill_ids: Optional[List[str]] = None # Allow updating skills
+    achievement_ids: Optional[List[str]] = None # Allow updating achievements
 
 class EducationUpdate(BaseModel):
     institution: Optional[str] = None

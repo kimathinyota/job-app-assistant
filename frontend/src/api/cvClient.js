@@ -69,6 +69,15 @@ export const addAchievement = (cvId, data) =>
 export const addHobby = (cvId, data) => 
     apiClient.post(`/cv/${cvId}/hobby`, null, { params: data });
 
+
+// *** --- NEWLY ADDED for Updating --- ***
+export const updateExperience = async (cvId, expId, updateData) => {
+    // updateData should be an object matching ExperienceUpdate model (non-null fields)
+    const response = await apiClient.patch(`/cv/${cvId}/experience/${expId}`, updateData);
+    return response.data;
+};
+
+
 // --- NESTED ITEM DELETION ---
 
 // Deletes a specific nested item (Experience, Skill, etc.)

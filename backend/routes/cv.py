@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, HTTPException, Query # <-- Import Query
 from backend.core.registry import Registry
-from backend.core.models import CVUpdate # Import the update model
+from backend.core.models import CVUpdate, ExperienceUpdate # Import the update model
 
 from typing import Optional, List # Ensure List is imported
 
@@ -75,6 +75,16 @@ def add_experience(
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.patch("/{cv_id}/experience/{exp_id}") # Adjust response_model if needed
+def update_experience(cv_id: str, exp_id: str, data: ExperienceUpdate):
+    """Update an existing experience entry in the CV."""
+    try:
+        return registry.update_cv_experience(cv_id, exp_id, data)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    
 
 @router.post("/{cv_id}/education")
 def add_education(
