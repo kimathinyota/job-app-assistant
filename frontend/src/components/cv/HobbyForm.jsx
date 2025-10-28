@@ -1,11 +1,14 @@
 // frontend/src/components/cv/HobbyForm.jsx
 import React, { useState } from 'react';
 import SkillLinker from './SkillLinker';
+import AchievementLinker from './AchievementLinker'; // <-- IMPORT AchievementLinker
 
-const HobbyForm = ({ onSubmit, cvId, allSkills, onSkillCreate }) => {
+// <-- ADD allAchievements prop
+const HobbyForm = ({ onSubmit, cvId, allSkills, allAchievements, onSkillCreate }) => { 
     const [name, setName] = useState('');
     const [description, setDescription] = useState('');
     const [selectedSkillIds, setSelectedSkillIds] = useState([]); 
+    const [selectedAchievementIds, setSelectedAchievementIds] = useState([]); // <-- NEW STATE for achievements
 
     const handleSubmit = (e) => {
         e.preventDefault();
@@ -13,12 +16,14 @@ const HobbyForm = ({ onSubmit, cvId, allSkills, onSkillCreate }) => {
             onSubmit(cvId, { 
                 name, 
                 description: description || 'No description provided.',
-                skill_ids: selectedSkillIds 
+                skill_ids: selectedSkillIds,
+                achievement_ids: selectedAchievementIds // <-- PASS achievement_ids
             }, 'Hobby');
             
             setName('');
             setDescription('');
-            setSelectedSkillIds([]); // Reset selection
+            setSelectedSkillIds([]); 
+            setSelectedAchievementIds([]); // <-- RESET achievements
         }
     };
 
@@ -29,12 +34,20 @@ const HobbyForm = ({ onSubmit, cvId, allSkills, onSkillCreate }) => {
             <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Hobby Name (e.g., Hiking, Chess)" required style={{ width: '95%', padding: '8px', marginBottom: '8px' }} />
             <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Description (Optional)" style={{ width: '95%', padding: '8px', minHeight: '60px', marginBottom: '10px' }} />
             
+            {/* Skill Linker (for skills related to the hobby) */}
             <SkillLinker 
                 cvId={cvId}
                 allSkills={allSkills} 
                 selectedSkillIds={selectedSkillIds} 
                 setSelectedSkillIds={setSelectedSkillIds}
                 onCreateNewSkill={onSkillCreate} 
+            />
+            
+            {/* --- Achievement Linker --- */}
+            <AchievementLinker
+                allAchievements={allAchievements}
+                selectedAchievementIds={selectedAchievementIds}
+                setSelectedAchievementIds={setSelectedAchievementIds}
             />
             
             <button type="submit" style={{ backgroundColor: '#6f42c1', color: 'white', padding: '8px 15px', border: 'none', borderRadius: '4px', marginTop: '10px' }}>
