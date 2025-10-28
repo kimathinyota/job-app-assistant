@@ -56,28 +56,33 @@ const AchievementManagerModal = ({
   return (
     <div
       style={{
-        position: 'fixed', top: 0, left: 0,
+        position: 'fixed',
+        top: 0, left: 0,
         width: '100%', height: '100%',
-        backgroundColor: 'rgba(0,0,0,0.4)',
-        display: 'flex', justifyContent: 'center', alignItems: 'center',
+        backgroundColor: 'rgba(0,0,0,0.5)', // darker overlay for stronger contrast
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
         zIndex: 3000
       }}
     >
       <div
         style={{
-          backgroundColor: '#f8f9fa',
+          backgroundColor: '#ffffff',
+          color: '#212529', // dark text for contrast
           padding: '20px',
           borderRadius: '10px',
           width: '750px',
           maxHeight: '90vh',
-          overflowY: 'auto'
+          overflowY: 'auto',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
         }}
       >
-        <h3>Manage Achievements</h3>
+        <h3 style={{ color: '#212529' }}>Manage Achievements</h3>
 
         {/* Existing Achievements */}
-        <div style={{ borderTop: '1px solid #ddd', paddingTop: '10px' }}>
-          <strong>Link Existing Achievements</strong>
+        <div style={{ borderTop: '1px solid #ccc', paddingTop: '10px' }}>
+          <strong style={{ color: '#343a40' }}>Link Existing Achievements</strong>
           <div
             style={{
               display: 'flex',
@@ -86,39 +91,42 @@ const AchievementManagerModal = ({
               marginTop: '8px'
             }}
           >
-            {(allAchievements || []).map((a) => (
-              <label
-                key={a.id}
-                style={{
-                  backgroundColor: selectedAchievementIds.includes(a.id)
-                    ? '#d4edda'
-                    : 'white',
-                  padding: '5px 10px',
-                  borderRadius: '15px',
-                  border: '1px solid #ccc',
-                  cursor: 'pointer'
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={selectedAchievementIds.includes(a.id)}
-                  onChange={() => {
-                    if (selectedAchievementIds.includes(a.id)) {
-                      setSelectedAchievementIds(
-                        selectedAchievementIds.filter((id) => id !== a.id)
-                      );
-                    } else {
-                      setSelectedAchievementIds([
-                        ...selectedAchievementIds,
-                        a.id
-                      ]);
-                    }
+            {(allAchievements || []).map((a) => {
+              const isSelected = selectedAchievementIds.includes(a.id);
+              return (
+                <label
+                  key={a.id}
+                  style={{
+                    backgroundColor: isSelected ? '#d1e7dd' : '#f8f9fa',
+                    color: isSelected ? '#0f5132' : '#212529',
+                    padding: '5px 10px',
+                    borderRadius: '15px',
+                    border: '1px solid #adb5bd',
+                    cursor: 'pointer',
+                    transition: 'background-color 0.2s, color 0.2s'
                   }}
-                  style={{ marginRight: '5px' }}
-                />
-                {a.text}
-              </label>
-            ))}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => {
+                      if (isSelected) {
+                        setSelectedAchievementIds(
+                          selectedAchievementIds.filter((id) => id !== a.id)
+                        );
+                      } else {
+                        setSelectedAchievementIds([
+                          ...selectedAchievementIds,
+                          a.id
+                        ]);
+                      }
+                    }}
+                    style={{ marginRight: '5px' }}
+                  />
+                  {a.text || <span style={{ color: '#6c757d' }}>(Unnamed)</span>}
+                </label>
+              );
+            })}
           </div>
         </div>
 
@@ -126,11 +134,11 @@ const AchievementManagerModal = ({
         <div
           style={{
             marginTop: '15px',
-            borderTop: '1px solid #ddd',
+            borderTop: '1px solid #ccc',
             paddingTop: '10px'
           }}
         >
-          <strong>Pending Achievements</strong>
+          <strong style={{ color: '#343a40' }}>Pending Achievements</strong>
           <AchievementDisplayGrid
             allSkills={allSkills}
             pendingAchievements={pendingAchievements || []}
@@ -148,12 +156,12 @@ const AchievementManagerModal = ({
         <div
           style={{
             marginTop: '15px',
-            borderTop: '1px solid #ddd',
+            borderTop: '1px solid #ccc',
             paddingTop: '10px'
           }}
         >
           <AchievementForm
-            key={formKey} // 👈 ensures proper state reset and editing
+            key={formKey}
             onSubmit={handleTempAchievementSubmit}
             cvId={null}
             allSkills={allSkills}
@@ -174,10 +182,14 @@ const AchievementManagerModal = ({
             onClick={onClose}
             style={{
               padding: '8px 12px',
-              backgroundColor: '#6c757d',
-              color: 'white',
-              borderRadius: '5px'
+              backgroundColor: '#495057',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: '5px',
+              cursor: 'pointer'
             }}
+            onMouseOver={(e) => (e.target.style.backgroundColor = '#343a40')}
+            onMouseOut={(e) => (e.target.style.backgroundColor = '#495057')}
           >
             Close
           </button>
