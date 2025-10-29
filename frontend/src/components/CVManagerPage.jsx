@@ -1,3 +1,4 @@
+// frontend/src/components/CVManagerPage.jsx
 import React, { useState, useEffect } from 'react';
 import {
     deleteBaseCV,
@@ -69,7 +70,7 @@ const CVSectionDashboard = ({ cv, onSelectSection }) => (
 
 const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
     // --- STATE DECLARATIONS ---
-    // 👇👇👇 THESE WERE MISSING 👇👇👇
+    // 燥燥燥 THESE WERE MISSING 燥燥燥
     const [selectedCVId, setSelectedCVId] = useState(cvs[0]?.id || null);
     const [detailedCV, setDetailedCV] = useState(null);
     const [loadingDetails, setLoadingDetails] = useState(false);
@@ -302,12 +303,16 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
                     </div>
                     <div style={{ flex: '2 1 600px' }}>
                         {!currentEditingItem && <h3>Existing {listName}</h3>}
+                        
+                        {/* 💡💡💡 THIS IS THE FIX 💡💡💡 */}
                         <NestedList
-                            cvId={detailedCV.id} // detailedCV should exist if we are here
+                            cvId={detailedCV.id}
                             items={items}
                             listName={listName}
                             onDelete={handleDeleteNested}
                             onEdit={(item) => handleStartEditItem(item, activeSection)}
+                            allSkills={masterSkills} // 👈 **FIX: Pass master skills list**
+                            allAchievements={masterAchievements} // 👈 **FIX: Pass master achievements list**
                         />
                     </div>
                 </div>

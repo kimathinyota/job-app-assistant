@@ -1,13 +1,16 @@
+// frontend/src/components/cv/AchievementDisplayGrid.jsx
 import React from 'react';
 
 const AchievementDisplayGrid = ({
+  achievementsToDisplay = [], // 👈 **CHANGED:** This is now the primary prop
   allSkills = [],
-  pendingAchievements = [],
   onRemoveAchievement = () => {},
-  onEditAchievement = () => {}
+  onEditAchievement = () => {},
+  isDisplayOnly = false // 👈 **NEW:** To hide buttons
 }) => {
-  if (!pendingAchievements || pendingAchievements.length === 0) {
-    return <p style={{ color: '#666', fontStyle: 'italic' }}>No pending achievements.</p>;
+  // 💡 **CHANGED:** Check the new prop
+  if (!achievementsToDisplay || achievementsToDisplay.length === 0) {
+    return <p style={{ color: '#666', fontStyle: 'italic' }}>No achievements to display.</p>;
   }
 
   // Helper: resolve skill name by ID
@@ -25,7 +28,8 @@ const AchievementDisplayGrid = ({
         marginTop: '10px'
       }}
     >
-      {pendingAchievements.map((ach, index) => (
+      {/* 💡 **CHANGED:** Map over achievementsToDisplay */}
+      {achievementsToDisplay.map((ach, index) => (
         <div
           key={ach.id || index}
           style={{
@@ -41,44 +45,50 @@ const AchievementDisplayGrid = ({
             color: '#333'
           }}
         >
-          {/* X button to remove */}
-          <button
-            type="button"
-            onClick={() => onRemoveAchievement(ach.id || index)}
-            style={{
-              position: 'absolute',
-              top: '5px',
-              right: '8px',
-              background: 'none',
-              border: 'none',
-              color: 'red',
-              fontWeight: 'bold',
-              cursor: 'pointer'
-            }}
-            title="Remove Achievement"
-          >
-            ✕
-          </button>
+          {/* 💡 **CHANGED:** Conditionally show buttons */}
+          {!isDisplayOnly && (
+            <>
+              {/* X button to remove */}
+              <button
+                type="button"
+                onClick={() => onRemoveAchievement(ach.id || index)}
+                style={{
+                  position: 'absolute',
+                  top: '5px',
+                  right: '8px',
+                  background: 'none',
+                  border: 'none',
+                  color: 'red',
+                  fontWeight: 'bold',
+                  cursor: 'pointer'
+                }}
+                title="Remove Achievement"
+              >
+                ✕
+              </button>
 
-          {/* Edit button */}
-          <button
-            type="button"
-            onClick={() => onEditAchievement(index)}
-            style={{
-              position: 'absolute',
-              top: '5px',
-              right: '30px',
-              background: 'none',
-              border: 'none',
-              color: '#007bff',
-              cursor: 'pointer'
-            }}
-            title="Edit Achievement"
-          >
-            ✎
-          </button>
+              {/* Edit button */}
+              <button
+                type="button"
+                onClick={() => onEditAchievement(index)}
+                style={{
+                  position: 'absolute',
+                  top: '5px',
+                  right: '30px',
+                  background: 'none',
+                  border: 'none',
+                  color: '#007bff',
+                  cursor: 'pointer'
+                }}
+                title="Edit Achievement"
+              >
+                ✎
+              </button>
+            </>
+          )}
 
           <p style={{ marginTop: '0', marginBottom: '8px', fontWeight: 'bold' }}>
+            {/* This handles both pending (new) and existing (linked) achievements */}
             {ach.text}
           </p>
 
@@ -99,6 +109,7 @@ const AchievementDisplayGrid = ({
               </span>
             ))}
 
+            {/* This part for pending skills (e.g., in the modal) */}
             {(ach.new_skills || []).map((s, i) => (
               <span
                 key={i}
