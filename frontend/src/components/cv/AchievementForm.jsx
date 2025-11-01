@@ -1,73 +1,94 @@
+// frontend/src/components/cv/AchievementForm.jsx
 import React, { useState, useEffect } from 'react';
 import SkillManagerModal from './SkillManagerModal';
 import SelectedSkillsDisplay from './SelectedSkillsDisplay';
 
-const AchievementForm = ({ onSubmit, cvId, allSkills, initialData, onCancelEdit }) => {
+const AchievementForm = ({ 
+  onSubmit, 
+  cvId, 
+  allSkills, 
+  initialData, 
+  onCancelEdit 
+}) => {
   const [text, setText] = useState('');
   const [selectedSkillIds, setSelectedSkillIds] = useState([]);
   const [pendingSkills, setPendingSkills] = useState([]);
   const [isSkillModalOpen, setIsSkillModalOpen] = useState(false);
 
+  // 1. Use an 'isEditing' flag based on initialData
+  const isEditing = Boolean(initialData);
+
   useEffect(() => {
-    if (initialData) {
+    if (isEditing) {
       setText(initialData.text || '');
-      setSelectedSkillIds(initialData.skill_ids || []);
+      // This is crucial: populate state from initialData
+      setSelectedSkillIds(initialData.skill_ids || initialData.existing_skill_ids || []);
       setPendingSkills(initialData.new_skills || []);
     } else {
+      // Reset form if not editing
       setText('');
       setSelectedSkillIds([]);
       setPendingSkills([]);
     }
-  }, [initialData]);
+  }, [initialData, isEditing]); // Depend on initialData
 
-  const handleAddAchievement = () => {
+  // 2. This is the NEW, corrected handler
+  const handleFormSubmit = () => {
     if (!text.trim()) return;
-    onSubmit(cvId, {
-      text,
-      context: 'Global',
-      skill_ids: selectedSkillIds,
+
+    // Package the form's *current state*
+    const dataToSend = {
+      text: text,
+      context: 'Global', // This is fine for achievements
+      // Use keys that match what the parent expects
+      existing_skill_ids: selectedSkillIds, 
       new_skills: pendingSkills
-    });
+    };
+
+    // When in the CVManagerPage, we also pass the ID
+    if (isEditing && initialData.id && !String(initialData.id).startsWith('pending-')) {
+      dataToSend.id = initialData.id;
+    }
+
+    // Call the modal's "handleFormSubmit" or CVManager's "handleAddOrUpdate"
+    // The 'cvId' (which is null here) is just passed along
+    onSubmit(cvId, dataToSend, 'Achievement');
+
+    // 3. Reset the form *only if we are not in edit mode*
+    // (When editing, the modal handles resetting state)
+    if (!isEditing) {
+        setText('');
+        setSelectedSkillIds([]);
+        setPendingSkills([]);
+    }
   };
 
   return (
     <div
+      className="card p-3 bg-light-subtle" // Use bootstrap classes
       style={{
-        margin: '10px 0',
-        padding: '15px',
         border: '1px solid #6c757d',
-        borderRadius: '5px',
-        backgroundColor: '#e9ecef',
-        textAlign: 'left'
       }}
     >
-      <h4 style={{ margin: '0 0 10px 0', color: '#6c757d' }}>
-        {initialData ? 'Edit Achievement' : '+ Add Temporary Achievement'}
+      <h4 className="h5 mt-0 mb-3 text-muted">
+        {isEditing ? 'Edit Achievement' : '+ Add New/Pending Achievement'}
       </h4>
 
       <textarea
         value={text}
         onChange={(e) => setText(e.target.value)}
         placeholder="Achievement text (e.g., Optimized X by Y%)"
-        style={{
-          width: '95%',
-          padding: '8px',
-          minHeight: '60px',
-          marginBottom: '10px'
-        }}
+        className="form-control mb-3"
+        rows="3"
       />
 
-      <div style={{ marginTop: '10px' }}>
-        <strong>Related Skills:</strong>
+      {/* Skill Management (unchanged) */}
+      <div className="mb-3">
+        <strong className="form-label d-block">Related Skills:</strong>
         <button
           type="button"
           onClick={() => setIsSkillModalOpen(true)}
-          style={{
-            marginLeft: '10px',
-            backgroundColor: '#6c757d',
-            color: 'white',
-            padding: '5px 10px'
-          }}
+          className="btn btn-secondary btn-sm mb-2"
         >
           Manage Skills
         </button>
@@ -89,30 +110,20 @@ const AchievementForm = ({ onSubmit, cvId, allSkills, initialData, onCancelEdit 
         setPendingSkills={setPendingSkills}
       />
 
-      <div style={{ marginTop: '10px' }}>
+      {/* 4. Action Buttons (wired to new handler) */}
+      <div className="mt-3 border-top pt-3">
         <button
           type="button"
-          onClick={handleAddAchievement}
-          style={{
-            backgroundColor: initialData ? '#ffc107' : '#6c757d',
-            color: 'white',
-            padding: '6px 12px',
-            borderRadius: '5px',
-            marginRight: '10px'
-          }}
+          onClick={handleFormSubmit} // <-- Use the new handler
+          className={`btn ${isEditing ? 'btn-warning' : 'btn-primary'} me-2`}
         >
-          {initialData ? 'Save Changes' : 'Add Achievement'}
+          {isEditing ? 'Save Changes' : 'Add to Pending'}
         </button>
-        {initialData && (
+        {isEditing && (
           <button
             type="button"
             onClick={onCancelEdit}
-            style={{
-              backgroundColor: '#6c757d',
-              color: 'white',
-              padding: '6px 12px',
-              borderRadius: '5px'
-            }}
+            className="btn btn-outline-secondary"
           >
             Cancel
           </button>

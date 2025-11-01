@@ -1,4 +1,4 @@
-// frontend/src/components/cv/AchievementDisplayGrid.jsx
+ // frontend/src/components/cv/AchievementDisplayGrid.jsx
 import React from 'react';
 
 const AchievementDisplayGrid = ({
@@ -18,26 +18,26 @@ const AchievementDisplayGrid = ({
   };
 
   return (
-    // Use Bootstrap's grid system
     <div className="row g-3 mt-1">
-      {achievementsToDisplay.map((ach, index) => (
-        // Each item is a column
-        <div key={ach.id || index} className="col-12 col-md-6">
-            {/* Use a card for styling */}
+      {/* 1. We map over 'ach' here */}
+      {achievementsToDisplay.map((ach) => ( 
+        <div key={ach.id || ach.index} className="col-12 col-md-6">
             <div className="card h-100 shadow-sm">
                 <div className="card-body position-relative">
                     {!isDisplayOnly && (
                         <>
                             <button
                                 type="button"
-                                onClick={() => onRemoveAchievement(ach.id || index)}
+                                // 2. Pass the full 'ach' object, not an index
+                                onClick={() => onRemoveAchievement(ach)}
                                 className="btn-close position-absolute"
                                 style={{ top: '0.75rem', right: '0.75rem' }}
                                 title="Remove Achievement"
                             ></button>
                             <button
                                 type="button"
-                                onClick={() => onEditAchievement(index)}
+                                // 3. Pass the full 'ach' object, not an index
+                                onClick={() => onEditAchievement(ach)}
                                 className="btn btn-sm btn-link position-absolute p-0"
                                 style={{ top: '0.65rem', right: '2.2rem', textDecoration: 'none', fontSize: '1.1rem' }}
                                 title="Edit Achievement"
@@ -51,7 +51,7 @@ const AchievementDisplayGrid = ({
                         {ach.text}
                     </p>
 
-                    {/* Skill tags */}
+                    {/* Skill tags (unchanged) */}
                     <div className="d-flex flex-wrap gap-1">
                         {(ach.skill_ids || []).map((id) => (
                             <span

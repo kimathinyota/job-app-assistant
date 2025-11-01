@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import AchievementForm from './AchievementForm';
 import AchievementDisplayGrid from './AchievementDisplayGrid';
+import AchievementLinker from './AchievementLinker';
 
 const AchievementManagerModal = ({
   isOpen,
@@ -13,177 +14,175 @@ const AchievementManagerModal = ({
   setPendingAchievements = () => {},
   allSkills = []
 }) => {
-  const [editingIndex, setEditingIndex] = useState(null);
-  const [formKey, setFormKey] = useState(0); // 👈 Forces re-render of AchievementForm
+  // This state now stores the data for the form *only*.
+  // `null` = new item, `{...data}` = editing item.
+  const [editingItemData, setEditingItemData] = useState(null); 
+  const [formKey, setFormKey] = useState(0); // Used to reset the form
 
   if (!isOpen) return null;
 
-  const handleTempAchievementSubmit = (_, newAchievement) => {
-    if (editingIndex !== null) {
-      // update existing
-      const updated = [...pendingAchievements];
-      updated[editingIndex] = {
-        ...updated[editingIndex],
-        ...newAchievement
-      };
-      setPendingAchievements(updated);
-      setEditingIndex(null);
+  // --- 1. DERIVE LISTS (adds 'isPending' flag) ---
+  const linkedAchievements = allAchievements
+    .filter(a => selectedAchievementIds.includes(a.id))
+    .map(a => ({ ...a, isPending: false })); 
+
+  const pendingItemsForGrid = pendingAchievements.map((a, i) => ({
+    ...a,
+    isPending: true,
+    index: i, 
+    id: a.id || `pending-${i}`
+  }));
+
+  
+  // --- 2. HANDLERS ---
+
+  /**
+   * Called by "Remove" on EITHER grid.
+   * item: The full achievement object (with 'isPending' flag).
+   */
+  const handleRemove = (item) => {
+    if (item.isPending) {
+      // Remove from pending list
+      setPendingAchievements(prev => prev.filter((_, i) => i !== item.index));
     } else {
-      // add new
-      setPendingAchievements([
-        ...pendingAchievements,
-        { ...newAchievement, id: Date.now() }
+      // This is the logic you wanted:
+      // Remove from linked list, which will de-select the tag.
+      setSelectedAchievementIds(prev => prev.filter(id => id !== item.id));
+    }
+    // If we are editing the item that just got removed, reset the form
+    if (editingItemData && (editingItemData.id === item.id)) {
+      setEditingItemData(null);
+      setFormKey(k => k + 1);
+    }
+  };
+
+  /**
+   * Called by "Edit" on EITHER grid.
+   * item: The full achievement object (with 'isPending' flag).
+   */
+  const handleEdit = (item) => {
+    if (item.isPending) {
+      // It's already pending. Set its data in the form.
+      // We pass the *original data* from the prop array
+      setEditingItemData(pendingAchievements[item.index]);
+    } else {
+      // --- THIS IS YOUR NEW LOGIC ---
+      // "Edit as a Copy"
+      // 1. Unlink the master item (de-selects the tag).
+      setSelectedAchievementIds(prev => prev.filter(id => id !== item.id));
+      
+      // 2. Populate the form with its data.
+      setEditingItemData(item);
+      // --- END NEW LOGIC ---
+    }
+    // Force the form to re-render with the new 'initialData'
+    setFormKey(k => k + 1);
+  };
+
+  /**
+   * Called by the AchievementForm inside the modal.
+   */
+  const handleFormSubmit = (_, achievementData) => {
+    // Check if the form *was* editing a pending item
+    const editingPendingIndex = editingItemData ? pendingItemsForGrid.findIndex(p => p.id === editingItemData.id) : -1;
+
+    if (editingPendingIndex > -1) {
+      // We were editing a PENDING item. Update it in-place.
+      const updatedList = [...pendingAchievements];
+      updatedList[editingPendingIndex] = {
+        ...updatedList[editingPendingIndex], // keep original temp ID
+        ...achievementData, // apply new data from form
+      };
+      setPendingAchievements(updatedList);
+    } else {
+      // We were either creating a NEW item
+      // OR editing a LINKED item (which is now a new pending item).
+      setPendingAchievements(prev => [
+        ...prev,
+        { ...achievementData, id: `pending-${Date.now()}` }
       ]);
     }
-
-    // reset the form cleanly
-    setFormKey((k) => k + 1);
-  };
-
-  const handleRemovePending = (index) => {
-    const updated = pendingAchievements.filter((_, i) => i !== index);
-    setPendingAchievements(updated);
-    if (editingIndex === index) {
-      setEditingIndex(null);
-      setFormKey((k) => k + 1);
-    }
-  };
-
-  const handleEditAchievement = (index) => {
-    setEditingIndex(index);
-    setFormKey((k) => k + 1); // 🔄 force rerender form with new data
+    
+    // Reset the form
+    setEditingItemData(null);
+    setFormKey(k => k + 1);
   };
 
   return (
-    <div
-      style={{
-        position: 'fixed', top: 0, left: 0,
-        width: '100%', height: '100%',
-        backgroundColor: 'rgba(0,0,0,0.4)',
-        display: 'flex', justifyContent: 'center', alignItems: 'center',
-        zIndex: 3000
-      }}
+    <div 
+      className="modal" 
+      style={{ display: 'block', backgroundColor: 'rgba(0,0,0,0.4)' }}
+      // *** FIX 1: Add onClick handler to the overlay ***
+      onClick={onClose}
     >
-      <div
-        style={{
-          backgroundColor: '#f8f9fa',
-          padding: '20px',
-          borderRadius: '10px',
-          width: '750px',
-          maxHeight: '90vh',
-          overflowY: 'auto'
-        }}
+      <div 
+        className="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable"
+        // *** FIX 2: Stop click propagation ***
+        onClick={e => e.stopPropagation()}
       >
-        <h3>Manage Achievements</h3>
-
-        {/* Existing Achievements */}
-        <div style={{ borderTop: '1px solid #ddd', paddingTop: '10px' }}>
-          <strong>Link Existing Achievements</strong>
-          <div
-            style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              gap: '6px',
-              marginTop: '8px'
-            }}
-          >
-            {(allAchievements || []).map((a) => (
-              <label
-                key={a.id}
-                style={{
-                  backgroundColor: selectedAchievementIds.includes(a.id)
-                    ? '#d4edda'
-                    : 'white',
-                  padding: '5px 10px',
-                  borderRadius: '15px',
-                  border: '1px solid #ccc',
-                  cursor: 'pointer'
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={selectedAchievementIds.includes(a.id)}
-                  onChange={() => {
-                    if (selectedAchievementIds.includes(a.id)) {
-                      setSelectedAchievementIds(
-                        selectedAchievementIds.filter((id) => id !== a.id)
-                      );
-                    } else {
-                      setSelectedAchievementIds([
-                        ...selectedAchievementIds,
-                        a.id
-                      ]);
-                    }
-                  }}
-                  style={{ marginRight: '5px' }}
-                />
-                {a.text}
-              </label>
-            ))}
+        <div className="modal-content">
+          <div className="modal-header">
+            <h5 className="modal-title">Manage Achievements</h5>
+            <button type="button" className="btn-close" onClick={onClose}></button>
           </div>
-        </div>
 
-        {/* Pending Achievements */}
-        <div
-          style={{
-            marginTop: '15px',
-            borderTop: '1px solid #ddd',
-            paddingTop: '10px'
-          }}
-        >
-          <strong>Pending Achievements</strong>
-          {/* 💡 **CHANGED:** Pass pendingAchievements to the new prop */}
-          <AchievementDisplayGrid
-            achievementsToDisplay={pendingAchievements || []} // 👈 Pass pending list here
-            allSkills={allSkills}
-            onRemoveAchievement={(idOrIndex) => {
-              const index = pendingAchievements.findIndex(
-                (a) => a.id === idOrIndex || pendingAchievements.indexOf(a) === idOrIndex
-              );
-              if (index !== -1) handleRemovePending(index);
-            }}
-            onEditAchievement={handleEditAchievement}
-            isDisplayOnly={false} // 👈 Explicitly false so buttons show
-          />
-        </div>
+          <div className="modal-body">
+            
+            {/* 1. LINKER (TAGS) */}
+            <div className="mb-4">
+              <strong className="fs-6">Link Master Achievements</strong>
+              <AchievementLinker
+                allAchievements={allAchievements}
+                selectedAchievementIds={selectedAchievementIds}
+                setSelectedAchievementIds={setSelectedAchievementIds}
+              />
+            </div>
 
-        {/* Add/Edit Achievement */}
-        <div
-          style={{
-            marginTop: '15px',
-            borderTop: '1px solid #ddd',
-            paddingTop: '10px'
-          }}
-        >
-          <AchievementForm
-            key={formKey} // 👈 ensures proper state reset and editing
-            onSubmit={handleTempAchievementSubmit}
-            cvId={null}
-            allSkills={allSkills}
-            initialData={
-              editingIndex !== null
-                ? pendingAchievements[editingIndex]
-                : null
-            }
-            onCancelEdit={() => {
-              setEditingIndex(null);
-              setFormKey((k) => k + 1);
-            }}
-          />
-        </div>
+            {/* 2. LINKED GRID - Displays toggled items */}
+            <div className="mb-4">
+              <strong className="fs-6">Linked Achievements (Click Edit to copy & modify)</strong>
+              <AchievementDisplayGrid
+                achievementsToDisplay={linkedAchievements}
+                allSkills={allSkills}
+                onRemoveAchievement={handleRemove} // Wired to handleRemove
+                onEditAchievement={handleEdit}   // Wired to handleEdit
+                isDisplayOnly={false}
+              />
+            </div>
 
-        <div style={{ textAlign: 'right', marginTop: '15px' }}>
-          <button
-            onClick={onClose}
-            style={{
-              padding: '8px 12px',
-              backgroundColor: '#6c757d',
-              color: 'white',
-              borderRadius: '5px'
-            }}
-          >
-            Close
-          </button>
+            {/* 3. PENDING GRID - Displays new/copied items */}
+            <div className="mb-4">
+              <strong className="fs-6">New / Modified Achievements (Local to this experience)</strong>
+              <AchievementDisplayGrid
+                achievementsToDisplay={pendingItemsForGrid}
+                allSkills={allSkills}
+                onRemoveAchievement={handleRemove} // Wired to handleRemove
+                onEditAchievement={handleEdit}   // Wired to handleEdit
+                isDisplayOnly={false}
+              />
+            </div>
+
+            {/* 4. FORM - For creating/editing items */}
+            <div className="border-top pt-3">
+              <AchievementForm
+                key={formKey} // Resets form when key changes
+                onSubmit={handleFormSubmit} // Submits to modal's state
+                cvId={null} // Not saving to DB
+                allSkills={allSkills}
+                initialData={editingItemData} // Populates form
+                onCancelEdit={() => {
+                  setEditingItemData(null); // Clear form
+                  setFormKey(k => k + 1);
+                }}
+              />
+            </div>
+          </div>
+
+          <div className="modal-footer">
+            <button type="button" className="btn btn-primary" onClick={onClose}>
+             Done
+            </button>
+          </div>
         </div>
       </div>
     </div>
