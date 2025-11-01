@@ -240,3 +240,30 @@ def link_achievement_to_project(cv_id: str, proj_id: str, ach_id: str):
         return registry.link_achievement_to_context(cv_id, proj_id, ach_id, 'projects')
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+@router.post("/{cv_id}/project/{proj_id}/achievement/{ach_id}")
+def link_achievement_to_project(cv_id: str, proj_id: str, ach_id: str):
+    """Links a master achievement to a specific project."""
+    try:
+        return registry.link_achievement_to_context(cv_id, proj_id, ach_id, 'projects')
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+# --- NEW AGGREGATION ENDPOINT ---
+
+@router.get("/{cv_id}/{entity_list_name}/{entity_id}/skills/aggregated")
+def get_aggregated_skills(cv_id: str, entity_list_name: str, entity_id: str):
+    """
+    Fetches all unique skills for an entity and its children.
+    Valid entity_list_name examples: 'experiences', 'projects', 'achievements'.
+    """
+    try:
+        # Validate entity_list_name to prevent arbitrary calls
+        valid_lists = ['experiences', 'projects', 'achievements', 'education', 'hobbies']
+        if entity_list_name not in valid_lists:
+            raise ValueError(f"Invalid entity list name. Must be one of: {valid_lists}")
+            
+        return registry.get_aggregated_skills_for_entity(cv_id, entity_list_name, entity_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))

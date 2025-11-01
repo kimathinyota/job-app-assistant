@@ -99,6 +99,15 @@ export const linkAchievement = (cvId, entityId, achId, entityType) => {
     return apiClient.post(`/cv/${cvId}/${entityType}/${entityId}/achievement/${achId}`);
 };
 
+/**
+ * Fetches all skills for an entity PLUS its children's skills.
+ * Maps to: GET /cv/{cvId}/{listName}/{itemId}/skills/aggregated
+ */
+export const fetchAggregatedSkills = async (cvId, listName, itemId) => {
+    const response = await apiClient.get(`/cv/${cvId}/${listName}/${itemId}/skills/aggregated`);
+    return response.data; // Returns a list of Skill objects
+};
+
 // --- Add more client methods for nested UPDATE (PATCH) and UNLINK (DELETE) here ---
 
 export default apiClient; // Ensure apiClient is exported if needed elsewhere, though usually named exports are preferred.

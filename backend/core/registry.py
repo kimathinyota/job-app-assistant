@@ -141,6 +141,7 @@ class Registry:
         skill = cv.add_skill(name=name, category=category, **kwargs)
         self._update("cvs", cv)
         return skill
+        
 
     def add_cv_project(self, cv_id: str, title: str, description: str, skill_ids: Optional[List[str]] = None, **kwargs) -> Project:
         cv = self.get_cv(cv_id)
@@ -253,7 +254,7 @@ class Registry:
         return entity
 
     def link_skill_to_entity(self, cv_id: str, entity_id: str, skill_id: str, entity_list_name: str):
-        """Adds a skill ID to a specific nested entity's skill_ids list (Experience, Project, etc.)."""
+        """Adds a skill ID to a specific nested entity's skill_ids list (Experience, Project, etc.) AND rolls the link up to parents."""
         cv = self.get_cv(cv_id)
         if not cv:
             raise ValueError("CV not found")
@@ -264,16 +265,56 @@ class Registry:
         # 2. Check if the skill exists in the master CV list
         skill = self._get_nested_entity(cv, 'skills', skill_id)
         
-        # 3. Perform the link (only works if entity has the SkillLinkMixin)
+        # 3. Perform the primary link (only works if entity has the SkillLinkMixin)
         if skill_id not in entity.skill_ids:
             entity.skill_ids.append(skill_id)
             cv.touch()
-            self._update("cvs", cv)
+            
+        # 4. *** NEW: Handle Skill Roll-up ***
+        
+        # Case A: If entity is a Project with a related Experience
+        if entity_list_name == 'projects' and entity.related_experience_id:
+            try:
+                parent_exp = self._get_nested_entity(cv, 'experiences', entity.related_experience_id)
+                if skill_id not in parent_exp.skill_ids:
+                    parent_exp.skill_ids.append(skill_id)
+                    cv.touch()
+            except ValueError:
+                pass # Parent experience not found, skip roll-up
+
+        # Case B: If entity is an Achievement, find all contexts linking to it
+        if entity_list_name == 'achievements':
+            # Check Experiences
+            for exp in cv.experiences:
+                if entity_id in exp.achievement_ids and skill_id not in exp.skill_ids:
+                    exp.skill_ids.append(skill_id)
+                    cv.touch()
+            # Check Projects
+            for proj in cv.projects:
+                if entity_id in proj.achievement_ids and skill_id not in proj.skill_ids:
+                    proj.skill_ids.append(skill_id)
+                    cv.touch()
+                    # Roll-up one level further from Project to its Experience
+                    if proj.related_experience_id:
+                         try:
+                             parent_exp = self._get_nested_entity(cv, 'experiences', proj.related_experience_id)
+                             if skill_id not in parent_exp.skill_ids:
+                                 parent_exp.skill_ids.append(skill_id)
+                                 cv.touch()
+                         except ValueError:
+                             pass # Parent exp not found
+            # (Add loops for Education, Hobbies if they also link achievements and skills)
+
+        # 5. Save all changes
+        self._update("cvs", cv)
         
         return entity
 
     def unlink_skill_from_entity(self, cv_id: str, entity_id: str, skill_id: str, entity_list_name: str):
         """Removes a skill ID from a specific nested entity's skill_ids list."""
+        # NOTE: This does NOT automatically unlink from parents, as the skill
+        # might still be required by other children of that parent.
+        # Automatic unlinking is much more complex and dangerous.
         cv = self.get_cv(cv_id)
         if not cv: raise ValueError("CV not found")
         
@@ -321,6 +362,49 @@ class Registry:
             return {"status": "success", "message": f"Achievement {ach_id} unlinked from {context_list_name[:-1]} {context_id}."}
         
         raise ValueError(f"Achievement {ach_id} was not linked to {context_list_name[:-1]} {context_id}.")
+
+    def get_aggregated_skills_for_entity(self, cv_id: str, entity_list_name: str, entity_id: str) -> List[Skill]:
+        """
+        Fetches all unique skills linked to an entity AND all of its children.
+        e.g., for Experience: returns skills from Experience, its Projects, and all Achievements.
+        """
+        cv = self.get_cv(cv_id)
+        if not cv:
+            raise ValueError("CV not found")
+
+        entity = self._get_nested_entity(cv, entity_list_name, entity_id)
+
+        total_skill_ids = set()
+        if hasattr(entity, 'skill_ids'):
+            total_skill_ids.update(entity.skill_ids)
+
+        ach_ids_to_check = []
+        
+        # 1. Collect children IDs from the main entity
+        if hasattr(entity, 'achievement_ids'):
+            ach_ids_to_check.extend(entity.achievement_ids)
+        
+        # 2. If the entity is an Experience, also check its child Projects
+        if entity_list_name == 'experiences':
+            related_projects = [p for p in cv.projects if p.related_experience_id == entity_id]
+            for proj in related_projects:
+                if hasattr(proj, 'skill_ids'):
+                    total_skill_ids.update(proj.skill_ids)
+                if hasattr(proj, 'achievement_ids'):
+                    ach_ids_to_check.extend(proj.achievement_ids)
+
+        # 3. Now, check all collected achievement IDs (deduplicated)
+        for ach_id in set(ach_ids_to_check):
+            try:
+                achievement = self._get_nested_entity(cv, 'achievements', ach_id)
+                if achievement and hasattr(achievement, 'skill_ids'):
+                    total_skill_ids.update(achievement.skill_ids)
+            except ValueError:
+                pass # Achievement not found, skip
+
+        # 4. Resolve all unique skill IDs to Skill objects
+        skill_map = {s.id: s for s in cv.skills}
+        return [skill_map[sid] for sid in total_skill_ids if sid in skill_map]
 
     # ---- Mappings ----
     def create_mapping(self, job_id: str, base_cv_id: str):
