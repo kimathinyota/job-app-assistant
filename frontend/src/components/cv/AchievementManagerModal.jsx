@@ -56,39 +56,26 @@ const AchievementManagerModal = ({
     setFormKey(k => k + 1);
   };
 
-  /**
-   * Called by the AchievementForm inside the modal.
-   */
   const handleFormSubmit = (_, achievementData) => {
-    // achievementData has { text, existing_skill_ids, new_skills }
-
     const editingPendingIndex = editingItemData ? pendingItemsForGrid.findIndex(p => p.id === editingItemData.id) : -1;
 
-    // --- *** THIS IS THE FIX *** ---
-    // Create a new object that maps 'existing_skill_ids' to 'skill_ids'
-    // so that AchievementDisplayGrid can read it correctly.
     const remappedData = {
       text: achievementData.text,
       context: achievementData.context,
-      skill_ids: achievementData.existing_skill_ids || [], // <-- Renamed key
+      skill_ids: achievementData.existing_skill_ids || [], 
       new_skills: achievementData.new_skills || []
     };
-    // --- *** END OF FIX *** ---
-
 
     if (editingPendingIndex > -1) {
-      // We were editing a PENDING item. Update it in-place.
       const updatedList = [...pendingAchievements];
       updatedList[editingPendingIndex] = {
-        ...updatedList[editingPendingIndex], // keep original temp ID, original_id
-        ...remappedData, // apply new data from form
+        ...updatedList[editingPendingIndex], 
+        ...remappedData, 
       };
       setPendingAchievements(updatedList);
     } else {
-      // We were either creating a NEW item
-      // OR editing a LINKED item (which is now a new pending item).
       const newPendingItem = { 
-        ...remappedData, // Use the remapped data
+        ...remappedData, 
         id: `pending-${Date.now()}` 
       };
 
@@ -106,10 +93,48 @@ const AchievementManagerModal = ({
     setFormKey(k => k + 1);
   };
 
-  // This logic (for disabling tags) remains correct
-  const pendingOriginalIds = pendingAchievements
-    .map(ach => ach.original_id) 
-    .filter(Boolean); 
+  // This logic for disabling tags is correct
+  const pendingOriginalIds = new Set(
+    pendingAchievements
+      .map(ach => ach.original_id)
+      .filter(Boolean)
+  );
+
+  const currentlyEditingMasterId = 
+    editingItemData && !String(editingItemData.id).startsWith('pending-')
+      ? editingItemData.id
+      : null;
+
+  if (currentlyEditingMasterId) {
+    pendingOriginalIds.add(currentlyEditingMasterId);
+  }
+  
+  const disabledAchievementIds = Array.from(pendingOriginalIds);
+
+  
+  // --- *** 1. THIS IS THE FIX *** ---
+  const handleCancelEdit = () => {
+    // Check if we were editing a master item
+    if (editingItemData && !String(editingItemData.id).startsWith('pending-')) {
+      // Re-select the item in the "Linked" list
+      const originalId = editingItemData.id;
+
+      // We must call the prop with a NEW ARRAY, not an updater function.
+      // We use the `selectedAchievementIds` prop as the "previous" state.
+      if (!selectedAchievementIds.includes(originalId)) {
+        const newIdList = [...selectedAchievementIds, originalId];
+        setSelectedAchievementIds(newIdList); // Pass the new array
+      }
+      // If it's already included (which it shouldn't be, but good to check),
+      // we don't need to do anything.
+    }
+    
+    // Clear the form
+    setEditingItemData(null);
+    setFormKey(k => k + 1);
+  };
+  // --- *** END OF FIX *** ---
+
 
   return (
     <div 
@@ -135,7 +160,7 @@ const AchievementManagerModal = ({
                 allAchievements={allAchievements}
                 selectedAchievementIds={selectedAchievementIds}
                 setSelectedAchievementIds={setSelectedAchievementIds}
-                disabledAchievementIds={pendingOriginalIds}
+                disabledAchievementIds={disabledAchievementIds}
               />
             </div>
 
@@ -168,10 +193,8 @@ const AchievementManagerModal = ({
                 cvId={null} 
                 allSkills={allSkills}
                 initialData={editingItemData} 
-                onCancelEdit={() => {
-                  setEditingItemData(null); 
-                  setFormKey(k => k + 1);
-                }}
+                // --- *** 2. WIRE THE CORRECT HANDLER *** ---
+                onCancelEdit={handleCancelEdit}
               />
             </div>
           </div>

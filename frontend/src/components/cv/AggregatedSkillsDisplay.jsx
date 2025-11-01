@@ -11,9 +11,11 @@ const AggregatedSkillsDisplay = ({ cvId, listName, itemId }) => {
             if (!cvId || !listName || !itemId) return;
             setLoading(true);
             try {
+                console.log("Fetching aggregated skills for:", cvId, listName, itemId);
                 const data = await fetchAggregatedSkills(cvId, listName, itemId);
                 setSkills(data || []);
             } catch (error) {
+                console.log("Failed to fetch aggregated skills for:", cvId, listName, itemId);
                 console.error("Failed to load aggregated skills:", error);
                 setSkills([]);
             } finally {
