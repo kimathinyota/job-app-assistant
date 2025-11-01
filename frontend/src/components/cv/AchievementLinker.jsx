@@ -1,9 +1,12 @@
+// frontend/src/components/cv/AchievementLinker.jsx
 import React from 'react';
 
 const AchievementLinker = ({
   allAchievements = [],
   selectedAchievementIds = [],
   setSelectedAchievementIds,
+  // --- *** 1. Accept the new prop *** ---
+  disabledAchievementIds = [],
 }) => {
   const handleToggleAchievement = (achId) => {
     if (selectedAchievementIds.includes(achId)) {
@@ -41,31 +44,44 @@ const AchievementLinker = ({
           padding: '5px',
         }}
       >
-        {allAchievements.map((ach) => (
-          <label
-            key={ach.id}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              fontSize: '0.9em',
-              padding: '4px 8px',
-              border: '1px solid #ddd',
-              borderRadius: '20px',
-              cursor: 'pointer',
-              backgroundColor: selectedAchievementIds.includes(ach.id)
-                ? '#d6d8db'
-                : 'white',
-            }}
-          >
-            <input
-              type="checkbox"
-              checked={selectedAchievementIds.includes(ach.id)}
-              onChange={() => handleToggleAchievement(ach.id)}
-              style={{ marginRight: '5px' }}
-            />
-            {ach.text.length > 50 ? ach.text.substring(0, 50) + '...' : ach.text}
-          </label>
-        ))}
+        {allAchievements.map((ach) => {
+          // --- *** 2. Check if this tag should be disabled *** ---
+          const isDisabled = disabledAchievementIds.includes(ach.id);
+          const isChecked = selectedAchievementIds.includes(ach.id);
+
+          return (
+            <label
+              key={ach.id}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                fontSize: '0.9em',
+                padding: '4px 8px',
+                border: '1px solid #ddd',
+                borderRadius: '20px',
+                // --- *** 3. Update styles based on disabled state *** ---
+                cursor: isDisabled ? 'not-allowed' : 'pointer',
+                backgroundColor: isDisabled
+                  ? '#e9ecef' // Disabled gray
+                  : isChecked
+                  ? '#d6d8db' // Checked gray
+                  : 'white',   // Default white
+                opacity: isDisabled ? 0.6 : 1,
+                color: isDisabled ? '#6c757d' : '#212529',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={isChecked}
+                onChange={() => handleToggleAchievement(ach.id)}
+                style={{ marginRight: '5px' }}
+                // --- *** 4. Add the disabled attribute *** ---
+                disabled={isDisabled}
+              />
+              {ach.text.length > 50 ? ach.text.substring(0, 50) + '...' : ach.text}
+            </label>
+          );
+        })}
       </div>
     </div>
   );
