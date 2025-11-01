@@ -1,5 +1,8 @@
+// frontend/src/components/cv/NestedList.jsx
 import React from 'react';
 import AchievementDisplayGrid from './AchievementDisplayGrid';
+// 1. Import the new component
+import AggregatedSkillsDisplay from './AggregatedSkillsDisplay';
 
 const NestedList = ({
     cvId,
@@ -8,77 +11,65 @@ const NestedList = ({
     listName,
     onDelete,
     onEdit,
-    allSkills = [],
+    allSkills = [], // Still needed for AchievementDisplayGrid
     allAchievements = [],
     isDisplayOnly = false
 }) => {
 
+    // 2. The getSkillNames helper function is no longer needed here.
+    /*
     const getSkillNames = (skillIds = []) => {
-        // ... (helper function remains the same)
-        if (!skillIds || skillIds.length === 0) return '';
-        return skillIds
-            .map(id => allSkills.find(s => s.id === id)?.name)
-            .filter(name => name)
-            .join(', ');
+        // ... (REMOVED) ...
     };
+    */
 
+    // This function is still used for the Achievement grid.
     const getAchievements = (achievementIds = []) => {
-        // ... (helper function remains the same)
          if (!achievementIds || achievementIds.length === 0) return [];
         return achievementIds
             .map(id => allAchievements.find(a => a.id === id))
             .filter(ach => ach);
     };
 
-    // Define a base text color that should work on light backgrounds
-    const baseTextColor = '#333'; // A dark grey
-
     return (
-        <div style={{ padding: '10px' }}>
+        <div>
             {(!isDisplayOnly || (items && items.length > 0)) && (
-                 <h3 style={{ color: baseTextColor }}>{title} ({items?.length || 0})</h3>
+                 <h3 className="h4 text-capitalize">{title} ({items?.length || 0})</h3>
             )}
 
             {!items || items.length === 0 ? (
-                 !isDisplayOnly && <p style={{ fontStyle: 'italic', color: '#666' }}>No {listName} added yet.</p> // Keep color for muted text
+                 !isDisplayOnly && <p className="text-muted fst-italic">No {listName} added yet.</p>
             ) : (
-                <ul style={{ listStyle: 'none', paddingLeft: 0 }}>
+                <ul className="list-group list-group-flush">
                     {items.map((item) => {
-                        const linkedSkillNames = getSkillNames(item.skill_ids);
+                        // 3. We no longer calculate linkedSkillNames here
                         const linkedAchievements = getAchievements(item.achievement_ids);
 
                         return (
-                            <li key={item.id} style={{
-                                border: isDisplayOnly ? 'none' : '1px solid #ddd',
-                                borderBottom: '1px solid #eee',
-                                marginBottom: '15px',
-                                padding: isDisplayOnly ? '10px 0' : '15px',
-                                borderRadius: isDisplayOnly ? '0' : '5px',
-                                backgroundColor: '#fff', // White background
-                                boxShadow: isDisplayOnly ? 'none' : '0 1px 3px rgba(0,0,0,0.1)',
-                                color: baseTextColor // Set base text color for the list item
-                             }}>
-
+                            <li 
+                                key={item.id} 
+                                className="list-group-item p-3 mb-3 border shadow-sm rounded"
+                            >
                                 {/* Header */}
-                                <div style={{ marginBottom: '8px' }}>
+                                <div className="mb-2">
                                     {listName === 'experiences' ? (
                                         <>
-                                            <strong style={{ fontSize: '1.1em', display: 'block' /* Removed color */ }}>
+                                            <strong className="fs-5 d-block">
                                                 {item.title || 'Untitled Experience'}
                                             </strong>
                                             {item.company && (
-                                                <span style={{ fontWeight: 'bold', fontSize: '1em', color: '#555' }}> {/* Keep slightly lighter color */}
+                                                <span className="fw-medium fs-6 text-muted">
                                                     @{item.company}
                                                 </span>
                                             )}
                                             {(item.start_date || item.end_date) && (
-                                                <span style={{ marginLeft: item.company ? ' 10px' : '0', fontSize: '0.9em', color: '#777' }}> {/* Keep muted color */}
+                                                <span className="ms-2 small text-muted text-uppercase">
                                                     ({item.start_date || '?'} – {item.end_date || 'Present'})
                                                 </span>
                                             )}
                                         </>
                                     ) : (
-                                        <strong style={{ fontSize: '1.1em', display: 'block' /* Removed color */ }}>
+                                        <strong className="fs-5 d-block">
                                             {item.title || item.name || item.text || 'Untitled Item'}
                                         </strong>
                                     )}
@@ -86,38 +77,42 @@ const NestedList = ({
 
                                 {/* Description */}
                                 {item.description && (
-                                    <p style={{ margin: '0 0 8px 0', fontSize: '0.95em', whiteSpace: 'pre-wrap' /* Removed color */ }}>
+                                    <p className="mb-2" style={{ whiteSpace: 'pre-wrap' }}>
                                         {item.description}
                                     </p>
                                 )}
 
                                 {/* Achievements Grid */}
                                 {linkedAchievements.length > 0 && (
-                                    <AchievementDisplayGrid
-                                        achievementsToDisplay={linkedAchievements}
-                                        allSkills={allSkills}
-                                        isDisplayOnly={true}
-                                        // Pass baseTextColor if needed inside AchievementDisplayGrid
+                                    <div className="mb-3">
+                                        <h6 className="small fw-bold mb-0">Key Achievements:</h6>
+                                        <AchievementDisplayGrid
+                                            achievementsToDisplay={linkedAchievements}
+                                            allSkills={allSkills}
+                                            isDisplayOnly={true}
+                                        />
+                                    </div>
+                                )}
+
+                                {/* 4. Replaced the old skill paragraph with the new component */}
+                                <div className="mt-2 pt-2 border-top">
+                                    <AggregatedSkillsDisplay
+                                        cvId={cvId}
+                                        listName={listName}
+                                        itemId={item.id}
                                     />
-                                )}
-
-                                {/* Related Skills */}
-                                {linkedSkillNames && (
-                                    <p style={{ margin: '8px 0 0 0', fontSize: '0.85em', fontStyle: 'italic', color: '#666' }}> {/* Keep muted color */}
-                                        Related Skills: {linkedSkillNames}
-                                    </p>
-                                )}
-
+                                </div>
+                                
                                 {/* Action Buttons */}
                                 {!isDisplayOnly && (
-                                    <div style={{ marginTop: '10px', borderTop: '1px solid #eee', paddingTop: '10px' }}>
+                                    <div className="mt-3 border-top pt-3 text-end">
                                         {onEdit && (
-                                            <button onClick={() => onEdit(item)} style={{ /* Keep button styles */ marginRight: '10px', backgroundColor: '#ffc107', color: '#333', padding: '5px 10px', borderRadius: '3px', border: 'none', cursor: 'pointer', fontSize: '0.8em' }}>
+                                            <button onClick={() => onEdit(item)} className="btn btn-warning btn-sm me-2">
                                                 Edit
                                             </button>
                                         )}
                                         {onDelete && (
-                                            <button onClick={() => onDelete(cvId, item.id, listName)} style={{ /* Keep button styles */ backgroundColor: '#dc3545', color: 'white', padding: '5px 10px', borderRadius: '3px', border: 'none', cursor: 'pointer', fontSize: '0.8em' }}>
+                                            <button onClick={() => onDelete(cvId, item.id, listName)} className="btn btn-danger btn-sm">
                                                 Delete
                                             </button>
                                         )}
