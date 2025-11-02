@@ -37,7 +37,6 @@ const ExperienceForm = ({
     const [aggregatedSkillIds, setAggregatedSkillIds] = useState([]);
     const [aggregatedPendingSkills, setAggregatedPendingSkills] = useState([]);
 
-    // *** 1. NEW STATE: To track skills that are disabled in the modal ***
     const [disabledSkillsForModal, setDisabledSkillsForModal] = useState([]);
 
     const isEditing = Boolean(initialData);
@@ -75,7 +74,7 @@ const ExperienceForm = ({
     }, [initialData, isEditing, cvId, allAchievements]); 
 
     
-    // *** 2. MODIFIED: This effect now *also* calculates disabled skills ***
+    // This effect calculates the aggregated lists (unchanged, still correct)
     useEffect(() => {
         const allIds = new Set(directSkillIds);
         const achIds = new Set(); // Store achievement skill IDs separately
@@ -93,7 +92,6 @@ const ExperienceForm = ({
         setAggregatedSkillIds(Array.from(allIds));
 
         // Calculate disabled skills:
-        // A skill is disabled if it's in `achIds` but NOT in `directSkillIds`
         const directSet = new Set(directSkillIds);
         const disabledIds = Array.from(achIds).filter(id => !directSet.has(id));
         setDisabledSkillsForModal(disabledIds);
@@ -130,27 +128,20 @@ const ExperienceForm = ({
         setLinkedExistingAchievements(newList);
     };
 
-    // *** 3. MODIFIED: This handler now works with the aggregated list ***
+    // handleSkillSelectionChange handler (unchanged)
     const handleSkillSelectionChange = (newAggregatedList) => {
-        const oldAggregatedList = aggregatedSkillIds; // Get current aggregated list from state
+        const oldAggregatedList = aggregatedSkillIds; 
 
-        // Find what was added or removed *from the aggregated list*
         const removedSkillIds = oldAggregatedList.filter(id => !newAggregatedList.includes(id));
         const addedSkillIds = newAggregatedList.filter(id => !oldAggregatedList.includes(id));
 
-        // --- Apply Changes to DIRECT skills ---
-        // Additions are *always* added to direct skills
         if (addedSkillIds.length > 0) {
             setDirectSkillIds(prev => [...new Set([...prev, ...addedSkillIds])]);
         }
         
-        // Removals are *always* removed from direct skills
-        // (Disabled skills from achievements couldn't be removed anyway)
         if (removedSkillIds.length > 0) {
              setDirectSkillIds(prev => prev.filter(id => !removedSkillIds.includes(id)));
 
-            // --- Now, run the achievement-pending logic (unchanged) ---
-            // This checks if removing the skill from *direct* also requires modifying an achievement
             setPendingAchievements(prevPending => 
                 prevPending.map(ach => ({
                     ...ach,
@@ -183,6 +174,56 @@ const ExperienceForm = ({
         }
     };
 
+    // --- *** 1. NEW "SMART" HANDLER *** ---
+    /**
+     * This function replaces `setDirectPendingSkills` as the prop for the modal.
+     * It receives the updater function from SkillLinker (e.g., prev => [...prev, newSkill])
+     * It then diffs the lists and applies changes to the *correct* state.
+     */
+    const smartSetAggregatedPendingSkills = (updaterFn) => {
+        // Get the list *before* the change
+        const currentAggregated = aggregatedPendingSkills;
+        
+        // Get the list *after* the change
+        const newAggregated = updaterFn(currentAggregated);
+
+        // --- Figure out what changed ---
+        const currentNames = new Set(currentAggregated.map(s => s.name));
+        const newNames = new Set(newAggregated.map(s => s.name));
+
+        // Find added skills (any skill in `newAggregated` not in `currentAggregated`)
+        const addedSkills = newAggregated.filter(s => !currentNames.has(s.name));
+        
+        // Find removed skill names
+        const removedSkillNames = currentAggregated
+            .filter(s => !newNames.has(s.name))
+            .map(s => s.name);
+
+        // --- Apply changes to the *real* state ---
+        
+        if (addedSkills.length > 0) {
+            // New skills from the main modal *always* go into `directPendingSkills`
+            setDirectPendingSkills(prev => [
+                ...prev,
+                ...addedSkills.filter(added => !prev.some(p => p.name === added.name))
+            ]);
+        }
+
+        if (removedSkillNames.length > 0) {
+            // Remove the skill from `directPendingSkills` if it's there
+            setDirectPendingSkills(prev => 
+                prev.filter(s => !removedSkillNames.includes(s.name))
+            );
+            
+            // AND remove it from any pending achievements
+            setPendingAchievements(prev => 
+                prev.map(ach => ({
+                    ...ach,
+                    new_skills: (ach.new_skills || []).filter(s => !removedSkillNames.includes(s.name))
+                }))
+            );
+        }
+    };
 
     // handleSubmit (unchanged)
     const handleSubmit = (e) => {
@@ -295,21 +336,23 @@ const ExperienceForm = ({
             </div>
 
             {/* --- Modals --- */}
-            {/* *** 4. MODIFIED: Wire SkillManagerModal to aggregated state *** */}
+            
+            {/* --- *** 2. MODIFIED: Wire SkillManagerModal to new props *** --- */}
             <SkillManagerModal
                 isOpen={isSkillModalOpen}
                 onClose={() => setIsSkillModalOpen(false)}
                 allSkills={allSkills}
-                // Feed it the *full* list so all are pre-toggled
                 selectedSkillIds={aggregatedSkillIds}
-                // Feed it the *smart* handler
                 setSelectedSkillIds={handleSkillSelectionChange}
-                // Still manages *direct* pending skills
-                pendingSkills={directPendingSkills}
-                setPendingSkills={setDirectPendingSkills}
-                // Feed it the new *disabled* list
+                
+                // Pass the *full* aggregated list to display
+                pendingSkills={aggregatedPendingSkills}
+                // Pass the *smart* handler to manage changes
+                setPendingSkills={smartSetAggregatedPendingSkills}
+                
                 disabledSkillIds={disabledSkillsForModal}
             />
+            
             {/* This modal is for achievements and is unchanged */}
              <AchievementManagerModal
                  isOpen={isAchievementModalOpen}
