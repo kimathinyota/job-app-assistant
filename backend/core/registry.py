@@ -94,8 +94,21 @@ class Registry:
     def delete_cv(self, cv_id: str):
         return self._delete("cvs", cv_id)
 
+    # --- THIS IS THE MODIFIED METHOD ---
     def get_cv(self, cv_id: str):
-        return self._get("cvs", CV, cv_id)
+        """Fetch a specific CV by ID and sort its experiences."""
+        cv = self._get("cvs", CV, cv_id)
+        
+        if cv and cv.experiences:
+            # Sort experiences by start_date, descending (newest first).
+            # We use a default value ('0000-00-00') for any None or empty dates
+            # to ensure they are sorted to the bottom as the "oldest".
+            cv.experiences.sort(
+                key=lambda exp: exp.start_date or '0000-00-00', 
+                reverse=True
+            )
+            
+        return cv
 
     def all_cvs(self):
         return self._all("cvs", CV)
