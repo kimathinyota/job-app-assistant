@@ -109,3 +109,9 @@ export const updateJob = (jobId, data) => {
 export const deleteJobFeature = (jobId, featureId) => {
     return apiClient.delete(`/job/${jobId}/feature/${featureId}`);
 };
+
+// --- NEW UPSERT FUNCTION ---
+export const upsertJob = (jobData) => {
+    // jobData is the full JobUpsertPayload
+    return apiClient.post('/job/upsert', jobData);
+};

@@ -53,10 +53,67 @@ const JobCard = ({
                 </div>
             </div>
 
-            {/* Card Body: Contains the CV selector and action button */}
+            {/* Card Body: Now contains details AND actions */}
             <div className="card-body p-3">
+
+                {/* --- NEW: Job Details Section --- */}
+                <div className="mb-3">
+                    <div className="row g-2 small mb-3">
+                        {job.location && (
+                            <div className="col-auto">
+                                <span className="badge bg-light text-dark border me-1">Location</span>
+                                {job.location}
+                            </div>
+                        )}
+                        {job.salary_range && (
+                            <div className="col-auto">
+                                <span className="badge bg-light text-dark border me-1">Salary</span>
+                                {job.salary_range}
+                            </div>
+                        )}
+                        {job.application_end_date && (
+                            <div className="col-auto">
+                                <span className="badge bg-light text-dark border me-1">Apply By</span>
+                                {job.application_end_date}
+                            </div>
+                        )}
+                    </div>
+
+                    {job.job_url && (
+                        <div className="mb-3">
+                            <a 
+                                href={job.job_url} 
+                                target="_blank" 
+                                rel="noopener noreferrer" 
+                                className="btn btn-outline-info btn-sm"
+                            >
+                                View Job Posting
+                            </a>
+                        </div>
+                    )}
+
+                    {job.features && job.features.length > 0 && (
+                        <div>
+                            <h6 className="small fw-bold text-muted">Requirements & Features</h6>
+                            <ul className="list-group list-group-flush" style={{ maxHeight: '150px', overflowY: 'auto' }}>
+                                {job.features.map(feature => (
+                                    <li key={feature.id} className="list-group-item d-flex align-items-center p-1">
+                                        <span className={`badge bg-secondary me-2 text-capitalize`} style={{ width: '100px', textAlign: 'center' }}>
+                                            {feature.type.replace('_', ' ')}
+                                        </span>
+                                        <small>{feature.description}</small>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
+                </div>
+                {/* --- END of Job Details Section --- */}
+                
+                <hr />
+
+                {/* --- Action Section (CV Selector & Button) --- */}
                 <div className="d-flex justify-content-between align-items-end">
-                    
                     {/* Column 1: CV Selector or CV "Tag" */}
                     <div className="flex-grow-1 me-3">
                         {hasApplication ? (
@@ -116,6 +173,7 @@ const JobCard = ({
                         )}
                     </div>
                 </div>
+
             </div>
         </div>
     );

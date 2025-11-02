@@ -3,43 +3,41 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
     fetchAllJobs, 
     fetchAllApplications, 
-    createJob,
     createMapping,
     createApplication
 } from '../../api/applicationClient';
-import { fetchAllCVs } from '../../api/cvClient'; // <-- 1. IMPORT THE CV FETCHER
+import { fetchAllCVs } from '../../api/cvClient';
 import JobCard from './JobCard';
-import AddJobModal from './AddJobModal';
-import JobEditorModal from './JobEditorModal'; 
+import JobModal from './JobModal'; // <-- 1. Import the new unified modal
+
+// Delete imports for AddJobModal and JobEditorModal
+// import AddJobModal from './AddJobModal';
+// import JobEditorModal from './JobEditorModal'; 
 
 const SavedJobsView = ({ defaultCvId, onNavigateToWorkspace }) => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [jobs, setJobs] = useState([]);
     const [applications, setApplications] = useState([]);
-    const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-    const [editingJobId, setEditingJobId] = useState(null);
-    
-    // 2. Add state to hold the list of CVs
     const [cvs, setCvs] = useState([]);
+
+    // --- 2. Simplified state for the modal ---
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [modalJobId, setModalJobId] = useState(null); // null = "Add" mode, 'job_id' = "Edit" mode
 
     const loadData = async () => {
         setLoading(true);
         setError(null);
         try {
-            // 3. --- THIS IS THE FIX ---
-            // Fetch all 3 data sources, including CVs
             const [cvsRes, appsRes, jobsRes] = await Promise.all([
-                fetchAllCVs(), // <-- Added this call
+                fetchAllCVs(), 
                 fetchAllApplications(),
                 fetchAllJobs(),
-                
             ]);
             
             setJobs(jobsRes.data || []);
             setApplications(appsRes.data || []);
-            setCvs(cvsRes || []); // <-- 4. Save the list of CVs to state
+            setCvs(cvsRes || []); 
 
         } catch (err) {
             setError("Failed to load data.");
@@ -53,7 +51,6 @@ const SavedJobsView = ({ defaultCvId, onNavigateToWorkspace }) => {
         loadData();
     }, []);
 
-    // Create a lookup map to efficiently find the application for a job.
     const applicationMap = useMemo(() => {
         const map = new Map();
         for (const app of applications) {
@@ -62,31 +59,26 @@ const SavedJobsView = ({ defaultCvId, onNavigateToWorkspace }) => {
         return map;
     }, [applications]);
 
-    const handleAddJob = async (title, company) => {
-        if (!title || !company) return;
-        try {
-            await createJob(title, company);
-            setIsAddModalOpen(false);
-            loadData(); 
-        } catch (err) {
-            alert("Failed to create job.");
-            console.error(err);
-        }
-    };
-    
-    const handleOpenEditor = (jobId) => {
-        setEditingJobId(jobId);
-        setIsEditModalOpen(true);
+    // --- 3. New handlers for the unified modal ---
+    const handleOpenAddModal = () => {
+        setModalJobId(null); // Set ID to null for "Add" mode
+        setIsModalOpen(true);
     };
 
-    const handleCloseEditor = () => {
-        setEditingJobId(null);
-        setIsEditModalOpen(false);
+    const handleOpenEditModal = (jobId) => {
+        setModalJobId(jobId); // Set the job ID for "Edit" mode
+        setIsModalOpen(true);
+    };
+
+    const handleCloseModal = () => {
+        setIsModalOpen(false);
+        setModalJobId(null);
     };
     
     const handleJobUpdated = () => {
-        loadData(); 
+        loadData(); // Just reload the main list
     };
+    // --- End of new handlers ---
 
     const handleStartApplication = async (jobId, baseCvId) => {
         if (!baseCvId) { 
@@ -119,7 +111,7 @@ const SavedJobsView = ({ defaultCvId, onNavigateToWorkspace }) => {
                 </p>
                 <button 
                     className="btn btn-primary" 
-                    onClick={() => setIsAddModalOpen(true)}
+                    onClick={handleOpenAddModal} // <-- 4. Use new handler
                 >
                     + Add New Job
                 </button>
@@ -127,32 +119,29 @@ const SavedJobsView = ({ defaultCvId, onNavigateToWorkspace }) => {
 
             <div className="list-group">
                 {jobs.map(job => {
-                    // Find the specific application for this job
                     const application = applicationMap.get(job.id);
                     return (
                         <JobCard
                             key={job.id}
                             job={job}
-                            cvs={cvs} // <-- 5. Pass the full list of CVs
+                            cvs={cvs} 
                             defaultCvId={defaultCvId} 
-                            application={application} // Pass the application object
+                            application={application} 
                             onStartApplication={handleStartApplication}
-                            onEdit={() => handleOpenEditor(job.id)}
+                            onEdit={() => handleOpenEditModal(job.id)} // <-- 5. Use new handler
                         />
                     );
                 })}
             </div>
             
-            <AddJobModal
-                isOpen={isAddModalOpen}
-                onClose={() => setIsAddModalOpen(false)}
-                onSubmit={handleAddJob}
-            />
-            
-            <JobEditorModal
-                jobId={editingJobId}
-                isOpen={isEditModalOpen}
-                onClose={handleCloseEditor}
+            {/* --- 6. Render the new unified modal --- */}
+            {/* We add 'key' to force React to re-create the component */}
+            {/* when the modalJobId changes, ensuring state resets */}
+            <JobModal
+                key={modalJobId || 'new'} 
+                initialJobId={modalJobId}
+                isOpen={isModalOpen}
+                onClose={handleCloseModal}
                 onJobUpdated={handleJobUpdated}
             />
         </div>
