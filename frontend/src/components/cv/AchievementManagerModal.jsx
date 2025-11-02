@@ -63,7 +63,8 @@ const AchievementManagerModal = ({
       text: achievementData.text,
       context: achievementData.context,
       skill_ids: achievementData.existing_skill_ids || [], 
-      new_skills: achievementData.new_skills || []
+      new_skills: achievementData.new_skills || [],
+      existing_skill_ids: achievementData.existing_skill_ids || [],
     };
 
     if (editingPendingIndex > -1) {
