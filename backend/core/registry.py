@@ -155,18 +155,13 @@ class Registry:
 
         return new_skill_id_map, direct_new_skill_ids
 
+
     def _resolve_achievements(
         self,
         cv: CV,
         new_achievements_payload: List[PendingAchievementInput],
         new_skill_id_map: Dict[str, str]
     ) -> Tuple[List[str], Dict[str, str]]:
-        """
-        Creates all new achievements, linking skills correctly.
-        Returns:
-            - new_achievement_ids (List[str]): List of all *newly created* achievement IDs.
-            - original_to_new_ach_id_map (Dict[str, str]): Map of {original_id: new_ach_id}
-        """
         log.info("[Registry] Resolving achievements...")
         if not new_achievements_payload:
             log.info("[Registry] No new achievements to create.")
@@ -179,24 +174,52 @@ class Registry:
             # 1. Resolve skill IDs for this achievement
             new_skill_ids = [new_skill_id_map[s.name.lower()] for s in ach_payload.new_skills]
             final_ach_skill_ids = list(set(ach_payload.existing_skill_ids + new_skill_ids))
-            
-            log.info(f"[Registry] Creating achievement '{ach_payload.text[:30]}...' with skills {final_ach_skill_ids}")
 
-            # 2. Create the achievement
-            new_ach = cv.add_achievement(
-                text=ach_payload.text,
-                context=ach_payload.context,
-                skill_ids=final_ach_skill_ids
-            )
-            new_achievement_ids.append(new_ach.id)
+            # --- *** START MODIFICATION *** ---
             
-            # 3. If it was a *modified* master, map its original_id to the new one
+            # 2. Check if this is an in-place update of a master achievement
             if ach_payload.original_id:
-                original_to_new_ach_id_map[ach_payload.original_id] = new_ach.id
+                try:
+                    # Find the original achievement in the CV's master list
+                    master_ach_to_update = self._get_nested_entity(cv, 'achievements', ach_payload.original_id)
+                    
+                    # Update it in-place
+                    log.info(f"[Registry] Updating master achievement {master_ach_to_update.id} in-place.")
+                    master_ach_to_update.text = ach_payload.text
+                    master_ach_to_update.context = ach_payload.context or master_ach_to_update.context
+                    master_ach_to_update.skill_ids = final_ach_skill_ids
+                    master_ach_to_update.touch() # Update its timestamp
 
-        log.info(f"[Registry] Created {len(new_achievement_ids)} new achievements.")
+                    # Map the original_id to itself, so the Experience links back to it
+                    original_to_new_ach_id_map[ach_payload.original_id] = master_ach_to_update.id
+                    
+                    # We DO NOT add it to new_achievement_ids, because it's not a new achievement
+                    
+                except ValueError:
+                    # Fallback: Original not found, create a new one (original behavior)
+                    log.warning(f"[Registry] Original achievement {ach_payload.original_id} not found. Creating new achievement.")
+                    new_ach = cv.add_achievement(
+                        text=ach_payload.text,
+                        context=ach_payload.context,
+                        skill_ids=final_ach_skill_ids
+                    )
+                    new_achievement_ids.append(new_ach.id)
+                    original_to_new_ach_id_map[ach_payload.original_id] = new_ach.id # Map to the new one
+            else:
+                # --- ORIGINAL LOGIC ---
+                # This is a brand-new achievement (no original_id)
+                log.info(f"[Registry] Creating new achievement '{ach_payload.text[:30]}...' with skills {final_ach_skill_ids}")
+                new_ach = cv.add_achievement(
+                    text=ach_payload.text,
+                    context=ach_payload.context,
+                    skill_ids=final_ach_skill_ids
+                )
+                new_achievement_ids.append(new_ach.id)
+                
+            # --- *** END MODIFICATION *** ---
+
+        log.info(f"[Registry] Created {len(new_achievement_ids)} new achievements and updated others.")
         return new_achievement_ids, original_to_new_ach_id_map
-
 
     def create_experience_from_payload(self, cv_id: str, payload: ExperienceComplexPayload) -> Experience:
         log.info(f"[Registry] Starting complex create for Experience in CV {cv_id}")
