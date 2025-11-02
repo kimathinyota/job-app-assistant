@@ -154,6 +154,13 @@ class CV(BaseEntity):
         self.projects.append(proj)
         self.touch()
         return proj
+    
+    # --- *** NEWLY ADDED METHOD *** ---
+    def add_education(self, institution: str, degree: str, **kwargs) -> Education:
+        edu = Education.create(institution=institution, degree=degree, **kwargs)
+        self.education.append(edu)
+        self.touch()
+        return edu
 
     def add_hobby(self, name: str, description: Optional[str] = None) -> Hobby:
         hobby = Hobby.create(name=name, description=description)
@@ -445,6 +452,27 @@ class ExperienceComplexPayload(BaseModel):
     existing_achievement_ids: List[str] = Field(default_factory=list)
     new_achievements: List[PendingAchievementInput] = Field(default_factory=list)
 
+# --- *** NEW: Complex Payload Model for Education *** ---
+
+class EducationComplexPayload(BaseModel):
+    """
+    The all-in-one payload from the frontend to create or update an education
+    and all its new/modified dependencies in one API call.
+    """
+    # Core Education fields
+    institution: str
+    degree: str
+    field: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    
+    # Direct Skills
+    existing_skill_ids: List[str] = Field(default_factory=list)
+    new_skills: List[PendingSkillInput] = Field(default_factory=list)
+    
+    # Achievements
+    existing_achievement_ids: List[str] = Field(default_factory=list)
+    new_achievements: List[PendingAchievementInput] = Field(default_factory=list)
 
 # ---------------------------------------------------------------------
 # API Update Models (for PATCH operations)

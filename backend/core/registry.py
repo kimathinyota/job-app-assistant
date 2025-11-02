@@ -308,6 +308,91 @@ class Registry:
         log.info(f"[Registry] Successfully updated Experience {exp.id}")
         return exp
 
+    # --- *** NEWLY ADDED METHODS FOR EDUCATION *** ---
+
+    def create_education_from_payload(self, cv_id: str, payload: EducationComplexPayload) -> Education:
+        log.info(f"[Registry] Starting complex create for Education in CV {cv_id}")
+        cv = self.get_cv(cv_id)
+        if not cv:
+            raise ValueError("CV not found")
+
+        # Step 1: Create all new skills
+        new_skill_id_map, direct_new_skill_ids = self._resolve_skills(
+            cv, payload.new_skills, payload.new_achievements
+        )
+
+        # Step 2: Create all new achievements
+        new_achievement_ids, _ = self._resolve_achievements(
+            cv, payload.new_achievements, new_skill_id_map
+        )
+
+        # Step 3: Consolidate final ID lists
+        final_skill_ids = list(set(payload.existing_skill_ids + direct_new_skill_ids))
+        final_achievement_ids = list(set(payload.existing_achievement_ids + new_achievement_ids))
+
+        log.info(f"[Registry] Final Education skill_ids: {final_skill_ids}")
+        log.info(f"[Registry] Final Education achievement_ids: {final_achievement_ids}")
+
+        # Step 4: Create the Education (using the new CV.add_education method)
+        edu = cv.add_education(
+            institution=payload.institution,
+            degree=payload.degree,
+            field=payload.field,
+            start_date=payload.start_date,
+            end_date=payload.end_date,
+            skill_ids=final_skill_ids,
+            achievement_ids=final_achievement_ids
+        )
+
+        # Step 5: Save the entire updated CV
+        self._update("cvs", cv)
+        log.info(f"[Registry] Successfully created new Education {edu.id}")
+        return edu
+
+    def update_education_from_payload(self, cv_id: str, edu_id: str, payload: EducationComplexPayload) -> Education:
+        log.info(f"[Registry] Starting complex update for Education {edu_id} in CV {cv_id}")
+        cv = self.get_cv(cv_id)
+        if not cv: raise ValueError("CV not found")
+        
+        edu = self._get_nested_entity(cv, 'education', edu_id)
+        if not edu: raise ValueError("Education not found")
+
+        # Step 1: Resolve Skills
+        new_skill_id_map, direct_new_skill_ids = self._resolve_skills(
+            cv, payload.new_skills, payload.new_achievements
+        )
+
+        # Step 2: Resolve Achievements
+        new_achievement_ids, original_to_new_map = self._resolve_achievements(
+            cv, payload.new_achievements, new_skill_id_map
+        )
+
+        # Step 3: Consolidate final ID lists
+        final_skill_ids = list(set(payload.existing_skill_ids + direct_new_skill_ids))
+        final_achievement_ids = list(set(
+            payload.existing_achievement_ids + 
+            new_achievement_ids + 
+            list(original_to_new_map.values())
+        ))
+
+        log.info(f"[Registry] Final Education skill_ids: {final_skill_ids}")
+        log.info(f"[Registry] Final Education achievement_ids: {final_achievement_ids}")
+
+        # Step 4: Update the Education object directly
+        edu.institution = payload.institution
+        edu.degree = payload.degree
+        edu.field = payload.field
+        edu.start_date = payload.start_date
+        edu.end_date = payload.end_date
+        edu.skill_ids = final_skill_ids
+        edu.achievement_ids = final_achievement_ids
+        edu.touch()
+        
+        # Step 5: Save
+        self._update("cvs", cv)
+        log.info(f"[Registry] Successfully updated Education {edu.id}")
+        return edu
+
     # --- NESTED ADD METHODS (Originals, now used by helpers) ---
 
     def add_cv_experience(self, cv_id: str, title: str, company: str, **kwargs) -> Experience:
