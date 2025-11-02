@@ -24,11 +24,24 @@ class BaseEntity(BaseModel):
     def touch(self):
         self.updated_at = datetime.utcnow()
 
+
     @classmethod
     def create(cls, **kwargs):
+        # --- THIS IS THE FIX ---
+        # If 'id' is passed in as None, remove it so the
+        # default_factory can run. If a real ID is passed, use it.
+        if 'id' in kwargs and kwargs['id'] is None:
+            del kwargs['id']
+        elif 'id' not in kwargs:
+             kwargs['id'] = gen_id(cls.__name__.lower())
+        
         obj = cls(**kwargs)
-        obj.id = gen_id(cls.__name__.lower())
+        # Ensure the ID prefix is correct if a new ID was generated
+        if not kwargs.get('id'):
+             obj.id = gen_id(cls.__name__.lower())
+        
         return obj
+        # --- END OF FIX ---
 
 
 # ---------------------------------------------------------------------
@@ -231,12 +244,52 @@ class JobDescription(BaseEntity):
     features: List[JobDescriptionFeature] = Field(default_factory=list)
     notes: Optional[str] = None
 
+    # --- NEW FIELDS ---
+    job_url: Optional[str] = None
+    application_end_date: Optional[str] = None # Using str for YYYY-MM-DD from form
+    location: Optional[str] = None
+    salary_range: Optional[str] = None
+    notes: Optional[str] = None
+    # --- END NEW FIELDS ---
+
     def add_feature(self, description: str, type: str = "requirement") -> JobDescriptionFeature:
         f = JobDescriptionFeature.create(description=description, type=type)
         self.features.append(f)
         self.touch()
         return f
 
+# --- NEW UPSERT PAYLOAD ---
+class JobFeatureInput(BaseModel):
+    """Payload for a single feature. ID is optional (for new features)."""
+    id: Optional[str] = None # Will be null for new features
+    type: Literal[
+        "requirement",
+        "responsibility",
+        "value",
+        "nice_to_have",
+        "qualification",
+        "benefit",
+        "other",
+    ] = "requirement"
+    description: str
+
+class JobUpsertPayload(BaseModel):
+    """
+    The all-in-one payload to create or update a job.
+    The backend will handle creating new IDs for features.
+    """
+    id: Optional[str] = None # If null, create new job. If set, update job.
+    title: str
+    company: str
+    job_url: Optional[str] = None
+    application_end_date: Optional[str] = None
+    location: Optional[str] = None
+    salary_range: Optional[str] = None
+    notes: Optional[str] = None
+    
+    # The frontend will send the *full* list of features.
+    # The backend will replace the old list with this new one.
+    features: List[JobFeatureInput] = Field(default_factory=list)
 
 class MappingPair(BaseEntity):
     feature_id: str

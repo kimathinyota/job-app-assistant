@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, HTTPException
 from backend.core.registry import Registry
-from backend.core.models import JobDescriptionUpdate # Import the update model
+from backend.core.models import JobDescriptionUpdate, JobUpsertPayload # Import the update model
 from typing import Optional
 from backend.core.dependencies import registry 
 
@@ -59,3 +59,25 @@ def delete_feature(job_id: str, feature_id: str):
         return registry.delete_job_feature(job_id, feature_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    
+
+@router.post("/upsert")
+def upsert_job(payload: JobUpsertPayload):
+    """
+    Creates a new job (if payload.id is null) or
+    fully updates an existing job (if payload.id is provided).
+    This single endpoint replaces create, update, and feature management.
+    """
+    try:
+        return registry.upsert_job(payload)
+    # --- 2. ADD THIS CATCH BLOCK ---
+    except ValidationError as e:
+        log.error(f"Validation error in upsert_job: {e}", exc_info=True)
+        raise HTTPException(status_code=422, detail=f"Validation Error: {str(e)}")
+    # --- END OF FIX ---
+    except ValueError as e:
+        log.error(f"Value error in upsert_job: {e}", exc_info=True)
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        log.error(f"Unexpected error in upsert_job: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")

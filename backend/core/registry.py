@@ -99,6 +99,61 @@ class Registry:
         return {"status": "success", "message": "Feature deleted"}
     # --- END OF NEW METHOD ---
 
+
+    # --- ADD THIS NEW METHOD ---
+    def upsert_job(self, payload: JobUpsertPayload) -> JobDescription:
+        """
+        Creates a new job or updates an existing one (and its features)
+        from a single payload.
+        """
+        
+        # 1. Re-create the list of JobDescriptionFeature objects
+        # This also generates new IDs for any features that don't have one
+        processed_features = [
+            JobDescriptionFeature.create(
+                id=f.id or None, # Use existing ID if provided
+                type=f.type, 
+                description=f.description
+            ) for f in payload.features
+        ]
+
+        if payload.id:
+            # --- UPDATE ---
+            log.info(f"[Registry] Updating job {payload.id}")
+            job = self.get_job(payload.id)
+            if not job:
+                raise ValueError(f"Job with ID {payload.id} not found for update.")
+            
+            # Update all fields from payload
+            job.title = payload.title
+            job.company = payload.company
+            job.job_url = payload.job_url
+            job.application_end_date = payload.application_end_date
+            job.location = payload.location
+            job.salary_range = payload.salary_range
+            job.notes = payload.notes
+            
+            # Overwrite the features list entirely
+            job.features = processed_features
+            job.touch()
+            self._update("jobs", job)
+            return job
+            
+        else:
+            # --- CREATE ---
+            log.info("[Registry] Creating new job")
+            job = JobDescription.create(
+                title=payload.title,
+                company=payload.company,
+                job_url=payload.job_url,
+                application_end_date=payload.application_end_date,
+                location=payload.location,
+                salary_range=payload.salary_range,
+                notes=payload.notes,
+                features=processed_features
+            )
+            return self._insert("jobs", job)
+
     def get_job(self, job_id: str):
         return self._get("jobs", JobDescription, job_id)
 
