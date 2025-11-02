@@ -4,17 +4,18 @@ import {
     deleteBaseCV,
     fetchCVDetails,
     updateBaseCV,
-    // *** MODIFICATION: Import complex functions for BOTH ***
+    // *** MODIFICATION: Import complex functions for ALL ***
     addExperienceComplex,
     updateExperienceComplex,
-    addEducationComplex,     // <-- ADD
-    updateEducationComplex,   // <-- ADD
+    addEducationComplex,
+    updateEducationComplex,
+    addHobbyComplex,     // <-- ADD
+    updateHobbyComplex,   // <-- ADD
     // *** END MODIFICATION ***
     addSkill,
     addAchievement,
-    // addEducation, // <-- REMOVE (or keep for other forms)
     addProject,
-    addHobby,
+    // addHobby, // <-- REMOVE (or keep for other forms)
     deleteNestedItem
 } from '../api/cvClient';
 
@@ -22,12 +23,12 @@ import {
 import CVSelector from './cv/CVList';
 import NestedList from './cv/NestedList';
 import ExperienceManager from './cv/ExperienceManager';
-import EducationManager from './cv/EducationManager'; // <-- ADD
-// import EducationForm from './cv/EducationForm'; // <-- REMOVE (now handled by EducationManager)
+import EducationManager from './cv/EducationManager';
+import HobbyManager from './cv/HobbyManager'; // <-- ADD
+// import HobbyForm from './cv/HobbyForm'; // <-- REMOVE
 import ProjectForm from './cv/ProjectForm';
 import SkillForm from './cv/SkillForm';
 import AchievementForm from './cv/AchievementForm';
-import HobbyForm from './cv/HobbyForm';
 
 
 // --- SectionButton (Bootstrap Version) ---
@@ -123,14 +124,12 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
     };
 
     const handleStartEditItem = (item, sectionName) => {
-        // This handler is now ONLY for non-experience/education sections
         setEditingItem(item);
         setActiveSection(sectionName);
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
     const handleCancelEdit = () => {
-        // This clears state for ALL sections
         setEditingItem(null);
         setActiveSection(null); // Go back to dashboard on cancel
     };
@@ -142,11 +141,11 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
 
         const apiFunctions = {
             'Experience': { add: addExperienceComplex, update: updateExperienceComplex },
-            // *** MODIFICATION: Use complex functions for Education ***
             'Education': { add: addEducationComplex, update: updateEducationComplex },
+            // *** MODIFICATION: Use complex functions for Hobby ***
+            'Hobby': { add: addHobbyComplex, update: updateHobbyComplex },
             // *** END MODIFICATION ***
             'Project': { add: addProject, update: /* updateProject */ addProject },
-            'Hobby': { add: addHobby, update: /* updateHobby */ addHobby },
             'Achievement': { add: addAchievement, update: /* updateAchievement */ addAchievement },
             'Skill': { add: addSkill, update: /* updateSkill */ addSkill },
         };
@@ -232,19 +231,34 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
                     experiences={detailedCV.experiences || []}
                     allSkills={masterSkills}
                     allAchievements={masterAchievements}
-                    onSubmit={handleAddOrUpdateNestedItem} // Pass the main handler
-                    onDelete={handleDeleteNested}         // Pass the main handler
-                    onBack={handleCancelEdit} // Use the main cancel handler
+                    onSubmit={handleAddOrUpdateNestedItem}
+                    onDelete={handleDeleteNested}
+                    onBack={handleCancelEdit}
                 />
             );
         }
 
-        // --- *** NEW: Special Case for Education *** ---
+        // --- Special Case for Education ---
         if (activeSection === 'Education') {
             return (
                 <EducationManager
                     cvId={detailedCV.id}
                     education={detailedCV.education || []}
+                    allSkills={masterSkills}
+                    allAchievements={masterAchievements}
+                    onSubmit={handleAddOrUpdateNestedItem}
+                    onDelete={handleDeleteNested}
+                    onBack={handleCancelEdit}
+                />
+            );
+        }
+
+        // --- *** NEW: Special Case for Hobbies *** ---
+        if (activeSection === 'Hobbies') {
+            return (
+                <HobbyManager
+                    cvId={detailedCV.id}
+                    hobbies={detailedCV.hobbies || []}
                     allSkills={masterSkills}
                     allAchievements={masterAchievements}
                     onSubmit={handleAddOrUpdateNestedItem} // Pass the main handler
@@ -258,11 +272,10 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
 
         // --- Default logic for all OTHER sections ---
         const sectionMap = {
-            // 'Education': ... (REMOVED FROM HERE)
             'Projects': { Form: ProjectForm, items: detailedCV?.projects || [], listName: 'projects', formProps: { allSkills: masterSkills, allAchievements: masterAchievements } },
             'Skills': { Form: SkillForm, items: detailedCV?.skills || [], listName: 'skills', formProps: {} },
             'Achievements': { Form: AchievementForm, items: detailedCV?.achievements || [], listName: 'achievements', formProps: { allSkills: masterSkills } },
-            'Hobbies': { Form: HobbyForm, items: detailedCV?.hobbies || [], listName: 'hobbies', formProps: { allSkills: masterSkills, allAchievements: masterAchievements } },
+            // 'Hobbies': ... (REMOVED FROM HERE)
         };
 
         const current = sectionMap[activeSection];
@@ -325,7 +338,7 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
                         <p className="text-center text-primary">Loading CV details...</p>
                     ) : detailedCV ? (
                         <>
-                            {/* CV Header */}
+                            {/* CV Header (unchanged) */}
                             {!isEditingHeader ? (
                                 <div className="mb-4 pb-4 border-bottom border-primary-subtle position-relative">
                                     <h3 className="h4 m-0 text-primary">{detailedCV.name}</h3>
@@ -375,7 +388,7 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
                                 renderSectionDetail()
                             )}
 
-                            {/* Footer */}
+                            {/* Footer (unchanged) */}
                             <div className="border-top mt-4 pt-4 text-end">
                                 <button onClick={() => handleDeleteCV(detailedCV.id)} className="btn btn-danger">
                                     Delete This Entire CV

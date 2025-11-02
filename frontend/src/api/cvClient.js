@@ -98,6 +98,29 @@ export const updateEducationComplex = (cvId, eduId, data) => {
     return apiClient.patch(`/cv/${cvId}/education/${eduId}/complex`, data);
 };
 
+// --- *** NEW: Complex Hobby Endpoints *** ---
+
+/**
+ * Creates a new Hobby item and all its dependencies (skills, achievements)
+ * by sending the full complex payload to the backend.
+ * @param {string} cvId - The ID of the CV.
+ * @param {object} data - The HobbyComplexPayload object.
+ * @returns {Promise<object>} - The created Hobby object.
+ */
+export const addHobbyComplex = (cvId, data) => {
+    return apiClient.post(`/cv/${cvId}/hobby/complex`, data);
+};
+
+/**
+ * Updates an existing Hobby item and all its dependencies.
+ * @param {string} cvId - The ID of the CV.
+ * @param {string} hobbyId - The ID of the Hobby item to update.
+ * @param {object} data - The HobbyComplexPayload object.
+ * @returns {Promise<object>} - The updated Hobby object.
+ */
+export const updateHobbyComplex = (cvId, hobbyId, data) => {
+    return apiClient.patch(`/cv/${cvId}/hobby/${hobbyId}/complex`, data);
+};
 
 // --- NESTED ITEM ADDITION (CREATE) ---
 // Note: Uses query parameters (params in Axios config)
@@ -149,6 +172,7 @@ export const fetchAggregatedSkills = async (cvId, listName, itemId) => {
     const response = await apiClient.get(`/cv/${cvId}/${listName}/${itemId}/skills/aggregated`);
     return response.data; // Returns a list of Skill objects
 };
+
 
 // --- Add more client methods for nested UPDATE (PATCH) and UNLINK (DELETE) here ---
 
