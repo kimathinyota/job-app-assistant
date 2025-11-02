@@ -49,3 +49,13 @@ def add_feature(job_id: str, description: str, type: str = "requirement"):
         return registry.add_job_feature(job_id, description, type)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    
+
+# --- ADD THIS NEW ROUTE ---
+@router.delete("/{job_id}/feature/{feature_id}")
+def delete_feature(job_id: str, feature_id: str):
+    """Deletes a feature/requirement from a job description."""
+    try:
+        return registry.delete_job_feature(job_id, feature_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))

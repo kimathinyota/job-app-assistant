@@ -81,6 +81,24 @@ class Registry:
         self._update("jobs", job)
         return feature
 
+    # --- ADD THIS NEW METHOD ---
+    def delete_job_feature(self, job_id: str, feature_id: str):
+        """Finds a job and removes a feature from it by ID."""
+        job = self.get_job(job_id)
+        if not job:
+            raise ValueError("Job not found")
+        
+        initial_count = len(job.features)
+        job.features = [f for f in job.features if f.id != feature_id]
+        
+        if len(job.features) == initial_count:
+            raise ValueError("Feature not found on this job")
+            
+        job.touch()
+        self._update("jobs", job)
+        return {"status": "success", "message": "Feature deleted"}
+    # --- END OF NEW METHOD ---
+
     def get_job(self, job_id: str):
         return self._get("jobs", JobDescription, job_id)
 
@@ -943,7 +961,7 @@ class Registry:
         applications = self.all_applications()
         return {"jobs": jobs, "applications": applications}
     # --- END NEW METHOD ---
-    
+
     # ---- Cover Letters ----
     def create_cover_letter(self, job_id: str, base_cv_id: str, mapping_id: str):
         cover = CoverLetter.create(job_id=job_id, base_cv_id=base_cv_id, mapping_id=mapping_id)
