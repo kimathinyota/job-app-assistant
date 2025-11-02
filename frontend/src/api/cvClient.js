@@ -122,6 +122,29 @@ export const updateHobbyComplex = (cvId, hobbyId, data) => {
     return apiClient.patch(`/cv/${cvId}/hobby/${hobbyId}/complex`, data);
 };
 
+// --- *** NEW: Complex Project Endpoints *** ---
+
+/**
+ * Creates a new Project item and all its dependencies (skills, achievements)
+ * by sending the full complex payload to the backend.
+ * @param {string} cvId - The ID of the CV.
+ * @param {object} data - The ProjectComplexPayload object.
+ * @returns {Promise<object>} - The created Project object.
+ */
+export const addProjectComplex = (cvId, data) => {
+    return apiClient.post(`/cv/${cvId}/project/complex`, data);
+};
+
+/**
+ * Updates an existing Project item and all its dependencies.
+ * @param {string} cvId - The ID of the CV.
+ * @param {string} projectId - The ID of the Project item to update.
+ * @param {object} data - The ProjectComplexPayload object.
+ * @returns {Promise<object>} - The updated Project object.
+ */
+export const updateProjectComplex = (cvId, projectId, data) => {
+    return apiClient.patch(`/cv/${cvId}/project/${projectId}/complex`, data);
+};
 // --- NESTED ITEM ADDITION (CREATE) ---
 // Note: Uses query parameters (params in Axios config)
 

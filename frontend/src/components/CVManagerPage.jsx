@@ -9,13 +9,14 @@ import {
     updateExperienceComplex,
     addEducationComplex,
     updateEducationComplex,
-    addHobbyComplex,     // <-- ADD
-    updateHobbyComplex,   // <-- ADD
+    addHobbyComplex,
+    updateHobbyComplex,
+    addProjectComplex,     // <-- ADD
+    updateProjectComplex,   // <-- ADD
     // *** END MODIFICATION ***
     addSkill,
     addAchievement,
-    addProject,
-    // addHobby, // <-- REMOVE (or keep for other forms)
+    // addProject, // <-- REMOVE
     deleteNestedItem
 } from '../api/cvClient';
 
@@ -24,9 +25,9 @@ import CVSelector from './cv/CVList';
 import NestedList from './cv/NestedList';
 import ExperienceManager from './cv/ExperienceManager';
 import EducationManager from './cv/EducationManager';
-import HobbyManager from './cv/HobbyManager'; // <-- ADD
-// import HobbyForm from './cv/HobbyForm'; // <-- REMOVE
-import ProjectForm from './cv/ProjectForm';
+import HobbyManager from './cv/HobbyManager';
+import ProjectManager from './cv/ProjectManager'; // <-- ADD
+// import ProjectForm from './cv/ProjectForm'; // <-- REMOVE
 import SkillForm from './cv/SkillForm';
 import AchievementForm from './cv/AchievementForm';
 
@@ -142,10 +143,10 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
         const apiFunctions = {
             'Experience': { add: addExperienceComplex, update: updateExperienceComplex },
             'Education': { add: addEducationComplex, update: updateEducationComplex },
-            // *** MODIFICATION: Use complex functions for Hobby ***
             'Hobby': { add: addHobbyComplex, update: updateHobbyComplex },
+            // *** MODIFICATION: Use complex functions for Project ***
+            'Project': { add: addProjectComplex, update: updateProjectComplex },
             // *** END MODIFICATION ***
-            'Project': { add: addProject, update: /* updateProject */ addProject },
             'Achievement': { add: addAchievement, update: /* updateAchievement */ addAchievement },
             'Skill': { add: addSkill, update: /* updateSkill */ addSkill },
         };
@@ -208,6 +209,10 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
     // --- RENDER LOGIC ---
     const masterSkills = detailedCV?.skills || [];
     const masterAchievements = detailedCV?.achievements || [];
+    // NEW: Get experiences and education for the project manager
+    const masterExperiences = detailedCV?.experiences || [];
+    const masterEducation = detailedCV?.education || [];
+
 
     if (cvs.length === 0) {
         // ... (unchanged)
@@ -228,7 +233,7 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
             return (
                 <ExperienceManager
                     cvId={detailedCV.id}
-                    experiences={detailedCV.experiences || []}
+                    experiences={masterExperiences}
                     allSkills={masterSkills}
                     allAchievements={masterAchievements}
                     onSubmit={handleAddOrUpdateNestedItem}
@@ -243,7 +248,7 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
             return (
                 <EducationManager
                     cvId={detailedCV.id}
-                    education={detailedCV.education || []}
+                    education={masterEducation}
                     allSkills={masterSkills}
                     allAchievements={masterAchievements}
                     onSubmit={handleAddOrUpdateNestedItem}
@@ -252,13 +257,31 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
                 />
             );
         }
-
-        // --- *** NEW: Special Case for Hobbies *** ---
+        
+        // --- Special Case for Hobbies ---
         if (activeSection === 'Hobbies') {
             return (
                 <HobbyManager
                     cvId={detailedCV.id}
                     hobbies={detailedCV.hobbies || []}
+                    allSkills={masterSkills}
+                    allAchievements={masterAchievements}
+                    onSubmit={handleAddOrUpdateNestedItem}
+                    onDelete={handleDeleteNested}
+                    onBack={handleCancelEdit}
+                />
+            );
+        }
+        
+        // --- *** NEW: Special Case for Projects *** ---
+        if (activeSection === 'Projects') {
+            return (
+                <ProjectManager
+                    cvId={detailedCV.id}
+                    projects={detailedCV.projects || []}
+                    // Pass ALL master lists
+                    allExperiences={masterExperiences}
+                    allEducation={masterEducation}
                     allSkills={masterSkills}
                     allAchievements={masterAchievements}
                     onSubmit={handleAddOrUpdateNestedItem} // Pass the main handler
@@ -272,10 +295,9 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
 
         // --- Default logic for all OTHER sections ---
         const sectionMap = {
-            'Projects': { Form: ProjectForm, items: detailedCV?.projects || [], listName: 'projects', formProps: { allSkills: masterSkills, allAchievements: masterAchievements } },
+            // 'Projects': ... (REMOVED FROM HERE)
             'Skills': { Form: SkillForm, items: detailedCV?.skills || [], listName: 'skills', formProps: {} },
             'Achievements': { Form: AchievementForm, items: detailedCV?.achievements || [], listName: 'achievements', formProps: { allSkills: masterSkills } },
-            // 'Hobbies': ... (REMOVED FROM HERE)
         };
 
         const current = sectionMap[activeSection];
