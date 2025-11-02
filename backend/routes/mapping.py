@@ -42,10 +42,21 @@ def delete_mapping(mapping_id: str):
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
+
+
 @router.post("/{mapping_id}/pair")
-def add_mapping_pair(mapping_id: str, feature_id: str, experience_id: str, annotation: Optional[str] = None):
-    """Add a specific link (pair) between a job feature and a CV experience."""
-    # Logic to fetch objects to pass to registry is better handled in the route for validation
+# --- START CHANGES ---
+def add_mapping_pair(
+    mapping_id: str, 
+    feature_id: str, 
+    context_item_id: str,   # <-- Change from experience_id
+    context_item_type: str, # <-- Add this
+    annotation: Optional[str] = None
+):
+# --- END CHANGES ---
+    """Add a specific link (pair) between a job feature and a CV item."""
+    
+    # 1. Get Feature (No change)
     job = next((j for j in registry.all_jobs() if any(f.id == feature_id for f in j.features)), None)
     if not job:
         raise HTTPException(status_code=404, detail="Job Feature's parent Job not found")
@@ -53,6 +64,7 @@ def add_mapping_pair(mapping_id: str, feature_id: str, experience_id: str, annot
     if not feature:
         raise HTTPException(status_code=404, detail="Job Feature not found")
 
+    # 2. Get Mapping & CV (No change)
     mapping = registry.get_mapping(mapping_id)
     if not mapping:
         raise HTTPException(status_code=404, detail="Mapping not found")
@@ -60,11 +72,19 @@ def add_mapping_pair(mapping_id: str, feature_id: str, experience_id: str, annot
     cv = registry.get_cv(mapping.base_cv_id)
     if not cv:
         raise HTTPException(status_code=404, detail="Base CV not found for this mapping")
-    experience = next((e for e in cv.experiences if e.id == experience_id), None)
-    if not experience:
-        raise HTTPException(status_code=404, detail="CV Experience not found")
 
+    # --- START CHANGES ---
+    # 3. Get the generic CV item using the registry helper
     try:
-        return registry.add_mapping_pair(mapping_id, feature, experience, annotation)
+        context_item = registry._get_nested_entity(cv, context_item_type, context_item_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    if not context_item:
+        raise HTTPException(status_code=404, detail=f"CV Item {context_item_id} not found in {context_item_type}")
+
+    # 4. Call the updated registry function
+    try:
+        return registry.add_mapping_pair(mapping_id, feature, context_item, context_item_type, annotation)
+    # --- END CHANGES ---
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))

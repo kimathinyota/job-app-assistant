@@ -44,13 +44,20 @@ export const createMapping = (jobId, baseCvId) => {
     const params = new URLSearchParams({ job_id: jobId, base_cv_id: baseCvId });
     return apiClient.post(`/mapping/?${params.toString()}`);
 };
-export const addMappingPair = (mappingId, featureId, experienceId) => {
+
+
+// --- START CHANGES ---
+export const addMappingPair = (mappingId, featureId, contextItemId, contextItemType) => {
     const params = new URLSearchParams({ 
         feature_id: featureId, 
-        experience_id: experienceId 
+        context_item_id: contextItemId,
+        context_item_type: contextItemType
     });
     return apiClient.post(`/mapping/${mappingId}/pair?${params.toString()}`);
 };
+// --- END CHANGES ---
+
+
 export const deleteMappingPair = (mappingId, pairId) => {
     // This route isn't in your files, but is implied by your registry
     // Assuming it's DELETE /mapping/{mapping_id}/pair/{pair_id}
@@ -115,3 +122,4 @@ export const upsertJob = (jobData) => {
     // jobData is the full JobUpsertPayload
     return apiClient.post('/job/upsert', jobData);
 };
+

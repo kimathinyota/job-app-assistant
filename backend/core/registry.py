@@ -1072,12 +1072,46 @@ class Registry:
     def delete_mapping(self, mapping_id: str):
         return self._delete("mappings", mapping_id)
 
-    def add_mapping_pair(self, mapping_id: str, feature: JobDescriptionFeature, experience: Experience, annotation: Optional[str] = None):
+# --- THIS IS THE KEY LOGIC CHANGE ---
+    def add_mapping_pair(
+        self, 
+        mapping_id: str, 
+        feature: JobDescriptionFeature, 
+        # --- START CHANGES ---
+        context_item: Union[Experience, Project, Education, Hobby], # <-- Use the generic item
+        context_item_type: str, # <-- Know its type
+        # --- END CHANGES ---
+        annotation: Optional[str] = None
+    ):
         mapping = self.get_mapping(mapping_id)
         if not mapping:
             raise ValueError("Mapping not found")
         
-        pair = mapping.add_pair(feature, experience, annotation)
+        # --- START CHANGES ---
+        # Get the display text for the context item
+        if context_item_type == 'experiences':
+            item_text = f"{context_item.title} @ {context_item.company}"
+        elif context_item_type == 'projects':
+            item_text = f"{context_item.title} (Project)"
+        elif context_item_type == 'education':
+            item_text = f"{context_item.degree} @ {context_item.institution}"
+        elif context_item_type == 'hobbies':
+            item_text = f"{context_item.name} (Hobby)"
+        else:
+            item_text = "Unknown Item"
+            
+        pair = MappingPair.create(
+            feature_id=feature.id,
+            context_item_id=context_item.id,       # <-- Use new field
+            context_item_type=context_item_type,   # <-- Use new field
+            feature_text=feature.description,
+            context_item_text=item_text,           # <-- Use new field
+            annotation=annotation,
+        )
+        # --- END CHANGES ---
+        
+        self.pairs.append(pair)
+        self.touch()
         self._update("mappings", mapping)
         return pair
 

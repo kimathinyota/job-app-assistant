@@ -45,7 +45,7 @@ const ApplicationWorkspace = ({ applicationId, onExitWorkspace }) => {
                 setData({
                     application: app,
                     job: jobRes.data,
-                    cv: cvRes.data,
+                    cv: cvRes,
                     mapping: mappingRes.data
                 });
 
