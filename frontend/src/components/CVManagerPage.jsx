@@ -21,25 +21,21 @@ import {
 // --- Component Imports ---
 import CVSelector from './cv/CVList';
 import NestedList from './cv/NestedList';
-import ExperienceForm from './cv/ExperienceForm';
+// --- 1. Import the new ExperienceManager ---
+import ExperienceManager from './cv/ExperienceManager';
 import EducationForm from './cv/EducationForm';
 import ProjectForm from './cv/ProjectForm';
 import SkillForm from './cv/SkillForm';
 import AchievementForm from './cv/AchievementForm';
 import HobbyForm from './cv/HobbyForm';
-import AchievementManagerModal from './cv/AchievementManagerModal';
-import AchievementDisplayGrid from './cv/AchievementDisplayGrid';
-// --- 1. Import components needed for the display card ---
-import AggregatedSkillsDisplay from './cv/AggregatedSkillsDisplay';
+// (AchievementManagerModal and AchievementDisplayGrid are no longer needed here)
 
 
 // --- SectionButton (Bootstrap Version) ---
 const SectionButton = ({ title, count, onClick }) => (
     <button
         onClick={onClick}
-        // Use Bootstrap button styles with utility classes
         className="btn btn-light text-start p-3 shadow-sm"
-        // Keep flex styles for layout
         style={{ flex: '1 1 250px', minHeight: '100px' }}
     >
         <span className="fs-5 fw-bold text-primary d-block">{title}</span>
@@ -69,10 +65,10 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
     const [isEditingHeader, setIsEditingHeader] = useState(false);
     const [editFormData, setEditFormData] = useState({ name: '', summary: '' });
     
-    // --- 2. MODIFIED STATE: `editingItem` is now `editingExperienceId` ---
-    const [isCreatingExperience, setIsCreatingExperience] = useState(false);
-    const [editingExperienceId, setEditingExperienceId] = useState(null);
-    // This state is still used by other forms
+    // --- 2. REMOVE Experience-specific state ---
+    // const [isCreatingExperience, setIsCreatingExperience] = useState(false);
+    // const [editingExperienceId, setEditingExperienceId] = useState(null);
+    // This state is still used by OTHER forms
     const [editingItem, setEditingItem] = useState(null); 
 
     // --- Data Fetching Logic (unchanged) ---
@@ -93,11 +89,8 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
      useEffect(() => {
         setActiveSection(null);
         setIsEditingHeader(false);
-        // --- 3. Reset new state ---
+        // --- 3. Simplify state reset ---
         setEditingItem(null);
-        setIsCreatingExperience(false);
-        setEditingExperienceId(null);
-
 
         if (selectedCVId) {
             fetchAndSetDetails(selectedCVId);
@@ -136,24 +129,21 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
         }
     };
 
-    // --- 4. MODIFIED Handlers for item edits ---
+    // --- 4. Simplify Edit/Cancel Handlers ---
     const handleStartEditItem = (item, sectionName) => {
-        if (sectionName === 'Experiences') {
-            setEditingExperienceId(item.id);
-            setIsCreatingExperience(false); // Close create form if open
-        } else {
-            setEditingItem(item);
-        }
+        // This handler is now ONLY for non-experience sections
+        setEditingItem(item);
         setActiveSection(sectionName);
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
     const handleCancelEdit = () => {
+        // This clears state for ALL sections
         setEditingItem(null);
-        setIsCreatingExperience(false);
-        setEditingExperienceId(null);
+        setActiveSection(null); // Go back to dashboard on cancel
     };
 
+    // This handler is now generic and works for ExperienceManager too
     const handleAddOrUpdateNestedItem = async (cvId, data, itemType) => {
         const isUpdating = Boolean(data.id);
         const itemId = data.id;
@@ -211,22 +201,14 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
                 console.log(`Updating ${itemType} (${itemId}) with data:`, itemDataPayload);
                 await updateFn(cvId, itemId, itemDataPayload);
                 alert(`${itemType} updated successfully!`);
-                
-                // --- 5. Reset correct state ---
-                if (itemType === 'Experiences') {
-                    setEditingExperienceId(null);
-                } else {
-                    setEditingItem(null);
-                }
-
+                // --- 5. Simplify success state reset ---
+                setEditingItem(null); 
+                // The ExperienceManager will handle its own state
             } else {
                 console.log(`Creating ${itemType} with data:`, itemDataPayload);
                 await addFn(cvId, itemDataPayload);
                 alert(`${itemType} added successfully!`);
-                
-                if (itemType === 'Experiences') {
-                    setIsCreatingExperience(false);
-                }
+                // The ExperienceManager will handle its own state
             }
 
             fetchAndSetDetails(cvId);
@@ -285,136 +267,16 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
 
         // --- Special Case for Experiences ---
         if (activeSection === 'Experiences') {
-            // Helper function copied from NestedList.jsx
-            const getAchievements = (achievementIds = []) => {
-                if (!achievementIds || achievementIds.length === 0) return [];
-                return achievementIds
-                    .map(id => masterAchievements.find(a => a.id === id))
-                    .filter(ach => ach);
-            };
-
             return (
-                <div>
-                    <button onClick={() => { setActiveSection(null); handleCancelEdit(); }} className="btn btn-secondary mb-3">
-                        &larr; Back to CV Dashboard
-                    </button>
-                    
-                    <h3 className="h4 border-bottom pb-2 text-capitalize">
-                        Experiences
-                    </h3>
-
-                    {/* "Add New" Button */}
-                    {!isCreatingExperience && !editingExperienceId && (
-                        <button 
-                            className="btn btn-primary my-3"
-                            onClick={() => {
-                                setIsCreatingExperience(true);
-                                setEditingExperienceId(null);
-                                window.scrollTo({ top: 0, behavior: 'smooth' });
-                            }}
-                        >
-                            + Add New Experience
-                        </button>
-                    )}
-
-                    {/* "Create New" Form */}
-                    {isCreatingExperience && (
-                        <ExperienceForm
-                            key="new-experience-form"
-                            onSubmit={handleAddOrUpdateNestedItem}
-                            cvId={detailedCV.id}
-                            allSkills={masterSkills}
-                            allAchievements={masterAchievements}
-                            initialData={null} // 'create' mode
-                            onCancelEdit={handleCancelEdit}
-                        />
-                    )}
-                    
-                    {/* List of Experiences (Display or Edit) */}
-                    <ul className="list-group list-group-flush mt-3">
-                        {(detailedCV?.experiences || []).map(item => {
-                            if (item.id === editingExperienceId) {
-                                // --- RENDER EDIT FORM ---
-                                return (
-                                    <ExperienceForm
-                                        key={item.id}
-                                        onSubmit={handleAddOrUpdateNestedItem}
-                                        cvId={detailedCV.id}
-                                        allSkills={masterSkills}
-                                        allAchievements={masterAchievements}
-                                        initialData={item} // 'edit' mode
-                                        onCancelEdit={handleCancelEdit}
-                                    />
-                                );
-                            } else {
-                                // --- RENDER DISPLAY CARD (JSX from NestedList) ---
-                                const linkedAchievements = getAchievements(item.achievement_ids);
-                                return (
-                                    <li 
-                                        key={item.id} 
-                                        className="list-group-item p-3 mb-3 border shadow-sm rounded"
-                                    >
-                                        <div className="mb-2">
-                                            <strong className="fs-5 d-block">
-                                                {item.title || 'Untitled Experience'}
-                                            </strong>
-                                            {item.company && (
-                                                <span className="fw-medium fs-6 text-muted">
-                                                    @{item.company}
-                                                </span>
-                                            )}
-                                            {(item.start_date || item.end_date) && (
-                                                <span className="ms-2 small text-muted text-uppercase">
-                                                    ({item.start_date || '?'} – {item.end_date || 'Present'})
-                                                </span>
-                                            )}
-                                        </div>
-
-                                        {item.description && (
-                                            <p className="mb-2" style={{ whiteSpace: 'pre-wrap' }}>
-                                                {item.description}
-                                            </p>
-                                        )}
-
-                                        {linkedAchievements.length > 0 && (
-                                            <div className="mb-3">
-                                                <h6 className="small fw-bold mb-0">Key Achievements:</h6>
-                                                <AchievementDisplayGrid
-                                                    achievementsToDisplay={linkedAchievements}
-                                                    allSkills={masterSkills}
-                                                    isDisplayOnly={true}
-                                                />
-                                            </div>
-                                        )}
-
-                                        <div className="mt-2 pt-2 border-top">
-                                            <AggregatedSkillsDisplay
-                                                cvId={detailedCV.id}
-                                                listName="experiences"
-                                                itemId={item.id}
-                                            />
-                                        </div>
-                                        
-                                        <div className="mt-3 border-top pt-3 text-end">
-                                            <button 
-                                                onClick={() => handleStartEditItem(item, 'Experiences')} 
-                                                className="btn btn-warning btn-sm me-2"
-                                            >
-                                                Edit
-                                            </button>
-                                            <button 
-                                                onClick={() => handleDeleteNested(detailedCV.id, item.id, 'experiences')} 
-                                                className="btn btn-danger btn-sm"
-                                            >
-                                                Delete
-                                            </button>
-                                        </div>
-                                    </li>
-                                );
-                            }
-                        })}
-                    </ul>
-                </div>
+                <ExperienceManager
+                    cvId={detailedCV.id}
+                    experiences={detailedCV.experiences || []}
+                    allSkills={masterSkills}
+                    allAchievements={masterAchievements}
+                    onSubmit={handleAddOrUpdateNestedItem} // Pass the main handler
+                    onDelete={handleDeleteNested}         // Pass the main handler
+                    onBack={handleCancelEdit} // Use the main cancel handler
+                />
             );
         }
 
@@ -437,7 +299,7 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
 
         return (
             <div>
-                 <button onClick={() => { setActiveSection(null); handleCancelEdit(); }} className="btn btn-secondary mb-3">
+                 <button onClick={handleCancelEdit} className="btn btn-secondary mb-3">
                     &larr; Back to CV Dashboard
                 </button>
 
