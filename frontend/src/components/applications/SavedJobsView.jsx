@@ -8,6 +8,7 @@ import {
 } from '../../api/applicationClient';
 import JobCard from './JobCard';
 import AddJobModal from './AddJobModal';
+import JobEditorModal from './JobEditorModal'; // --- 1. Import the new modal ---
 
 const SavedJobsView = ({ defaultCvId, onNavigateToWorkspace }) => {
     const [loading, setLoading] = useState(true);
@@ -15,6 +16,11 @@ const SavedJobsView = ({ defaultCvId, onNavigateToWorkspace }) => {
     const [jobs, setJobs] = useState([]);
     const [applications, setApplications] = useState([]);
     const [isModalOpen, setIsModalOpen] = useState(false);
+
+    // --- 2. Add state for BOTH modals ---
+    const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [editingJobId, setEditingJobId] = useState(null);
 
     const loadData = async () => {
         setLoading(true);
@@ -52,12 +58,28 @@ const SavedJobsView = ({ defaultCvId, onNavigateToWorkspace }) => {
         try {
             await createJob(title, company);
             setIsModalOpen(false);
+            setIsAddModalOpen(false); // Use specific setter
             loadData(); // Refresh the list
         } catch (err) {
             alert("Failed to create job.");
             console.error(err);
         }
     };
+    // --- 3. Add handlers for the new modal ---
+    const handleOpenEditor = (jobId) => {
+        setEditingJobId(jobId);
+        setIsEditModalOpen(true);
+    };
+
+    const handleCloseEditor = () => {
+        setEditingJobId(null);
+        setIsEditModalOpen(false);
+    };
+    const handleJobUpdated = () => {
+        // This is called by the modal after a successful update
+        loadData(); // Just reload the main list
+    };
+    // --- End of new handlers ---
 
     const handleStartApplication = async (jobId) => {
         if (!defaultCvId) {
@@ -90,11 +112,11 @@ const SavedJobsView = ({ defaultCvId, onNavigateToWorkspace }) => {
         <div>
             <div className="d-flex justify-content-between align-items-center mb-3">
                 <p className="text-muted">
-                    Save jobs here *before* starting an application.
+                    Save and edit jobs here *before* starting an application.
                 </p>
                 <button 
                     className="btn btn-primary" 
-                    onClick={() => setIsModalOpen(true)}
+                    onClick={() => setIsAddModalOpen(true)} // Use specific setter
                 >
                     + Add New Job
                 </button>
@@ -107,14 +129,23 @@ const SavedJobsView = ({ defaultCvId, onNavigateToWorkspace }) => {
                         job={job}
                         hasApplication={appliedJobIds.has(job.id)}
                         onStartApplication={() => handleStartApplication(job.id)}
+                        onEdit={() => handleOpenEditor(job.id)} // --- 4. Pass the handler
                     />
                 ))}
             </div>
             
             <AddJobModal
-                isOpen={isModalOpen}
-                onClose={() => setIsModalOpen(false)}
+                isOpen={isAddModalOpen} // Use specific state
+                onClose={() => setIsAddModalOpen(false)} // Use specific setter
                 onSubmit={handleAddJob}
+            />
+            
+            {/* --- 5. Render the new modal --- */}
+            <JobEditorModal
+                jobId={editingJobId}
+                isOpen={isEditModalOpen}
+                onClose={handleCloseEditor}
+                onJobUpdated={handleJobUpdated}
             />
         </div>
     );

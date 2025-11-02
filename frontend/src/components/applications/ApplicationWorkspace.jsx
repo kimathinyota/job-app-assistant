@@ -7,7 +7,7 @@ import {
 } from '../../api/applicationClient';
 import { fetchCVDetails } from '../../api/cvClient'; // From your existing client
 
-import Step1_Mapping from './Step1_Mapping';
+import Step1_Mapping from './Step1_mapping';
 import Step2_GenerateCV from './Step2_GenerateCV';
 import Step3_BuildCoverLetter from './Step3_BuildCoverLetter';
 import Step4_Submit from './Step4_Submit';
@@ -72,6 +72,15 @@ const ApplicationWorkspace = ({ applicationId, onExitWorkspace }) => {
     if (error) return <p className="text-danger">{error}</p>;
 
     const { application, job, cv, mapping } = data;
+
+    // --- ADD THIS BLOCK OF CODE ---
+    // This ensures that even if loading is false,
+    // we wait until all data objects are populated before rendering.
+    if (!application || !job || !cv || !mapping) {
+        console.warn("Waiting for all data to be populated:", { application, job, cv, mapping });
+        return <p>Loading Workspace data...</p>;
+    }
+    // --- END OF FIX ---
 
     return (
         <div className="container-fluid text-start">

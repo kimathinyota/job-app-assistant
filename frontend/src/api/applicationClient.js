@@ -97,3 +97,15 @@ export const generateCoverLetterPrompt = (mappingId) => {
 };
 
 export const fetchAppSuiteData = () => apiClient.get('/application/app-suite-data/');
+
+// --- ADD THIS FUNCTION ---
+export const updateJob = (jobId, data) => {
+    // data should be { title: "New Title", company: "New Co" }
+    return apiClient.patch(`/job/${jobId}`, data);
+};
+
+
+// --- ADD THIS FUNCTION ---
+export const deleteJobFeature = (jobId, featureId) => {
+    return apiClient.delete(`/job/${jobId}/feature/${featureId}`);
+};
