@@ -243,7 +243,7 @@ const ExperienceForm = ({
         }
     };
 
-    // --- *** 1. NEW HANDLER FOR START DATE *** ---
+    // --- (Unchanged) ---
     const handleStartDateChange = (e) => {
         const newStartDate = e.target.value;
         setStartDate(newStartDate);
@@ -278,7 +278,7 @@ const ExperienceForm = ({
                 <input id="exp-company" type="text" value={company} onChange={(e) => setCompany(e.target.value)} placeholder="e.g., Acme Inc." required className="form-control"/>
             </div>
 
-            {/* --- *** 2. MODIFIED DATE PICKER JSX *** --- */}
+            {/* (Unchanged) */}
             <div className="row g-2 mb-3">
                 <div className="col-md-6">
                     <label htmlFor="exp-start" className="form-label fw-medium">Start Date</label>
@@ -305,7 +305,6 @@ const ExperienceForm = ({
                     </div>
                 </div>
             </div>
-            {/* --- *** END OF MODIFICATION *** --- */}
 
             <div className="mb-3">
                 <label htmlFor="exp-desc" className="form-label fw-medium">Description</label>
@@ -368,12 +367,17 @@ const ExperienceForm = ({
                  allSkills={allSkills}
              />
 
-            {/* --- Action Buttons (unchanged) --- */}
+            {/* --- *** 1. MODIFIED ACTION BUTTONS *** --- */}
             <div className="mt-3 border-top pt-3">
                 <button type="submit" className="btn btn-primary me-2">
                     {isEditing ? 'Save Changes' : 'Add Experience'}
                 </button>
-                {isEditing && (
+                
+                {/* Show the "Cancel" button if the onCancelEdit prop is provided.
+                  In ExperienceManager, this prop is *always* provided for both
+                  "create" and "edit" modes, and it correctly resets the state.
+                */}
+                {onCancelEdit && (
                     <button 
                         type="button" 
                         onClick={onCancelEdit} 
