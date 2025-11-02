@@ -11,6 +11,7 @@ const AchievementForm = ({
   onCancelEdit 
 }) => {
   const [text, setText] = useState('');
+  const [context, setContext] = useState(''); // <-- ADDED
   const [selectedSkillIds, setSelectedSkillIds] = useState([]);
   const [pendingSkills, setPendingSkills] = useState([]);
   const [isSkillModalOpen, setIsSkillModalOpen] = useState(false);
@@ -21,12 +22,14 @@ const AchievementForm = ({
   useEffect(() => {
     if (isEditing) {
       setText(initialData.text || '');
+      setContext(initialData.context || ''); // <-- ADDED
       // This is crucial: populate state from initialData
       setSelectedSkillIds(initialData.skill_ids || initialData.existing_skill_ids || []);
       setPendingSkills(initialData.new_skills || []);
     } else {
       // Reset form if not editing
       setText('');
+      setContext(''); // <-- ADDED
       setSelectedSkillIds([]);
       setPendingSkills([]);
     }
@@ -39,7 +42,7 @@ const AchievementForm = ({
     // Package the form's *current state*
     const dataToSend = {
       text: text,
-      context: 'Global', // This is fine for achievements
+      context: context || null, // <-- MODIFIED
       // Use keys that match what the parent expects
       existing_skill_ids: selectedSkillIds, 
       new_skills: pendingSkills
@@ -58,6 +61,7 @@ const AchievementForm = ({
     // (When editing, the modal handles resetting state)
     if (!isEditing) {
         setText('');
+        setContext(''); // <-- ADDED
         setSelectedSkillIds([]);
         setPendingSkills([]);
     }
@@ -81,6 +85,17 @@ const AchievementForm = ({
         className="form-control mb-3"
         rows="3"
       />
+
+      {/* --- ADDED THIS INPUT FIELD --- */}
+      <input
+        type="text"
+        value={context}
+        onChange={(e) => setContext(e.target.value)}
+        placeholder="Context (e.g., 'Global', 'Internal Project')"
+        className="form-control mb-3"
+      />
+      {/* --- END OF ADDED FIELD --- */}
+
 
       {/* Skill Management (unchanged) */}
       <div className="mb-3">

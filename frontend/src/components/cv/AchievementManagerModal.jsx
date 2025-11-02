@@ -42,6 +42,14 @@ const AchievementCard = ({
           {ach.text}
         </p>
 
+        {/* --- ADDED THIS --- */}
+        {ach.context && (
+            <span className="badge bg-secondary-subtle text-secondary-emphasis small mb-2">
+                Context: {ach.context}
+            </span>
+        )}
+        {/* --- END OF ADDED BLOCK --- */}
+
         {/* Skill Tags */}
         <div className="d-flex flex-wrap gap-1">
           {(ach.skill_ids || []).map((id) => (

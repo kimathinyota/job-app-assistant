@@ -1,4 +1,4 @@
- // frontend/src/components/cv/AchievementDisplayGrid.jsx
+// frontend/src/components/cv/AchievementDisplayGrid.jsx
 import React from 'react';
 
 const AchievementDisplayGrid = ({
@@ -50,6 +50,15 @@ const AchievementDisplayGrid = ({
                     <p className="card-text fw-medium mb-2" style={{ paddingRight: isDisplayOnly ? '0' : '2.5rem' }}>
                         {ach.text}
                     </p>
+                    
+                    {/* --- ADDED THIS --- */}
+                    {ach.context && (
+                        <span className="badge bg-secondary-subtle text-secondary-emphasis small mb-2">
+                            Context: {ach.context}
+                        </span>
+                    )}
+                    {/* --- END OF ADDED BLOCK --- */}
+
 
                     {/* Skill tags (unchanged) */}
                     <div className="d-flex flex-wrap gap-1">

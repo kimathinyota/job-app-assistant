@@ -1,18 +1,17 @@
 // frontend/src/App.jsx
 import React, { useState, useEffect } from 'react';
-// OLD: import { fetchAllCVs } from './api/client';
-import { fetchAllCVs } from './api/cvClient'; // *** FIXED IMPORT ***
+import { fetchAllCVs } from './api/cvClient'; // This is fine
 import './App.css'; 
 
 // --- Import Core Components ---
 import NavMenu from './components/NavMenu'; 
 import DashboardHome from './components/DashboardHome'; 
 import CVManagerPage from './components/CVManagerPage';
-import AppTrackerPage from './components/AppTrackerPage';
+import AppTrackerPage from './components/AppTrackerPage'; // This is now the tab container
 import GoalTrackerPage from './components/GoalTrackerPage'; 
+import ApplicationWorkspace from './components/applications/ApplicationWorkspace'; // --- NEW IMPORT ---
 
-
-// Define the available views mapping
+// Define the available main views
 const views = {
     'Dashboard': DashboardHome,
     'CV_Manager': CVManagerPage,
@@ -20,20 +19,26 @@ const views = {
     'Goal_Tracker': GoalTrackerPage,
 };
 
-
 function App() {
     const [activeView, setActiveView] = useState('Dashboard');
-    const [cvs, setCvs] = useState([]); // Keep base CV state high up
+    const [cvs, setCvs] = useState([]); 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
-    // Function to load data and refresh state (fetches base CVs for dashboard metric)
+    // --- NEW STATE for Workspace Navigation ---
+    const [activeWorkspaceId, setActiveWorkspaceId] = useState(null); // e.g., 'app_123'
+    const [defaultCvId, setDefaultCvId] = useState(null); // The CV to use for new apps
+
     const loadCoreData = async () => {
         setLoading(true);
         setError(null);
         try {
             const data = await fetchAllCVs();
             setCvs(data);
+            // --- NEW: Set a default CV ---
+            if (data.length > 0) {
+                setDefaultCvId(data[0].id);
+            }
         } catch (err) {
             setError('Failed to load core data. Ensure backend is running.');
             console.error(err);
@@ -42,12 +47,22 @@ function App() {
         }
     };
 
-    // Load data when the component mounts
     useEffect(() => {
         loadCoreData();
     }, []);
 
     const ActiveComponent = views[activeView];
+
+    // --- NEW: Handlers for navigation ---
+    const handleNavigateToWorkspace = (applicationId) => {
+        setActiveWorkspaceId(applicationId);
+    };
+
+    const handleExitWorkspace = () => {
+        setActiveWorkspaceId(null);
+        setActiveView('Application_Tracker'); // Go back to the app list
+        // We could also reload data here
+    };
 
     return (
         <div style={{ padding: '20px', maxWidth: '1400px', margin: '0 auto', textAlign: 'center', backgroundColor: '#f9f9f9', minHeight: '100vh' }}>
@@ -55,16 +70,33 @@ function App() {
                 Job Application Assistant
             </h1>
             
-            <NavMenu activeView={activeView} setActiveView={setActiveView} />
+            {/* Hide main nav when in workspace */}
+            {!activeWorkspaceId && (
+                <NavMenu activeView={activeView} setActiveView={setActiveView} />
+            )}
 
             <main>
                 {loading ? (
                     <p style={{ fontSize: '1.5em', color: '#007bff' }}>Loading initial data...</p>
                 ) : error ? (
                     <p style={{ color: 'red', fontWeight: 'bold' }}>Error: {error}</p>
+                ) : activeWorkspaceId ? (
+                    // --- NEW: Render Workspace ---
+                    <ApplicationWorkspace
+                        key={activeWorkspaceId} // Re-mounts component on ID change
+                        applicationId={activeWorkspaceId}
+                        onExitWorkspace={handleExitWorkspace}
+                    />
                 ) : (
-                    // Renders the active component and passes state
-                    <ActiveComponent cvs={cvs} setActiveView={setActiveView} reloadData={loadCoreData} />
+                    // --- Original View Logic ---
+                    <ActiveComponent 
+                        cvs={cvs} 
+                        setActiveView={setActiveView} 
+                        reloadData={loadCoreData} 
+                        // --- NEW PROPS ---
+                        defaultCvId={defaultCvId}
+                        onNavigateToWorkspace={handleNavigateToWorkspace}
+                    />
                 )}
             </main>
         </div>
