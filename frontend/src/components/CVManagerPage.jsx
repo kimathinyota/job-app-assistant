@@ -4,31 +4,27 @@ import {
     deleteBaseCV,
     fetchCVDetails,
     updateBaseCV,
-    addExperience,
-    updateExperience,
+    // *** MODIFICATION: Import new complex functions ***
+    addExperienceComplex,
+    updateExperienceComplex,
+    // *** END MODIFICATION ***
     addSkill,
     addAchievement,
     addEducation,
-    // Add updateEducation if/when created
     addProject,
-    // Add updateProject if/when created
     addHobby,
-    // Add updateHobby if/when created
     deleteNestedItem
-    // Import updateSkill, updateAchievement etc. when backend is ready
 } from '../api/cvClient';
 
 // --- Component Imports ---
 import CVSelector from './cv/CVList';
 import NestedList from './cv/NestedList';
-// --- 1. Import the new ExperienceManager ---
 import ExperienceManager from './cv/ExperienceManager';
 import EducationForm from './cv/EducationForm';
 import ProjectForm from './cv/ProjectForm';
 import SkillForm from './cv/SkillForm';
 import AchievementForm from './cv/AchievementForm';
 import HobbyForm from './cv/HobbyForm';
-// (AchievementManagerModal and AchievementDisplayGrid are no longer needed here)
 
 
 // --- SectionButton (Bootstrap Version) ---
@@ -65,9 +61,6 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
     const [isEditingHeader, setIsEditingHeader] = useState(false);
     const [editFormData, setEditFormData] = useState({ name: '', summary: '' });
     
-    // --- 2. REMOVE Experience-specific state ---
-    // const [isCreatingExperience, setIsCreatingExperience] = useState(false);
-    // const [editingExperienceId, setEditingExperienceId] = useState(null);
     // This state is still used by OTHER forms
     const [editingItem, setEditingItem] = useState(null); 
 
@@ -89,7 +82,6 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
      useEffect(() => {
         setActiveSection(null);
         setIsEditingHeader(false);
-        // --- 3. Simplify state reset ---
         setEditingItem(null);
 
         if (selectedCVId) {
@@ -129,7 +121,6 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
         }
     };
 
-    // --- 4. Simplify Edit/Cancel Handlers ---
     const handleStartEditItem = (item, sectionName) => {
         // This handler is now ONLY for non-experience sections
         setEditingItem(item);
@@ -143,81 +134,55 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
         setActiveSection(null); // Go back to dashboard on cancel
     };
 
-    // This handler is now generic and works for ExperienceManager too
+    // --- *** THIS IS THE NEW, SIMPLIFIED FUNCTION *** ---
     const handleAddOrUpdateNestedItem = async (cvId, data, itemType) => {
         const isUpdating = Boolean(data.id);
         const itemId = data.id;
-        let finalSkillIds = data.existing_skill_ids || [];
-        let finalAchievementIds = data.existing_achievement_ids || [];
 
         const apiFunctions = {
-            'Experience': { add: addExperience, update: updateExperience },
+            // *** MODIFICATION: Use complex functions for Experience ***
+            'Experience': { add: addExperienceComplex, update: updateExperienceComplex },
+            // *** END MODIFICATION ***
             'Education': { add: addEducation, update: /* updateEducation */ addEducation },
             'Project': { add: addProject, update: /* updateProject */ addProject },
             'Hobby': { add: addHobby, update: /* updateHobby */ addHobby },
             'Achievement': { add: addAchievement, update: /* updateAchievement */ addAchievement },
             'Skill': { add: addSkill, update: /* updateSkill */ addSkill },
         };
-
-        const { add: addFn, update: updateFn } = apiFunctions[itemType] || {};
-        if (!addFn || !updateFn) {
-            alert(`API functions not fully configured for ${itemType}`);
-            return;
-        }
+        
+        console.log(`[CVManager] Starting ${isUpdating ? 'update' : 'create'} for ${itemType}.`, "Sending data to backend:", data);
 
         try {
-            if (data.new_skills && data.new_skills.length > 0) {
-                 console.log("Creating new skills:", data.new_skills);
-                 const creationPromises = data.new_skills.map(skillData => addSkill(cvId, skillData));
-                 const results = await Promise.all(creationPromises);
-                 const newSkillIds = results.map(response => response.data.id);
-                 finalSkillIds = [...finalSkillIds, ...newSkillIds];
-                 const newSkills = results.map(response => response.data);
-                 setDetailedCV(prevCV => ({...prevCV, skills: [...(prevCV.skills || []), ...newSkills]}));
-                 await reloadData(); 
-            }
-            
-            if (data.new_achievements && data.new_achievements.length > 0) {
-                console.log("Creating new achievements:", data.new_achievements);
-                const creationPromises = data.new_achievements.map(achData => addAchievement(cvId, achData));
-                const results = await Promise.all(creationPromises);
-                const newAchievementIds = results.map(response => response.data.id);
-                finalAchievementIds = [...finalAchievementIds, ...newAchievementIds];
-                const newAchievements = results.map(response => response.data);
-                setDetailedCV(prevCV => ({...prevCV, achievements: [...(prevCV.achievements || []), ...newAchievements]}));
-                await reloadData();
-            }
-
-            const itemDataPayload = { ...data };
-            delete itemDataPayload.id;
-            delete itemDataPayload.existing_skill_ids;
-            delete itemDataPayload.new_skills;
-            delete itemDataPayload.existing_achievement_ids;
-            delete itemDataPayload.new_achievements;
-            itemDataPayload.skill_ids = finalSkillIds;
-            itemDataPayload.achievement_ids = finalAchievementIds;
+            const { add: addFn, update: updateFn } = apiFunctions[itemType] || {};
+            if (!addFn || !updateFn) throw new Error(`API functions not configured for ${itemType}`);
 
             if (isUpdating) {
-                console.log(`Updating ${itemType} (${itemId}) with data:`, itemDataPayload);
-                await updateFn(cvId, itemId, itemDataPayload);
+                console.log(`[CVManager] Calling update API for ${itemType} (${itemId})...`);
+                // For Experience, 'data' is the full complex payload
+                // For other items, it's the simple { name: ... } payload
+                await updateFn(cvId, itemId, data);
                 alert(`${itemType} updated successfully!`);
-                // --- 5. Simplify success state reset ---
                 setEditingItem(null); 
-                // The ExperienceManager will handle its own state
             } else {
-                console.log(`Creating ${itemType} with data:`, itemDataPayload);
-                await addFn(cvId, itemDataPayload);
+                console.log(`[CVManager] Calling create API for ${itemType}...`);
+                // For Experience, 'data' is the full complex payload
+                // For other items, it's the simple { name: ... } payload
+                await addFn(cvId, data);
                 alert(`${itemType} added successfully!`);
-                // The ExperienceManager will handle its own state
             }
-
-            fetchAndSetDetails(cvId);
+            
+            console.log("[CVManager] Process complete. Refetching details and reloading core data.");
+            // We reload *all* data here to ensure subsequent actions (like in ExperienceManager)
+            // have the absolute latest state for skills/achievements
+            await reloadData(); 
+            await fetchAndSetDetails(cvId); // Final refetch
 
         } catch (error) {
             alert(`Failed to ${isUpdating ? 'update' : 'add'} ${itemType}. Check console.`);
-            console.error(error);
+            console.error(`[CVManager] API call FAILED:`, error);
         }
     };
+    // --- *** END OF NEW FUNCTION *** ---
 
     const handleDeleteCV = async (cvIdToDelete) => {
         // ... (unchanged)
@@ -261,7 +226,6 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
         );
     }
 
-    // --- 6. MODIFIED Render Section Detail Helper ---
     const renderSectionDetail = () => {
          if (!activeSection) return null;
 
@@ -293,7 +257,6 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
         if (!current) return <p>Section not found.</p>;
 
         const { Form, items, listName, formProps } = current;
-        // Use the generic `editingItem` state here
         const currentEditingItem = (editingItem && editingItem.id && items.some(i => i.id === editingItem.id)) ? editingItem : null;
         const noun = listName.slice(0, -1); 
 

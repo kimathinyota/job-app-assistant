@@ -2,13 +2,15 @@
 
 from fastapi import APIRouter, HTTPException, Query # <-- Import Query
 from backend.core.registry import Registry
-from backend.core.models import CVUpdate, ExperienceUpdate # Import the update model
+from backend.core.models import CVUpdate, ExperienceUpdate, ExperienceComplexPayload # Import the update model
 
 from typing import Optional, List # Ensure List is imported
 from backend.core.dependencies import registry 
 
 
 router = APIRouter()
+# ... (Existing top-level CRUD endpoints: create_cv, list_cvs, etc. No changes needed here) ...
+
 # ... (Existing top-level CRUD endpoints: create_cv, list_cvs, etc. No changes needed here) ...
 
 @router.post("/")
@@ -27,6 +29,15 @@ def get_cv(cv_id: str):
     cv = registry.get_cv(cv_id)
     if not cv:
         raise HTTPException(status_code=404, detail="CV not found")
+    
+    if cv and cv.experiences:
+        # Sort experiences by start_date, descending (newest first).
+        # We use a default value ('0000-00-00') for any None or empty dates
+        # to ensure they are sorted to the bottom as the "oldest".
+        cv.experiences.sort(
+            key=lambda exp: exp.start_date or '0000-00-00', 
+            reverse=True
+        )
     return cv
 
 @router.patch("/{cv_id}")
@@ -50,39 +61,33 @@ def delete_cv(cv_id: str):
 # NESTED ADD ENDPOINTS (CV Components)
 # ---------------------------------------------------------------------
 
-@router.post("/{cv_id}/experience")
-def add_experience(
-    cv_id: str, 
-    title: str, 
-    company: str, 
-    start_date: Optional[str] = None, 
-    end_date: Optional[str] = None, 
-    description: Optional[str] = None,
-    skill_ids: Optional[List[str]] = Query(None) # <-- *** ADDED THIS LINE ***
-):
-    """Add a new experience entry to the CV."""
+# --- *** NEW: Complex Experience Endpoint (CREATE) *** ---
+@router.post("/{cv_id}/experience/complex")
+def add_experience_complex(cv_id: str, payload: ExperienceComplexPayload):
+    """
+    Creates a new experience and all its dependencies (new skills, new achievements)
+    from a single complex payload.
+    """
     try:
-        # *** ADDED skill_ids TO THE CALL ***
-        return registry.add_cv_experience(
-            cv_id, 
-            title=title, 
-            company=company, 
-            start_date=start_date, 
-            end_date=end_date, 
-            description=description, 
-            skill_ids=skill_ids
-        )
+        return registry.create_experience_from_payload(cv_id, payload)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-
-@router.patch("/{cv_id}/experience/{exp_id}") # Adjust response_model if needed
-def update_experience(cv_id: str, exp_id: str, data: ExperienceUpdate):
-    """Update an existing experience entry in the CV."""
+# --- *** NEW: Complex Experience Endpoint (UPDATE) *** ---
+@router.patch("/{cv_id}/experience/{exp_id}/complex")
+def update_experience_complex(cv_id: str, exp_id: str, payload: ExperienceComplexPayload):
+    """
+    Updates an existing experience and all its dependencies (new/modified skills
+    and achievements) from a single complex payload.
+    """
     try:
-        return registry.update_cv_experience(cv_id, exp_id, data)
+        return registry.update_experience_from_payload(cv_id, exp_id, payload)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+# --- *** OLD Endpoints Removed *** ---
+# @router.post("/{cv_id}/experience") ... (REMOVED)
+# @router.patch("/{cv_id}/experience/{exp_id}") ... (REMOVED)
     
 
 @router.post("/{cv_id}/education")

@@ -1,9 +1,14 @@
 # backend/core/registry.py
 
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 from backend.core.database import TinyDBManager
 from tinydb import where
 from backend.core.models import *
+import logging # <-- Import logging
+
+# Set up a logger for the registry
+log = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 
 class Registry:
@@ -94,38 +99,201 @@ class Registry:
     def delete_cv(self, cv_id: str):
         return self._delete("cvs", cv_id)
 
-    # --- THIS IS THE MODIFIED METHOD ---
     def get_cv(self, cv_id: str):
-        """Fetch a specific CV by ID and sort its experiences."""
-        cv = self._get("cvs", CV, cv_id)
-        
-        if cv and cv.experiences:
-            # Sort experiences by start_date, descending (newest first).
-            # We use a default value ('0000-00-00') for any None or empty dates
-            # to ensure they are sorted to the bottom as the "oldest".
-            cv.experiences.sort(
-                key=lambda exp: exp.start_date or '0000-00-00', 
-                reverse=True
-            )
-            
-        return cv
+        return self._get("cvs", CV, cv_id)
 
     def all_cvs(self):
         return self._all("cvs", CV)
     
-    # --- NESTED ADD METHODS ---
+    # --- *** NEW: Complex "Service Layer" Methods *** ---
 
-    def add_cv_experience(self, cv_id: str, title: str, company: str, skill_ids: Optional[List[str]] = None, **kwargs) -> Experience:
+    def _resolve_skills(
+        self, 
+        cv: CV, 
+        new_skills_direct: List[PendingSkillInput], 
+        new_achievements: List[PendingAchievementInput]
+    ) -> Tuple[Dict[str, str], List[str]]:
+        """
+        Gathers all unique skills from all sources, creates them, and returns maps.
+        Returns:
+            - new_skill_id_map (Dict[str, str]): Map of {skill_name.lower(): skill_id}
+            - direct_new_skill_ids (List[str]): List of skill IDs from new_skills_direct
+        """
+        log.info("[Registry] Resolving skills...")
+        skill_map: Dict[str, PendingSkillInput] = {}
+
+        # 1. Gather skills from the Experience itself
+        for skill in new_skills_direct:
+            skill_map.setdefault(skill.name.lower(), skill)
+        
+        # 2. Gather skills from all pending achievements
+        for ach in new_achievements:
+            for skill in ach.new_skills:
+                skill_map.setdefault(skill.name.lower(), skill)
+        
+        if not skill_map:
+            log.info("[Registry] No new skills to create.")
+            return {}, []
+
+        log.info(f"[Registry] Found {len(skill_map)} unique new skills to create.")
+        
+        # 3. Create all unique skills
+        new_skill_id_map: Dict[str, str] = {}
+        for skill in skill_map.values():
+            # Check if skill already exists in CV by name
+            existing_skill = next((s for s in cv.skills if s.name.lower() == skill.name.lower()), None)
+            if existing_skill:
+                new_skill_id_map[skill.name.lower()] = existing_skill.id
+                log.info(f"[Registry] Skill '{skill.name}' already exists with ID {existing_skill.id}.")
+            else:
+                new_skill = cv.add_skill(name=skill.name, category=skill.category)
+                new_skill_id_map[skill.name.lower()] = new_skill.id
+                log.info(f"[Registry] Created new skill '{new_skill.name}' with ID {new_skill.id}.")
+
+        # 4. Get the list of IDs for skills added *directly* to the experience
+        direct_new_skill_ids = [new_skill_id_map[s.name.lower()] for s in new_skills_direct]
+
+        return new_skill_id_map, direct_new_skill_ids
+
+    def _resolve_achievements(
+        self,
+        cv: CV,
+        new_achievements_payload: List[PendingAchievementInput],
+        new_skill_id_map: Dict[str, str]
+    ) -> Tuple[List[str], Dict[str, str]]:
+        """
+        Creates all new achievements, linking skills correctly.
+        Returns:
+            - new_achievement_ids (List[str]): List of all *newly created* achievement IDs.
+            - original_to_new_ach_id_map (Dict[str, str]): Map of {original_id: new_ach_id}
+        """
+        log.info("[Registry] Resolving achievements...")
+        if not new_achievements_payload:
+            log.info("[Registry] No new achievements to create.")
+            return [], {}
+
+        new_achievement_ids: List[str] = []
+        original_to_new_ach_id_map: Dict[str, str] = {}
+
+        for ach_payload in new_achievements_payload:
+            # 1. Resolve skill IDs for this achievement
+            new_skill_ids = [new_skill_id_map[s.name.lower()] for s in ach_payload.new_skills]
+            final_ach_skill_ids = list(set(ach_payload.existing_skill_ids + new_skill_ids))
+            
+            log.info(f"[Registry] Creating achievement '{ach_payload.text[:30]}...' with skills {final_ach_skill_ids}")
+
+            # 2. Create the achievement
+            new_ach = cv.add_achievement(
+                text=ach_payload.text,
+                context=ach_payload.context,
+                skill_ids=final_ach_skill_ids
+            )
+            new_achievement_ids.append(new_ach.id)
+            
+            # 3. If it was a *modified* master, map its original_id to the new one
+            if ach_payload.original_id:
+                original_to_new_ach_id_map[ach_payload.original_id] = new_ach.id
+
+        log.info(f"[Registry] Created {len(new_achievement_ids)} new achievements.")
+        return new_achievement_ids, original_to_new_ach_id_map
+
+
+    def create_experience_from_payload(self, cv_id: str, payload: ExperienceComplexPayload) -> Experience:
+        log.info(f"[Registry] Starting complex create for Experience in CV {cv_id}")
+        cv = self.get_cv(cv_id)
+        if not cv:
+            raise ValueError("CV not found")
+
+        # Step 1: Create all new skills
+        new_skill_id_map, direct_new_skill_ids = self._resolve_skills(
+            cv, payload.new_skills, payload.new_achievements
+        )
+
+        # Step 2: Create all new achievements
+        new_achievement_ids, _ = self._resolve_achievements(
+            cv, payload.new_achievements, new_skill_id_map
+        )
+
+        # Step 3: Consolidate final ID lists for the Experience
+        final_skill_ids = list(set(payload.existing_skill_ids + direct_new_skill_ids))
+        final_achievement_ids = list(set(payload.existing_achievement_ids + new_achievement_ids))
+
+        log.info(f"[Registry] Final Experience skill_ids: {final_skill_ids}")
+        log.info(f"[Registry] Final Experience achievement_ids: {final_achievement_ids}")
+
+        # Step 4: Create the Experience
+        exp = cv.add_experience(
+            title=payload.title,
+            company=payload.company,
+            start_date=payload.start_date,
+            end_date=payload.end_date,
+            description=payload.description,
+            skill_ids=final_skill_ids,
+            achievement_ids=final_achievement_ids
+        )
+
+        # Step 5: Save the entire updated CV
+        self._update("cvs", cv)
+        log.info(f"[Registry] Successfully created new Experience {exp.id}")
+        return exp
+
+    def update_experience_from_payload(self, cv_id: str, exp_id: str, payload: ExperienceComplexPayload) -> Experience:
+        log.info(f"[Registry] Starting complex update for Experience {exp_id} in CV {cv_id}")
         cv = self.get_cv(cv_id)
         if not cv:
             raise ValueError("CV not found")
         
-        # Pass all kwargs (like start_date, description) to the creator
-        exp = cv.add_experience(title=title, company=company, **kwargs)
+        exp = self._get_nested_entity(cv, 'experiences', exp_id)
+        if not exp:
+            raise ValueError("Experience not found")
+
+        # Step 1: Create all new skills
+        new_skill_id_map, direct_new_skill_ids = self._resolve_skills(
+            cv, payload.new_skills, payload.new_achievements
+        )
+
+        # Step 2: Create all new achievements
+        new_achievement_ids, original_to_new_map = self._resolve_achievements(
+            cv, payload.new_achievements, new_skill_id_map
+        )
+
+        # Step 3: Consolidate final ID lists for the Experience
+        final_skill_ids = list(set(payload.existing_skill_ids + direct_new_skill_ids))
         
-        # *** NEW: Set skill_ids if they were provided ***
-        if skill_ids:
-            exp.skill_ids = skill_ids
+        # For achievements, we take *unmodified* + *brand new* + *newly modified*
+        final_achievement_ids = list(set(
+            payload.existing_achievement_ids + 
+            new_achievement_ids + 
+            list(original_to_new_map.values())
+        ))
+
+        log.info(f"[Registry] Final Experience skill_ids: {final_skill_ids}")
+        log.info(f"[Registry] Final Experience achievement_ids: {final_achievement_ids}")
+
+        # Step 4: Update the Experience object directly
+        exp.title = payload.title
+        exp.company = payload.company
+        exp.start_date = payload.start_date
+        exp.end_date = payload.end_date
+        exp.description = payload.description
+        exp.skill_ids = final_skill_ids
+        exp.achievement_ids = final_achievement_ids
+        exp.touch()
+        
+        # Step 5: Save the entire updated CV
+        self._update("cvs", cv)
+        log.info(f"[Registry] Successfully updated Experience {exp.id}")
+        return exp
+
+    # --- NESTED ADD METHODS (Originals, now used by helpers) ---
+
+    def add_cv_experience(self, cv_id: str, title: str, company: str, **kwargs) -> Experience:
+        cv = self.get_cv(cv_id)
+        if not cv:
+            raise ValueError("CV not found")
+        
+        # Pass all kwargs (like start_date, description, skill_ids, achievement_ids)
+        exp = cv.add_experience(title=title, company=company, **kwargs)
         
         self._update("cvs", cv)
         return exp
@@ -193,15 +361,16 @@ class Registry:
         cv = self.get_cv(cv_id)
         if not cv:
             raise ValueError("CV not found")
-            
-        ach = cv.add_achievement(text=text, context=context)
         
-        # *** NEW: Set skill_ids if they were provided ***
-        if skill_ids:
-            ach.skill_ids = skill_ids
+        # Pass skill_ids via kwargs
+        ach = cv.add_achievement(text=text, context=context, skill_ids=skill_ids or [])
             
         self._update("cvs", cv)
         return ach
+    
+    # --- *** END NEW "Service Layer" Methods *** ---
+
+
     # UPDATE methods
     def update_cv_experience(self, cv_id: str, exp_id: str, update_data: ExperienceUpdate):
         return self._update_nested_item(cv_id, 'experiences', exp_id, update_data.model_dump(exclude_none=True))
@@ -871,3 +1040,4 @@ class Registry:
         app = self.get_application(app_id)
         return self.get_cv(app.base_cv_id) if app else None
     
+

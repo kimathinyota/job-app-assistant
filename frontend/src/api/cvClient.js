@@ -47,11 +47,37 @@ export const deleteBaseCV = async (cvId) => {
 };
 
 
+// --- *** NEW: Complex Experience Endpoints *** ---
+
+/**
+ * Creates a new Experience and all its dependencies (skills, achievements)
+ * by sending the full complex payload to the backend.
+ * @param {string} cvId - The ID of the CV.
+ * @param {object} data - The ExperienceComplexPayload object.
+ * @returns {Promise<object>} - The created Experience object.
+ */
+export const addExperienceComplex = (cvId, data) => {
+    // We send 'data' as the request body, not as params
+    return apiClient.post(`/cv/${cvId}/experience/complex`, data);
+};
+
+/**
+ * Updates an existing Experience and all its dependencies.
+ * @param {string} cvId - The ID of the CV.
+ * @param {string} expId - The ID of the Experience to update.
+ * @param {object} data - The ExperienceComplexPayload object.
+ * @returns {Promise<object>} - The updated Experience object.
+ */
+export const updateExperienceComplex = (cvId, expId, data) => {
+    // We send 'data' as the request body
+    return apiClient.patch(`/cv/${cvId}/experience/${expId}/complex`, data);
+};
+
+
 // --- NESTED ITEM ADDITION (CREATE) ---
 // Note: Uses query parameters (params in Axios config)
 
-export const addExperience = (cvId, data) => 
-    apiClient.post(`/cv/${cvId}/experience`, null, { params: data });
+// *** REMOVED old addExperience and updateExperience ***
 
 export const addEducation = (cvId, data) => 
     apiClient.post(`/cv/${cvId}/education`, null, { params: data });
@@ -68,14 +94,6 @@ export const addAchievement = (cvId, data) =>
 // *** --- NEWLY ADDED --- ***
 export const addHobby = (cvId, data) => 
     apiClient.post(`/cv/${cvId}/hobby`, null, { params: data });
-
-
-// *** --- NEWLY ADDED for Updating --- ***
-export const updateExperience = async (cvId, expId, updateData) => {
-    // updateData should be an object matching ExperienceUpdate model (non-null fields)
-    const response = await apiClient.patch(`/cv/${cvId}/experience/${expId}`, updateData);
-    return response.data;
-};
 
 
 // --- NESTED ITEM DELETION ---

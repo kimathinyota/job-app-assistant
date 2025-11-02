@@ -140,11 +140,14 @@ class CV(BaseEntity):
         self.touch()
         return skill
 
+    # *** MODIFICATION ***
+    # This now accepts **kwargs which will be used to pass skill_ids and achievement_ids
     def add_experience(self, title: str, company: str, **kwargs) -> Experience:
         exp = Experience.create(title=title, company=company, **kwargs)
         self.experiences.append(exp)
         self.touch()
         return exp
+    # *** END MODIFICATION ***
 
     def add_project(self, title: str, description: str, **kwargs) -> Project:
         proj = Project.create(title=title, description=description, **kwargs)
@@ -158,8 +161,9 @@ class CV(BaseEntity):
         self.touch()
         return hobby
 
-    def add_achievement(self, text: str, context: Optional[str] = None) -> Achievement:
-        ach = Achievement.create(text=text, context=context)
+    def add_achievement(self, text: str, context: Optional[str] = None, **kwargs) -> Achievement:
+        # **kwargs will be used to pass skill_ids
+        ach = Achievement.create(text=text, context=context, **kwargs)
         self.achievements.append(ach)
         self.touch()
         return ach
@@ -402,6 +406,44 @@ class Goal(BaseEntity):
         self.reflection = reflection or self.reflection
         self.progress = 1.0
         self.touch()
+
+
+# ---------------------------------------------------------------------
+# --- *** NEW: Complex Payload Models for Experience ***
+# ---------------------------------------------------------------------
+
+class PendingSkillInput(BaseModel):
+    """Payload for a skill that needs to be created."""
+    name: str
+    category: Literal["technical", "soft", "language", "other"] = "technical"
+
+class PendingAchievementInput(BaseModel):
+    """Payload for an achievement that needs to be created."""
+    text: str
+    context: Optional[str] = "Global"
+    original_id: Optional[str] = None # Used when modifying a master achievement
+    existing_skill_ids: List[str] = Field(default_factory=list)
+    new_skills: List[PendingSkillInput] = Field(default_factory=list)
+
+class ExperienceComplexPayload(BaseModel):
+    """
+    The all-in-one payload from the frontend to create or update an experience
+    and all its new/modified dependencies in one API call.
+    """
+    # Core Experience fields
+    title: str
+    company: str
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    description: Optional[str] = None
+    
+    # Direct Skills
+    existing_skill_ids: List[str] = Field(default_factory=list)
+    new_skills: List[PendingSkillInput] = Field(default_factory=list)
+    
+    # Achievements
+    existing_achievement_ids: List[str] = Field(default_factory=list)
+    new_achievements: List[PendingAchievementInput] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------
