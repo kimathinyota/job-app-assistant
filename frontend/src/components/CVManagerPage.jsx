@@ -16,25 +16,25 @@ import {
     
     // Simple Managers
     addSkill,
-    addAchievement, // Reverted to simple 'addAchievement'
+    // addAchievement, // No longer adding/editing achievements
     
     deleteNestedItem
 } from '../api/cvClient';
 
 // --- Component Imports ---
 import CVSelector from './cv/CVList';
-import NestedList from './cv/NestedList';
+// import NestedList from './cv//NestedList'; // No longer needed for Achievements
 
 // Managers
 import ExperienceManager from './cv/ExperienceManager';
 import EducationManager from './cv/EducationManager';
 import HobbyManager from './cv/HobbyManager';
 import ProjectManager from './cv/ProjectManager';
-import SkillsetManager from './cv/SkillsetManager'; // <-- NEW
+import SkillsetManager from './cv/SkillsetManager';
+import AchievementHub from './cv/AchievementHub'; // <-- NEW
 
-// Simple Forms (for split-screen)
-import AchievementForm from './cv/AchievementForm'; // <-- RE-ADDED
-// SkillForm is no longer imported here, it's used *by* SkillsetManager
+// Simple Forms
+// import AchievementForm from './cv/AchievementForm'; // <-- REMOVED
 
 
 // --- SectionButton (Bootstrap Version) ---
@@ -71,8 +71,8 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
     const [isEditingHeader, setIsEditingHeader] = useState(false);
     const [editFormData, setEditFormData] = useState({ name: '', summary: '' });
     
-    // This state is now only for the 'Achievements' section
-    const [editingItem, setEditingItem] = useState(null); 
+    // This state is no longer used
+    // const [editingItem, setEditingItem] = useState(null); 
 
     // --- Data Fetching Logic ---
      const fetchAndSetDetails = async (id) => {
@@ -92,7 +92,7 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
      useEffect(() => {
         setActiveSection(null);
         setIsEditingHeader(false);
-        setEditingItem(null);
+        // setEditingItem(null); // No longer needed
 
         if (selectedCVId) {
             fetchAndSetDetails(selectedCVId);
@@ -129,16 +129,12 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
         }
     };
 
-    const handleStartEditItem = (item, sectionName) => {
-        // This handler is now ONLY for the simple Achievements section
-        setEditingItem(item);
-        setActiveSection(sectionName);
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-    };
+    // This handler is no longer needed for Achievements
+    // const handleStartEditItem = (item, sectionName) => { ... };
 
     const handleCancelEdit = () => {
         // This clears state for ALL sections
-        setEditingItem(null);
+        // setEditingItem(null); // No longer needed
         setActiveSection(null); // Go back to dashboard on cancel
     };
 
@@ -147,17 +143,13 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
         const isUpdating = Boolean(data.id);
         const itemId = data.id;
 
+        // --- UPDATED: 'Achievement' is removed ---
         const apiFunctions = {
             'Experience': { add: addExperienceComplex, update: updateExperienceComplex },
             'Education': { add: addEducationComplex, update: updateEducationComplex },
             'Hobby': { add: addHobbyComplex, update: updateHobbyComplex },
             'Project': { add: addProjectComplex, update: updateProjectComplex },
-            
-            // --- REVERTED ACHIEVEMENT to simple ---
-            'Achievement': { add: addAchievement, update: addAchievement }, // Assumes addAchievement can handle updates (upsert)
-            
-            // --- Skill also uses simple add/upsert ---
-            'Skill': { add: addSkill, update: addSkill },
+            'Skill': { add: addSkill, update: addSkill }, // Skill still uses simple add/upsert
         };
         
         console.log(`[CVManager] Starting ${isUpdating ? 'update' : 'create'} for ${itemType}.`, "Sending data to backend:", data);
@@ -168,18 +160,15 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
                 apiFn = apiFunctions[itemType]?.update;
                 if (!apiFn) throw new Error(`Update API function not configured for ${itemType}`);
                 
-                // --- SPECIAL CASE for simple 'Skill' and 'Achievement' updates ---
-                // These types use a simple POST for upsert, not a PATCH
-                if (itemType === 'Skill' || itemType === 'Achievement') {
+                if (itemType === 'Skill') {
                     console.log(`[CVManager] Calling simple update API (via POST) for ${itemType} (${itemId})...`);
                     await apiFn(cvId, data); // Calls addSkill(cvId, data)
                 } else {
-                    // All other complex items use PATCH
                     console.log(`[CVManager] Calling complex update API (via PATCH) for ${itemType} (${itemId})...`);
                     await apiFn(cvId, itemId, data); // Calls update...Complex(cvId, itemId, data)
                 }
                 alert(`${itemType} updated successfully!`);
-                setEditingItem(null); 
+                // setEditingItem(null); // No longer needed
             } else {
                 apiFn = apiFunctions[itemType]?.add;
                 if (!apiFn) throw new Error(`Create API function not configured for ${itemType}`);
@@ -215,10 +204,11 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
     };
 
      const handleDeleteNested = async (cvIdToDeleteFrom, itemId, listName) => {
-        if (window.confirm(`Delete this item from ${listName}?`)) {
+        // We can ask for confirmation again here
+        if (window.confirm(`Are you sure you want to permanently delete this ${listName} item?`)) {
             try {
                 await deleteNestedItem(cvIdToDeleteFrom, itemId, listName);
-                fetchAndSetDetails(cvIdToDeleteFrom);
+                fetchAndSetDetails(cvIdToDeleteFrom); // Refetch details
             } catch (error) {
                 alert(`Error deleting item.`); console.error(error);
             }
@@ -303,7 +293,6 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
             );
         }
         
-        // --- NEW: Special Case for Skills ---
         if (activeSection === 'Skills') {
             return (
                 <SkillsetManager
@@ -321,59 +310,32 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
                 />
             );
         }
-        // --- END NEW CASE ---
         
-        // --- REVERTED: Achievements now uses the simple split-screen ---
-        const sectionMap = {
-            'Achievements': { Form: AchievementForm, items: detailedCV?.achievements || [], listName: 'achievements', formProps: { allSkills: masterSkills } },
-        };
+        // --- *** NEW: Special Case for Achievements *** ---
+        if (activeSection === 'Achievements') {
+            return (
+                <AchievementHub
+                    cvId={detailedCV.id}
+                    // Pass ALL CV data to build the map
+                    allSkills={masterSkills}
+                    allAchievements={masterAchievements}
+                    allExperiences={masterExperiences}
+                    allEducation={masterEducation}
+                    allProjects={masterProjects}
+                    allHobbies={masterHobbies}
+                    onDelete={handleDeleteNested}
+                    onBack={handleCancelEdit}
+                />
+            );
+        }
+        // --- *** END NEW CASE *** ---
 
+        // This section is now empty, as all sections are handled by managers.
+        const sectionMap = {};
         const current = sectionMap[activeSection];
-        // This fallback is now ONLY for 'Achievements'
-        if (!current) return <p>Section not found or is managed separately.</p>; 
+        if (!current) return <p>Section not found.</p>; 
 
-        // --- This split-screen logic now only runs for Achievements ---
-        const { Form, items, listName, formProps } = current;
-        const currentEditingItem = (editingItem && editingItem.id && items.some(i => i.id === editingItem.id)) ? editingItem : null;
-        const noun = listName.slice(0, -1); 
-
-        return (
-            <div>
-                 <button onClick={handleCancelEdit} className="btn btn-secondary mb-3">
-                    &larr; Back to CV Dashboard
-                </button>
-
-                {/* Use Bootstrap's grid system for layout */}
-                <div className="row g-4 mt-1">
-                    <div className="col-lg-5">
-                        <h3 className="h4 border-bottom pb-2 text-capitalize">
-                            {currentEditingItem ? `Edit ${noun}` : `Add New ${noun}`}
-                        </h3>
-                        <Form
-                            key={currentEditingItem?.id || 'new-item-form'}
-                            onSubmit={handleAddOrUpdateNestedItem}
-                            cvId={detailedCV.id}
-                            initialData={currentEditingItem}
-                            onCancelEdit={handleCancelEdit}
-                            {...formProps}
-                        />
-                    </div>
-                    <div className="col-lg-7">
-                        {!currentEditingItem && <h3 className="h4 border-bottom pb-2 text-capitalize">Existing {listName}</h3>}
-                        
-                        <NestedList
-                            cvId={detailedCV.id}
-                            items={items}
-                            listName={listName}
-                            onDelete={handleDeleteNested}
-                            onEdit={(item) => handleStartEditItem(item, activeSection)}
-                            allSkills={masterSkills}
-                            allAchievements={masterAchievements}
-                        />
-                    </div>
-                </div>
-            </div>
-        );
+        // ... (Old split-screen logic is no longer needed) ...
     };
 
 
@@ -413,7 +375,7 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
                                             id="cvName"
                                             type="text" 
                                             value={editFormData.name} 
-                                            onChange={(e) => setEditFormData({...editFormData, name: e.g.value})} 
+                                            onChange={(e) => setEditFormData({...editFormData, name: e.target.value})} 
                                             required 
                                             className="form-control"
                                         />
@@ -423,7 +385,7 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
                                         <textarea 
                                             id="cvSummary"
                                             value={editFormData.summary} 
-                                            onChange={(e) => setEditFormData({...editFormData, summary: e.g.value})} 
+                                            onChange={(e) => setEditFormData({...editFormData, summary: e.target.value})} 
                                             className="form-control"
                                             rows="3"
                                         />
