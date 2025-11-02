@@ -1,6 +1,6 @@
 // frontend/src/components/cv/ExperienceForm.jsx
 import React, { useState, useEffect } from 'react';
-import { fetchAggregatedSkills } from '../../api/cvClient'; // Keep this import
+// fetchAggregatedSkills is no longer needed here, we do it all locally
 import SkillManagerModal from './SkillManagerModal';
 import SelectedSkillsDisplay from './SelectedSkillsDisplay';
 import AchievementManagerModal from './AchievementManagerModal';
@@ -21,12 +21,11 @@ const ExperienceForm = ({
     const [endDate, setEndDate] = useState('');
     const [description, setDescription] = useState('');
     
-    // Skill state (unchanged)
-    const [selectedSkillIds, setSelectedSkillIds] = useState([]);
-    const [pendingSkills, setPendingSkills] = useState([]);
+    // State for *direct* skills (unchanged)
+    const [directSkillIds, setDirectSkillIds] = useState([]);
+    const [directPendingSkills, setDirectPendingSkills] = useState([]);
 
-    // *** 1. STATE CHANGE FOR ACHIEVEMENTS ***
-    // We now store full objects, not just IDs, to allow local modification
+    // State for achievements (unchanged)
     const [linkedExistingAchievements, setLinkedExistingAchievements] = useState([]);
     const [pendingAchievements, setPendingAchievements] = useState([]);
     
@@ -34,39 +33,32 @@ const ExperienceForm = ({
     const [isSkillModalOpen, setIsSkillModalOpen] = useState(false);
     const [isAchievementModalOpen, setIsAchievementModalOpen] = useState(false);
 
+    // State for "rolled-up" display (unchanged)
+    const [aggregatedSkillIds, setAggregatedSkillIds] = useState([]);
+    const [aggregatedPendingSkills, setAggregatedPendingSkills] = useState([]);
+
+    // *** 1. NEW STATE: To track skills that are disabled in the modal ***
+    const [disabledSkillsForModal, setDisabledSkillsForModal] = useState([]);
+
     const isEditing = Boolean(initialData);
 
+    // This effect populates the form on load (unchanged)
     useEffect(() => {
         if (isEditing) {
-            // Populate form fields
             setTitle(initialData.title || '');
             setCompany(initialData.company || '');
             setStartDate(initialData.start_date || '');
             setEndDate(initialData.end_date || '');
             setDescription(initialData.description || '');
             
-            // Load aggregated skills for the Skill modal
-            const loadAggregatedSkills = async () => {
-                try {
-                    const aggSkills = await fetchAggregatedSkills(cvId, 'experiences', initialData.id);
-                    setSelectedSkillIds(aggSkills.map(s => s.id));
-                } catch (err) {
-                    console.error("Failed to load aggregated skills, falling back to direct skills.", err);
-                    setSelectedSkillIds(initialData.skill_ids || []);
-                }
-            };
-            loadAggregatedSkills();
+            setDirectSkillIds(initialData.skill_ids || []);
+            setDirectPendingSkills([]); 
 
-            // *** 2. UPDATE: Populate new state with full objects ***
-            // Find the full achievement objects from the master list
             const initialAchievements = (initialData.achievement_ids || [])
                 .map(id => allAchievements.find(a => a.id === id))
                 .filter(Boolean)
-                .map(ach => ({ ...ach })); // Create copies
+                .map(ach => ({ ...ach })); 
             setLinkedExistingAchievements(initialAchievements);
-
-            // Reset pending items
-            setPendingSkills([]);
             setPendingAchievements([]);
         } else {
             // Reset form for "create new"
@@ -75,45 +67,90 @@ const ExperienceForm = ({
             setStartDate('');
             setEndDate('');
             setDescription('');
-            setSelectedSkillIds([]);
-            setPendingSkills([]);
-            // *** 3. UPDATE: Reset new state variable ***
+            setDirectSkillIds([]); 
+            setDirectPendingSkills([]); 
             setLinkedExistingAchievements([]);
             setPendingAchievements([]);
         }
-    }, [initialData, isEditing, cvId, allAchievements]); // Added allAchievements
+    }, [initialData, isEditing, cvId, allAchievements]); 
 
-    // *** 4. NEW: Wrapper function for the Achievement Modal ***
-    // This translates the ID list from the modal back into a list of objects
+    
+    // *** 2. MODIFIED: This effect now *also* calculates disabled skills ***
+    useEffect(() => {
+        const allIds = new Set(directSkillIds);
+        const achIds = new Set(); // Store achievement skill IDs separately
+
+        // Get all achievement skill IDs
+        linkedExistingAchievements.forEach(ach => {
+            (ach.skill_ids || []).forEach(id => achIds.add(id));
+        });
+        pendingAchievements.forEach(ach => {
+            (ach.skill_ids || []).forEach(id => achIds.add(id));
+        });
+
+        // Add achievement skills to the aggregated list
+        achIds.forEach(id => allIds.add(id));
+        setAggregatedSkillIds(Array.from(allIds));
+
+        // Calculate disabled skills:
+        // A skill is disabled if it's in `achIds` but NOT in `directSkillIds`
+        const directSet = new Set(directSkillIds);
+        const disabledIds = Array.from(achIds).filter(id => !directSet.has(id));
+        setDisabledSkillsForModal(disabledIds);
+
+        // Aggregate all pending skills (unchanged)
+        const allPending = [...directPendingSkills];
+        const pendingNames = new Set(directPendingSkills.map(s => s.name));
+        
+        pendingAchievements.forEach(ach => {
+            (ach.new_skills || []).forEach(ps => {
+                if (!pendingNames.has(ps.name)) {
+                    allPending.push(ps);
+                    pendingNames.add(ps.name);
+                }
+            });
+        });
+        setAggregatedPendingSkills(allPending);
+
+    }, [directSkillIds, directPendingSkills, linkedExistingAchievements, pendingAchievements]);
+    
+    
+    // handleExistingAchievementSelection handler (unchanged)
     const handleExistingAchievementSelection = (newIdList) => {
-        // Find newly added IDs
         const newIds = newIdList.filter(id => !linkedExistingAchievements.some(a => a.id === id));
-        // Find removed IDs
         const removedIds = linkedExistingAchievements.map(a => a.id).filter(id => !newIdList.includes(id));
-
         let newList = [...linkedExistingAchievements];
-        
-        // Remove deselected ones
         newList = newList.filter(a => !removedIds.includes(a.id));
-        
-        // Add newly selected ones (as full objects)
         newIds.forEach(id => {
             const ach = allAchievements.find(a => a.id === id);
             if (ach) {
-                // Add a *copy* so we can modify it locally
                 newList.push({ ...ach }); 
             }
         });
         setLinkedExistingAchievements(newList);
     };
 
-    // *** 5. UPDATED: The Skill Selection handler now updates BOTH lists ***
-    const handleSkillSelectionChange = (newSkillIdList) => {
-        // Find which skills were *removed* from the main list
-        const removedSkillIds = selectedSkillIds.filter(id => !newSkillIdList.includes(id));
+    // *** 3. MODIFIED: This handler now works with the aggregated list ***
+    const handleSkillSelectionChange = (newAggregatedList) => {
+        const oldAggregatedList = aggregatedSkillIds; // Get current aggregated list from state
 
+        // Find what was added or removed *from the aggregated list*
+        const removedSkillIds = oldAggregatedList.filter(id => !newAggregatedList.includes(id));
+        const addedSkillIds = newAggregatedList.filter(id => !oldAggregatedList.includes(id));
+
+        // --- Apply Changes to DIRECT skills ---
+        // Additions are *always* added to direct skills
+        if (addedSkillIds.length > 0) {
+            setDirectSkillIds(prev => [...new Set([...prev, ...addedSkillIds])]);
+        }
+        
+        // Removals are *always* removed from direct skills
+        // (Disabled skills from achievements couldn't be removed anyway)
         if (removedSkillIds.length > 0) {
-            // 1. Update pending (like before)
+             setDirectSkillIds(prev => prev.filter(id => !removedSkillIds.includes(id)));
+
+            // --- Now, run the achievement-pending logic (unchanged) ---
+            // This checks if removing the skill from *direct* also requires modifying an achievement
             setPendingAchievements(prevPending => 
                 prevPending.map(ach => ({
                     ...ach,
@@ -121,21 +158,33 @@ const ExperienceForm = ({
                 }))
             );
             
-            // 2. NEW: Update linked existing achievements (our local copies)
-            setLinkedExistingAchievements(prevLinked =>
-                prevLinked.map(ach => ({
-                    ...ach,
-                    // Filter out the removed skill IDs from each object
-                    skill_ids: (ach.skill_ids || []).filter(id => !removedSkillIds.includes(id))
-                }))
-            );
-        }
+            const newPendingFromMaster = [];
+            const stillLinkedMasterAchievements = []; 
 
-        // Finally, update the main skill list
-        setSelectedSkillIds(newSkillIdList);
+            linkedExistingAchievements.forEach(ach => {
+                const hasRemovedSkill = (ach.skill_ids || []).some(skillId => removedSkillIds.includes(skillId));
+                if (hasRemovedSkill) {
+                    newPendingFromMaster.push({
+                        ...ach,
+                        skill_ids: (ach.skill_ids || []).filter(id => !removedSkillIds.includes(id)),
+                        original_id: ach.id, 
+                        id: `pending-mod-${ach.id}-${Date.now()}` 
+                    });
+                } else {
+                    stillLinkedMasterAchievements.push(ach);
+                }
+            });
+
+            setLinkedExistingAchievements(stillLinkedMasterAchievements);
+            setPendingAchievements(prevPending => [
+                ...prevPending, 
+                ...newPendingFromMaster
+            ]);
+        }
     };
 
-    // *** 6. UPDATED: handleSubmit now reads from the new state ***
+
+    // handleSubmit (unchanged)
     const handleSubmit = (e) => {
         e.preventDefault();
         if (!title.trim() || !company.trim()) return;
@@ -146,9 +195,10 @@ const ExperienceForm = ({
             start_date: startDate || null,
             end_date: endDate || null,
             description: description || null,
-            existing_skill_ids: selectedSkillIds,
-            new_skills: pendingSkills,
-            // Send the IDs from our local object list
+            
+            existing_skill_ids: directSkillIds, 
+            new_skills: directPendingSkills,
+
             existing_achievement_ids: linkedExistingAchievements.map(a => a.id),
             new_achievements: pendingAchievements,
         };
@@ -165,15 +215,13 @@ const ExperienceForm = ({
             setStartDate('');
             setEndDate('');
             setDescription('');
-            setSelectedSkillIds([]);
-            setPendingSkills([]);
-            setLinkedExistingAchievements([]); // Reset new state
+            setDirectSkillIds([]);
+            setDirectPendingSkills([]);
+            setLinkedExistingAchievements([]); 
             setPendingAchievements([]);
         }
     };
 
-    // *** 7. UPDATED: This display list now uses the new state ***
-    // This will show the locally modified versions
     const allAchievementsToShow = [...linkedExistingAchievements, ...pendingAchievements];
 
 
@@ -188,12 +236,12 @@ const ExperienceForm = ({
                 {isEditing ? 'Edit Experience' : 'Add New Experience'}
             </h4>
 
-            {/* Form fields are unchanged */}
+            {/* Form fields (unchanged) */}
             <div className="mb-3">
                 <label htmlFor="exp-title" className="form-label fw-medium">Job Title</label>
                 <input id="exp-title" type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g., Senior Developer" required className="form-control" />
             </div>
-            <div className="mb-3">
+             <div className="mb-3">
                 <label htmlFor="exp-company" className="form-label fw-medium">Company</label>
                 <input id="exp-company" type="text" value={company} onChange={(e) => setCompany(e.target.value)} placeholder="e.g., Acme Inc." required className="form-control"/>
             </div>
@@ -212,7 +260,7 @@ const ExperienceForm = ({
                 <textarea id="exp-desc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Brief overview of responsibilities..." className="form-control" rows="3"/>
             </div>
 
-            {/* --- SKILLS Section --- */}
+            {/* --- SKILLS Section (unchanged) --- */}
             <div className="mb-3">
                 <strong className="form-label">Skills:</strong>
                 <button 
@@ -224,12 +272,12 @@ const ExperienceForm = ({
                 </button>
                 <SelectedSkillsDisplay
                     allSkills={allSkills}
-                    selectedSkillIds={selectedSkillIds}
-                    pendingSkills={pendingSkills}
+                    selectedSkillIds={aggregatedSkillIds}
+                    pendingSkills={aggregatedPendingSkills}
                 />
             </div>
 
-            {/* --- ACHIEVEMENTS Section --- */}
+            {/* --- ACHIEVEMENTS Section (unchanged) --- */}
             <div className="mb-3">
                  <strong className="form-label">Achievements:</strong>
                  <button 
@@ -239,9 +287,7 @@ const ExperienceForm = ({
                  >
                      Manage Achievements
                  </button>
-                 
                  <AchievementDisplayGrid
-                     // This now correctly passes our modified local list
                      achievementsToDisplay={allAchievementsToShow}
                      allSkills={allSkills}
                      isDisplayOnly={true}
@@ -249,21 +295,26 @@ const ExperienceForm = ({
             </div>
 
             {/* --- Modals --- */}
+            {/* *** 4. MODIFIED: Wire SkillManagerModal to aggregated state *** */}
             <SkillManagerModal
                 isOpen={isSkillModalOpen}
                 onClose={() => setIsSkillModalOpen(false)}
                 allSkills={allSkills}
-                selectedSkillIds={selectedSkillIds}
-                // *** 8. UPDATE: Pass the new handler ***
+                // Feed it the *full* list so all are pre-toggled
+                selectedSkillIds={aggregatedSkillIds}
+                // Feed it the *smart* handler
                 setSelectedSkillIds={handleSkillSelectionChange}
-                pendingSkills={pendingSkills}
-                setPendingSkills={setPendingSkills}
+                // Still manages *direct* pending skills
+                pendingSkills={directPendingSkills}
+                setPendingSkills={setDirectPendingSkills}
+                // Feed it the new *disabled* list
+                disabledSkillIds={disabledSkillsForModal}
             />
+            {/* This modal is for achievements and is unchanged */}
              <AchievementManagerModal
                  isOpen={isAchievementModalOpen}
                  onClose={() => setIsAchievementModalOpen(false)}
                  allAchievements={allAchievements}
-                 // *** 9. UPDATE: Pass IDs from new state and the new handler ***
                  selectedAchievementIds={linkedExistingAchievements.map(a => a.id)}
                  setSelectedAchievementIds={handleExistingAchievementSelection}
                  pendingAchievements={pendingAchievements}
@@ -271,7 +322,7 @@ const ExperienceForm = ({
                  allSkills={allSkills}
              />
 
-            {/* --- Action Buttons --- */}
+            {/* --- Action Buttons (unchanged) --- */}
             <div className="mt-3 border-top pt-3">
                 <button type="submit" className="btn btn-primary me-2">
                     {isEditing ? 'Save Changes' : 'Add Experience'}
