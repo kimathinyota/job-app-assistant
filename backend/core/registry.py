@@ -472,6 +472,88 @@ class Registry:
         log.info(f"[Registry] Successfully updated Hobby {hobby.id}")
         return hobby
 
+# --- *** NEWLY ADDED METHODS FOR PROJECT *** ---
+
+    def create_project_from_payload(self, cv_id: str, payload: ProjectComplexPayload) -> Project:
+        log.info(f"[Registry] Starting complex create for Project in CV {cv_id}")
+        cv = self.get_cv(cv_id)
+        if not cv:
+            raise ValueError("CV not found")
+
+        # Step 1: Create all new skills
+        new_skill_id_map, direct_new_skill_ids = self._resolve_skills(
+            cv, payload.new_skills, payload.new_achievements
+        )
+
+        # Step 2: Create all new achievements
+        new_achievement_ids, _ = self._resolve_achievements(
+            cv, payload.new_achievements, new_skill_id_map
+        )
+
+        # Step 3: Consolidate final ID lists
+        final_skill_ids = list(set(payload.existing_skill_ids + direct_new_skill_ids))
+        final_achievement_ids = list(set(payload.existing_achievement_ids + new_achievement_ids))
+
+        log.info(f"[Registry] Final Project skill_ids: {final_skill_ids}")
+        log.info(f"[Registry] Final Project achievement_ids: {final_achievement_ids}")
+
+        # Step 4: Create the Project
+        project = cv.add_project(
+            title=payload.title,
+            description=payload.description,
+            related_experience_id=payload.related_experience_id,
+            related_education_id=payload.related_education_id,
+            skill_ids=final_skill_ids,
+            achievement_ids=final_achievement_ids
+        )
+
+        # Step 5: Save the entire updated CV
+        self._update("cvs", cv)
+        log.info(f"[Registry] Successfully created new Project {project.id}")
+        return project
+
+    def update_project_from_payload(self, cv_id: str, project_id: str, payload: ProjectComplexPayload) -> Project:
+        log.info(f"[Registry] Starting complex update for Project {project_id} in CV {cv_id}")
+        cv = self.get_cv(cv_id)
+        if not cv: raise ValueError("CV not found")
+        
+        project = self._get_nested_entity(cv, 'projects', project_id)
+        if not project: raise ValueError("Project not found")
+
+        # Step 1: Resolve Skills
+        new_skill_id_map, direct_new_skill_ids = self._resolve_skills(
+            cv, payload.new_skills, payload.new_achievements
+        )
+
+        # Step 2: Resolve Achievements
+        new_achievement_ids, original_to_new_map = self._resolve_achievements(
+            cv, payload.new_achievements, new_skill_id_map
+        )
+
+        # Step 3: Consolidate final ID lists
+        final_skill_ids = list(set(payload.existing_skill_ids + direct_new_skill_ids))
+        final_achievement_ids = list(set(
+            payload.existing_achievement_ids + 
+            new_achievement_ids + 
+            list(original_to_new_map.values())
+        ))
+
+        # Step 4: Update the Project object directly
+        project.title = payload.title
+        project.description = payload.description
+        project.related_experience_id = payload.related_experience_id
+        project.related_education_id = payload.related_education_id
+        project.skill_ids = final_skill_ids
+        project.achievement_ids = final_achievement_ids
+        project.touch()
+        
+        # Step 5: Save
+        self._update("cvs", cv)
+        log.info(f"[Registry] Successfully updated Project {project.id}")
+        return project
+
+    # --- *** END NEW METHODS *** ---
+
     # --- NESTED ADD METHODS (Originals, now used by helpers) ---
 
     def add_cv_experience(self, cv_id: str, title: str, company: str, **kwargs) -> Experience:

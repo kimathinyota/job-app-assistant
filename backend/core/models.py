@@ -149,11 +149,13 @@ class CV(BaseEntity):
         return exp
     # *** END MODIFICATION ***
 
+    # --- *** MODIFICATION: Update add_project to accept **kwargs *** ---
     def add_project(self, title: str, description: str, **kwargs) -> Project:
         proj = Project.create(title=title, description=description, **kwargs)
         self.projects.append(proj)
         self.touch()
         return proj
+    # --- *** END MODIFICATION *** ---
     
     # --- *** NEWLY ADDED METHOD *** ---
     def add_education(self, institution: str, degree: str, **kwargs) -> Education:
@@ -493,6 +495,28 @@ class HobbyComplexPayload(BaseModel):
     existing_achievement_ids: List[str] = Field(default_factory=list)
     new_achievements: List[PendingAchievementInput] = Field(default_factory=list)
 
+# --- *** NEW: Complex Payload Model for Project *** ---
+
+class ProjectComplexPayload(BaseModel):
+    """
+    The all-in-one payload from the frontend to create or update a project
+    and all its new/modified dependencies in one API call.
+    """
+    # Core Project fields
+    title: str
+    description: Optional[str] = None
+    related_experience_id: Optional[str] = None
+    related_education_id: Optional[str] = None
+    
+    # Direct Skills
+    existing_skill_ids: List[str] = Field(default_factory=list)
+    new_skills: List[PendingSkillInput] = Field(default_factory=list)
+    
+    # Achievements
+    existing_achievement_ids: List[str] = Field(default_factory=list)
+    new_achievements: List[PendingAchievementInput] = Field(default_factory=list)
+
+# --- *** END NEW MODEL *** ---
 # --- *** END NEW MODEL *** ---
 
 # ---------------------------------------------------------------------

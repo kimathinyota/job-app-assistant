@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, HTTPException, Query # <-- Import Query
 from backend.core.registry import Registry
-from backend.core.models import CVUpdate, ExperienceUpdate, ExperienceComplexPayload, EducationComplexPayload, HobbyComplexPayload # Import the update model
+from backend.core.models import CVUpdate, ExperienceUpdate, ExperienceComplexPayload, EducationComplexPayload, HobbyComplexPayload, ProjectComplexPayload# Import the update model
 
 from typing import Optional, List # Ensure List is imported
 from backend.core.dependencies import registry 
@@ -225,6 +225,30 @@ def add_hobby(
         raise HTTPException(status_code=404, detail=str(e))
     
 
+# --- *** NEW: Complex Project Endpoints *** ---
+@router.post("/{cv_id}/project/complex")
+def add_project_complex(cv_id: str, payload: ProjectComplexPayload):
+    """
+    Creates a new project and all its dependencies (new skills, new achievements)
+    from a single complex payload.
+    """
+    try:
+        return registry.create_project_from_payload(cv_id, payload)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+@router.patch("/{cv_id}/project/{project_id}/complex")
+def update_project_complex(cv_id: str, project_id: str, payload: ProjectComplexPayload):
+    """
+    Updates an existing project and all its dependencies
+    from a single complex payload.
+    """
+    try:
+        return registry.update_project_from_payload(cv_id, project_id, payload)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+# --- *** END NEW ENDPOINTS *** ---
+
 @router.post("/{cv_id}/achievement")
 def add_achievement(
     cv_id: str, # <-- Corrected parameter name from cvId
@@ -246,6 +270,7 @@ def add_achievement(
 # ---------------------------------------------------------------------
 # NESTED LINKING ENDPOINTS (Skills and Achievements)
 # ---------------------------------------------------------------------
+
 
 # --- Skill Linking ---
 
