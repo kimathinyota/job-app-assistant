@@ -14,26 +14,26 @@ const ExperienceForm = ({
     initialData,
     onCancelEdit
 }) => {
-    // Form fields (unchanged)
+    // Form fields
     const [title, setTitle] = useState('');
     const [company, setCompany] = useState('');
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
     const [description, setDescription] = useState('');
     
-    // State for *direct* skills (unchanged)
+    // State for *direct* skills
     const [directSkillIds, setDirectSkillIds] = useState([]);
     const [directPendingSkills, setDirectPendingSkills] = useState([]);
 
-    // State for achievements (unchanged)
+    // State for achievements
     const [linkedExistingAchievements, setLinkedExistingAchievements] = useState([]);
     const [pendingAchievements, setPendingAchievements] = useState([]);
     
-    // Modal state (unchanged)
+    // Modal state
     const [isSkillModalOpen, setIsSkillModalOpen] = useState(false);
     const [isAchievementModalOpen, setIsAchievementModalOpen] = useState(false);
 
-    // State for "rolled-up" display (unchanged)
+    // State for "rolled-up" display
     const [aggregatedSkillIds, setAggregatedSkillIds] = useState([]);
     const [aggregatedPendingSkills, setAggregatedPendingSkills] = useState([]);
 
@@ -41,11 +41,15 @@ const ExperienceForm = ({
 
     const isEditing = Boolean(initialData);
 
-    // This effect populates the form on load (unchanged)
+    // This effect populates the form on load
     useEffect(() => {
         if (isEditing) {
             setTitle(initialData.title || '');
             setCompany(initialData.company || '');
+            // The date input will only display YYYY-MM-DD.
+            // If the old data is "Jan 2020", it will appear blank,
+            // prompting the user to re-select it in the new format.
+            // This is a good self-correcting mechanism.
             setStartDate(initialData.start_date || '');
             setEndDate(initialData.end_date || '');
             setDescription(initialData.description || '');
@@ -74,12 +78,11 @@ const ExperienceForm = ({
     }, [initialData, isEditing, cvId, allAchievements]); 
 
     
-    // This effect calculates the aggregated lists (unchanged, still correct)
+    // This effect calculates the aggregated lists (unchanged)
     useEffect(() => {
         const allIds = new Set(directSkillIds);
-        const achIds = new Set(); // Store achievement skill IDs separately
+        const achIds = new Set(); 
 
-        // Get all achievement skill IDs
         linkedExistingAchievements.forEach(ach => {
             (ach.skill_ids || []).forEach(id => achIds.add(id));
         });
@@ -87,16 +90,13 @@ const ExperienceForm = ({
             (ach.skill_ids || []).forEach(id => achIds.add(id));
         });
 
-        // Add achievement skills to the aggregated list
         achIds.forEach(id => allIds.add(id));
         setAggregatedSkillIds(Array.from(allIds));
 
-        // Calculate disabled skills:
         const directSet = new Set(directSkillIds);
         const disabledIds = Array.from(achIds).filter(id => !directSet.has(id));
         setDisabledSkillsForModal(disabledIds);
 
-        // Aggregate all pending skills (unchanged)
         const allPending = [...directPendingSkills];
         const pendingNames = new Set(directPendingSkills.map(s => s.name));
         
@@ -174,35 +174,18 @@ const ExperienceForm = ({
         }
     };
 
-    // --- *** 1. NEW "SMART" HANDLER *** ---
-    /**
-     * This function replaces `setDirectPendingSkills` as the prop for the modal.
-     * It receives the updater function from SkillLinker (e.g., prev => [...prev, newSkill])
-     * It then diffs the lists and applies changes to the *correct* state.
-     */
+    // "Smart" handler for pending skills (unchanged from your version)
     const smartSetAggregatedPendingSkills = (updaterFn) => {
-        // Get the list *before* the change
         const currentAggregated = aggregatedPendingSkills;
-        
-        // Get the list *after* the change
         const newAggregated = updaterFn(currentAggregated);
-
-        // --- Figure out what changed ---
         const currentNames = new Set(currentAggregated.map(s => s.name));
         const newNames = new Set(newAggregated.map(s => s.name));
-
-        // Find added skills (any skill in `newAggregated` not in `currentAggregated`)
         const addedSkills = newAggregated.filter(s => !currentNames.has(s.name));
-        
-        // Find removed skill names
         const removedSkillNames = currentAggregated
             .filter(s => !newNames.has(s.name))
             .map(s => s.name);
-
-        // --- Apply changes to the *real* state ---
         
         if (addedSkills.length > 0) {
-            // New skills from the main modal *always* go into `directPendingSkills`
             setDirectPendingSkills(prev => [
                 ...prev,
                 ...addedSkills.filter(added => !prev.some(p => p.name === added.name))
@@ -210,12 +193,9 @@ const ExperienceForm = ({
         }
 
         if (removedSkillNames.length > 0) {
-            // Remove the skill from `directPendingSkills` if it's there
             setDirectPendingSkills(prev => 
                 prev.filter(s => !removedSkillNames.includes(s.name))
             );
-            
-            // AND remove it from any pending achievements
             setPendingAchievements(prev => 
                 prev.map(ach => ({
                     ...ach,
@@ -225,7 +205,7 @@ const ExperienceForm = ({
         }
     };
 
-    // handleSubmit (unchanged)
+    // handleSubmit (unchanged, already supports null dates)
     const handleSubmit = (e) => {
         e.preventDefault();
         if (!title.trim() || !company.trim()) return;
@@ -263,6 +243,17 @@ const ExperienceForm = ({
         }
     };
 
+    // --- *** 1. NEW HANDLER FOR START DATE *** ---
+    const handleStartDateChange = (e) => {
+        const newStartDate = e.target.value;
+        setStartDate(newStartDate);
+        // If a new start date is set and the end date is *before* it, clear the end date.
+        if (endDate && newStartDate > endDate) {
+            setEndDate('');
+        }
+    };
+
+
     const allAchievementsToShow = [...linkedExistingAchievements, ...pendingAchievements];
 
 
@@ -286,16 +277,36 @@ const ExperienceForm = ({
                 <label htmlFor="exp-company" className="form-label fw-medium">Company</label>
                 <input id="exp-company" type="text" value={company} onChange={(e) => setCompany(e.target.value)} placeholder="e.g., Acme Inc." required className="form-control"/>
             </div>
+
+            {/* --- *** 2. MODIFIED DATE PICKER JSX *** --- */}
             <div className="row g-2 mb-3">
                 <div className="col-md-6">
                     <label htmlFor="exp-start" className="form-label fw-medium">Start Date</label>
-                    <input id="exp-start" type="text" value={startDate} onChange={(e) => setStartDate(e.target.value)} placeholder="e.g., Jan 2020" className="form-control"/>
+                    <input 
+                        id="exp-start" 
+                        type="date" 
+                        value={startDate} 
+                        onChange={handleStartDateChange} // Use new handler
+                        className="form-control"
+                    />
                 </div>
                 <div className="col-md-6">
                     <label htmlFor="exp-end" className="form-label fw-medium">End Date</label>
-                    <input id="exp-end" type="text" value={endDate} onChange={(e) => setEndDate(e.target.value)} placeholder="e.g., Present" className="form-control"/>
+                    <input 
+                        id="exp-end" 
+                        type="date" 
+                        value={endDate} 
+                        onChange={(e) => setEndDate(e.target.value)} 
+                        min={startDate} // Set min date based on start date
+                        className="form-control"
+                    />
+                    <div className="form-text">
+                        Leave blank for 'Present' or ongoing.
+                    </div>
                 </div>
             </div>
+            {/* --- *** END OF MODIFICATION *** --- */}
+
             <div className="mb-3">
                 <label htmlFor="exp-desc" className="form-label fw-medium">Description</label>
                 <textarea id="exp-desc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Brief overview of responsibilities..." className="form-control" rows="3"/>
@@ -335,25 +346,17 @@ const ExperienceForm = ({
                  />
             </div>
 
-            {/* --- Modals --- */}
-            
-            {/* --- *** 2. MODIFIED: Wire SkillManagerModal to new props *** --- */}
+            {/* --- Modals (unchanged) --- */}
             <SkillManagerModal
                 isOpen={isSkillModalOpen}
                 onClose={() => setIsSkillModalOpen(false)}
                 allSkills={allSkills}
                 selectedSkillIds={aggregatedSkillIds}
                 setSelectedSkillIds={handleSkillSelectionChange}
-                
-                // Pass the *full* aggregated list to display
                 pendingSkills={aggregatedPendingSkills}
-                // Pass the *smart* handler to manage changes
                 setPendingSkills={smartSetAggregatedPendingSkills}
-                
                 disabledSkillIds={disabledSkillsForModal}
             />
-            
-            {/* This modal is for achievements and is unchanged */}
              <AchievementManagerModal
                  isOpen={isAchievementModalOpen}
                  onClose={() => setIsAchievementModalOpen(false)}
