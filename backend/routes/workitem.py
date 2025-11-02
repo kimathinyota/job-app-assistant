@@ -4,9 +4,9 @@ from fastapi import APIRouter, HTTPException
 from typing import Optional, List # Ensure List is imported
 from backend.core.registry import Registry
 from backend.core.models import WorkItemUpdate # Import the update model
+from backend.core.dependencies import registry 
 
 router = APIRouter()
-registry = Registry()
 
 # ---------------------------------------------------------------------
 # WorkItem Endpoints

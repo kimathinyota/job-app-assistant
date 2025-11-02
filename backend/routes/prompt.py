@@ -3,9 +3,9 @@
 from fastapi import APIRouter, HTTPException
 from backend.core.registry import Registry
 from backend.core.models import AIPromptResponse # Import the response model
+from backend.core.dependencies import registry 
 
 router = APIRouter()
-registry = Registry()
 
 @router.post("/generate-cv-prompt", response_model=AIPromptResponse)
 def generate_cv_prompt(base_cv_id: str, job_id: str):

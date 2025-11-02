@@ -3,9 +3,9 @@
 from fastapi import APIRouter, HTTPException
 from backend.core.registry import Registry
 from typing import Optional, List # Ensure List is imported
+from backend.core.dependencies import registry 
 
 router = APIRouter()
-registry = Registry()
 
 @router.post("/")
 def create_cover_letter(job_id: str, base_cv_id: str, mapping_id: str):

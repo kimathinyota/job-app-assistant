@@ -5,11 +5,10 @@ from backend.core.registry import Registry
 from backend.core.models import CVUpdate, ExperienceUpdate # Import the update model
 
 from typing import Optional, List # Ensure List is imported
+from backend.core.dependencies import registry 
 
 
 router = APIRouter()
-registry = Registry()
-
 # ... (Existing top-level CRUD endpoints: create_cv, list_cvs, etc. No changes needed here) ...
 
 @router.post("/")

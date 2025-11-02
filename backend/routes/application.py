@@ -4,9 +4,10 @@ from fastapi import APIRouter, HTTPException
 from backend.core.registry import Registry
 from backend.core.models import ApplicationUpdate, ApplicationStatus # Import update models
 from typing import Optional
+from backend.core.dependencies import registry 
+
 
 router = APIRouter()
-registry = Registry()
 
 @router.post("/")
 def create_application(job_id: str, base_cv_id: str, mapping_id: Optional[str] = None, derived_cv_id: Optional[str] = None):

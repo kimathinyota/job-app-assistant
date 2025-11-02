@@ -4,9 +4,9 @@ from fastapi import APIRouter, HTTPException
 from typing import Optional
 from backend.core.registry import Registry
 from backend.core.models import GoalUpdate # Import the update model
+from backend.core.dependencies import registry 
 
 router = APIRouter()
-registry = Registry()
 
 # ---------------------------------------------------------------------
 # Goal Endpoints

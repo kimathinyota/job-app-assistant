@@ -4,9 +4,9 @@ from fastapi import APIRouter, HTTPException
 from backend.core.registry import Registry
 from backend.core.models import JobDescriptionUpdate # Import the update model
 from typing import Optional
+from backend.core.dependencies import registry 
 
 router = APIRouter()
-registry = Registry()
 
 @router.post("/")
 def create_job(title: str, company: str, notes: Optional[str] = None):
