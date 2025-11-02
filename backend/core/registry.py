@@ -935,7 +935,15 @@ class Registry:
     def all_applications(self):
         return self._all("applications", Application)
 
-
+    # --- NEW METHOD ---
+    def get_app_suite_data(self) -> Dict[str, Any]:
+        """Fetches all jobs and applications for the app suite view."""
+        log.info("[Registry] Fetching all jobs and applications...")
+        jobs = self.all_jobs()
+        applications = self.all_applications()
+        return {"jobs": jobs, "applications": applications}
+    # --- END NEW METHOD ---
+    
     # ---- Cover Letters ----
     def create_cover_letter(self, job_id: str, base_cv_id: str, mapping_id: str):
         cover = CoverLetter.create(job_id=job_id, base_cv_id=base_cv_id, mapping_id=mapping_id)

@@ -641,6 +641,13 @@ class InterviewQuestionUpdate(BaseModel):
     answer: Optional[str] = None
     stage: Optional[str] = None
 
+class AppSuiteData(BaseModel):
+    """
+    A combined response model for fetching all data
+    needed for the Application Suite view.
+    """
+    jobs: List[JobDescription]
+    applications: List[Application]
 
 # ---------------------------------------------------------------------
 # AI Prompt Generation Models
