@@ -343,3 +343,38 @@ def get_aggregated_skills(cv_id: str, entity_list_name: str, entity_id: str):
         return registry.get_aggregated_skills_for_entity(cv_id, entity_list_name, entity_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    
+
+@router.delete("/{cv_id}/{list_name}/{item_id}")
+def delete_nested_item(cv_id: str, list_name: str, item_id: str):
+    """
+    Deletes a specific nested item (Experience, Skill, Education, etc.)
+    from a CV's master list.
+    """
+    
+    # Map the list_name from the URL to the correct registry function
+    # (These functions already exist in your registry.py)
+    delete_functions = {
+        "experiences": registry.delete_cv_experience,
+        "education": registry.delete_cv_education,
+        "skills": registry.delete_cv_skill,
+        "achievements": registry.delete_cv_achievement,
+        "projects": registry.delete_cv_project,
+        "hobbies": registry.delete_cv_hobby,
+    }
+
+    func = delete_functions.get(list_name)
+
+    if not func:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Invalid list name '{list_name}'. Cannot delete."
+        )
+
+    try:
+        # Call the corresponding registry function
+        # e.g., registry.delete_cv_experience(cv_id, item_id)
+        return func(cv_id, item_id)
+    except ValueError as e:
+        # This catches errors if the CV or the nested item isn't found
+        raise HTTPException(status_code=404, detail=str(e))

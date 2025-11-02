@@ -60,6 +60,70 @@ class Registry:
         updated_data.touch()
         self._update(table, updated_data)
         return updated_data
+    
+    # --- ADD THIS METHOD ---
+    def _update_nested_item(self, cv_id: str, list_name: str, item_id: str, update_data: dict):
+        """
+        Generic helper to update fields on a nested item (e.g., an Experience)
+        within a CV.
+        """
+        log.info(f"[Registry] Updating item {item_id} in list {list_name} for CV {cv_id}")
+        cv = self.get_cv(cv_id)
+        if not cv:
+            raise ValueError("CV not found")
+
+        # Find the specific item (e.g., one experience) using the helper
+        item_to_update = self._get_nested_entity(cv, list_name, item_id)
+        
+        # Apply the updates
+        for key, value in update_data.items():
+            if value is not None:
+                setattr(item_to_update, key, value)
+        
+        item_to_update.touch()
+        cv.touch()
+        
+        # Save the entire CV
+        self._update("cvs", cv)
+        log.info(f"[Registry] Successfully updated item {item_id}.")
+        return item_to_update
+
+    # --- AND ADD THIS METHOD ---
+    def _delete_nested_item(self, cv_id: str, list_name: str, item_id: str):
+        """
+        Generic helper to remove a nested item from a list within a CV.
+        This does NOT perform a cascade delete. It's used for items
+        like Experiences, Projects, etc.
+        """
+        log.info(f"[Registry] Deleting item {item_id} from list {list_name} in CV {cv_id}")
+        cv = self.get_cv(cv_id)
+        if not cv:
+            raise ValueError("CV not found")
+
+        # Get the list from the CV object (e.g., cv.experiences)
+        nested_list = getattr(cv, list_name, None)
+        if nested_list is None:
+            raise ValueError(f"CV has no attribute '{list_name}'")
+
+        initial_count = len(nested_list)
+        
+        # Re-create the list excluding the item to be deleted
+        new_list = [item for item in nested_list if item.id != item_id]
+
+        if len(new_list) == initial_count:
+            # Nothing was deleted, so the item wasn't found
+            raise ValueError(f"Item {item_id} not found in list '{list_name}'.")
+
+        # Set the new list back onto the CV object
+        setattr(cv, list_name, new_list)
+        
+        # Save changes
+        cv.touch()
+        self._update("cvs", cv)
+        
+        log.info(f"[Registry] Successfully deleted item {item_id} from {list_name}.")
+        # Return a simple success message
+        return {"status": "success", "id": item_id, "message": f"{list_name[:-1]} deleted"}
 
 
     # ---- Jobs ----
@@ -740,12 +804,79 @@ class Registry:
         return self._delete_nested_item(cv_id, 'education', edu_id)
 
     def delete_cv_skill(self, cv_id: str, skill_id: str):
-        # NOTE: Does not unlink from experiences/projects/achievements, which is fine for simplicity but a cleanup task for a full relational DB.
-        return self._delete_nested_item(cv_id, 'skills', skill_id)
+        """
+        Deletes a skill from the master list AND unlinks it from all
+        experiences, education, projects, hobbies, and achievements.
+        """
+        log.info(f"[Registry] Cascade delete requested for Skill {skill_id} in CV {cv_id}")
+        cv = self.get_cv(cv_id)
+        if not cv:
+            raise ValueError("CV not found")
+
+        # 1. Check if skill exists before doing work
+        if not any(s.id == skill_id for s in cv.skills):
+            raise ValueError(f"Skill {skill_id} not found.")
+
+        # 2. Unlink from all items that can hold skills
+        all_items_with_skills = (
+            cv.experiences + 
+            cv.education + 
+            cv.projects + 
+            cv.hobbies + 
+            cv.achievements  # Achievements can also have skills
+        )
+        
+        for item in all_items_with_skills:
+            if hasattr(item, 'skill_ids') and skill_id in item.skill_ids:
+                log.info(f"[Registry] Unlinking Skill {skill_id} from {item.__class__.__name__} {item.id}")
+                # Create a new list without the deleted ID
+                item.skill_ids = [sid for sid in item.skill_ids if sid != skill_id]
+
+        # 3. Remove the skill from the master list
+        cv.skills = [s for s in cv.skills if s.id != skill_id]
+        
+        # 4. Save all changes
+        cv.touch()
+        self._update("cvs", cv)
+        log.info(f"[Registry] Successfully cascade-deleted Skill {skill_id}")
+        return {"status": "success", "id": skill_id, "message": "Skill deleted and unlinked."}
 
     def delete_cv_achievement(self, cv_id: str, ach_id: str):
-        # NOTE: Does not unlink from experiences/projects/education, cleanup is expected on the frontend/future logic layer.
-        return self._delete_nested_item(cv_id, 'achievements', ach_id)
+        """
+        Deletes an achievement from the master list AND unlinks it from all
+        experiences, education, projects, and hobbies.
+        """
+        log.info(f"[Registry] Cascade delete requested for Achievement {ach_id} in CV {cv_id}")
+        cv = self.get_cv(cv_id)
+        if not cv:
+            raise ValueError("CV not found")
+            
+        # 1. Check if achievement exists
+        if not any(a.id == ach_id for a in cv.achievements):
+            raise ValueError(f"Achievement {ach_id} not found.")
+
+        # 2. Unlink from all items that can hold achievements
+        all_items_with_achievements = (
+            cv.experiences + 
+            cv.education + 
+            cv.projects + 
+            cv.hobbies
+        )
+        
+        for item in all_items_with_achievements:
+            if hasattr(item, 'achievement_ids') and ach_id in item.achievement_ids:
+                log.info(f"[Registry] Unlinking Achievement {ach_id} from {item.__class__.__name__} {item.id}")
+                # Create a new list without the deleted ID
+                item.achievement_ids = [aid for aid in item.achievement_ids if aid != ach_id]
+
+        # 3. Remove the achievement from the master list
+        cv.achievements = [a for a in cv.achievements if a.id != ach_id]
+        
+        # 4. Save all changes
+        cv.touch()
+        self._update("cvs", cv)
+        log.info(f"[Registry] Successfully cascade-deleted Achievement {ach_id}")
+        return {"status": "success", "id": ach_id, "message": "Achievement deleted and unlinked."}
     
     def delete_cv_project(self, cv_id: str, proj_id: str):
         return self._delete_nested_item(cv_id, 'projects', proj_id)
