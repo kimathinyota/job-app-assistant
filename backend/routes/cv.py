@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, HTTPException, Query # <-- Import Query
 from backend.core.registry import Registry
-from backend.core.models import CVUpdate, ExperienceUpdate, ExperienceComplexPayload, EducationComplexPayload # Import the update model
+from backend.core.models import CVUpdate, ExperienceUpdate, ExperienceComplexPayload, EducationComplexPayload, HobbyComplexPayload # Import the update model
 
 from typing import Optional, List # Ensure List is imported
 from backend.core.dependencies import registry 
@@ -112,6 +112,30 @@ def update_education_complex(cv_id: str, edu_id: str, payload: EducationComplexP
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 # --- *** END NEW ENDPOINTS *** ---   
+
+# --- *** NEW: Complex Hobby Endpoints *** ---
+@router.post("/{cv_id}/hobby/complex")
+def add_hobby_complex(cv_id: str, payload: HobbyComplexPayload):
+    """
+    Creates a new hobby and all its dependencies (new skills, new achievements)
+    from a single complex payload.
+    """
+    try:
+        return registry.create_hobby_from_payload(cv_id, payload)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+@router.patch("/{cv_id}/hobby/{hobby_id}/complex")
+def update_hobby_complex(cv_id: str, hobby_id: str, payload: HobbyComplexPayload):
+    """
+    Updates an existing hobby and all its dependencies
+    from a single complex payload.
+    """
+    try:
+        return registry.update_hobby_from_payload(cv_id, hobby_id, payload)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+# --- *** END NEW ENDPOINTS *** ---
 
 @router.post("/{cv_id}/education")
 def add_education(

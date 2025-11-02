@@ -392,6 +392,85 @@ class Registry:
         self._update("cvs", cv)
         log.info(f"[Registry] Successfully updated Education {edu.id}")
         return edu
+    
+    # --- *** NEWLY ADDED METHODS FOR HOBBY *** ---
+
+    def create_hobby_from_payload(self, cv_id: str, payload: HobbyComplexPayload) -> Hobby:
+        log.info(f"[Registry] Starting complex create for Hobby in CV {cv_id}")
+        cv = self.get_cv(cv_id)
+        if not cv:
+            raise ValueError("CV not found")
+
+        # Step 1: Create all new skills
+        new_skill_id_map, direct_new_skill_ids = self._resolve_skills(
+            cv, payload.new_skills, payload.new_achievements
+        )
+
+        # Step 2: Create all new achievements
+        new_achievement_ids, _ = self._resolve_achievements(
+            cv, payload.new_achievements, new_skill_id_map
+        )
+
+        # Step 3: Consolidate final ID lists
+        final_skill_ids = list(set(payload.existing_skill_ids + direct_new_skill_ids))
+        final_achievement_ids = list(set(payload.existing_achievement_ids + new_achievement_ids))
+
+        log.info(f"[Registry] Final Hobby skill_ids: {final_skill_ids}")
+        log.info(f"[Registry] Final Hobby achievement_ids: {final_achievement_ids}")
+
+        # Step 4: Create the Hobby
+        hobby = cv.add_hobby(
+            name=payload.name,
+            description=payload.description,
+            skill_ids=final_skill_ids,
+            achievement_ids=final_achievement_ids
+        )
+
+        # Step 5: Save the entire updated CV
+        self._update("cvs", cv)
+        log.info(f"[Registry] Successfully created new Hobby {hobby.id}")
+        return hobby
+
+    def update_hobby_from_payload(self, cv_id: str, hobby_id: str, payload: HobbyComplexPayload) -> Hobby:
+        log.info(f"[Registry] Starting complex update for Hobby {hobby_id} in CV {cv_id}")
+        cv = self.get_cv(cv_id)
+        if not cv: raise ValueError("CV not found")
+        
+        hobby = self._get_nested_entity(cv, 'hobbies', hobby_id)
+        if not hobby: raise ValueError("Hobby not found")
+
+        # Step 1: Resolve Skills
+        new_skill_id_map, direct_new_skill_ids = self._resolve_skills(
+            cv, payload.new_skills, payload.new_achievements
+        )
+
+        # Step 2: Resolve Achievements
+        new_achievement_ids, original_to_new_map = self._resolve_achievements(
+            cv, payload.new_achievements, new_skill_id_map
+        )
+
+        # Step 3: Consolidate final ID lists
+        final_skill_ids = list(set(payload.existing_skill_ids + direct_new_skill_ids))
+        final_achievement_ids = list(set(
+            payload.existing_achievement_ids + 
+            new_achievement_ids + 
+            list(original_to_new_map.values())
+        ))
+
+        log.info(f"[Registry] Final Hobby skill_ids: {final_skill_ids}")
+        log.info(f"[Registry] Final Hobby achievement_ids: {final_achievement_ids}")
+
+        # Step 4: Update the Hobby object directly
+        hobby.name = payload.name
+        hobby.description = payload.description
+        hobby.skill_ids = final_skill_ids
+        hobby.achievement_ids = final_achievement_ids
+        hobby.touch()
+        
+        # Step 5: Save
+        self._update("cvs", cv)
+        log.info(f"[Registry] Successfully updated Hobby {hobby.id}")
+        return hobby
 
     # --- NESTED ADD METHODS (Originals, now used by helpers) ---
 
