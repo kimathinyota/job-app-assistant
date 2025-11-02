@@ -95,3 +95,5 @@ export const generateCoverLetterPrompt = (mappingId) => {
     const params = new URLSearchParams({ mapping_id: mappingId });
     return apiClient.post(`/prompt/generate-coverletter-prompt?${params.toString()}`);
 };
+
+export const fetchAppSuiteData = () => apiClient.get('/application/app-suite-data/');

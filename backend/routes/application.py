@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, HTTPException
 from backend.core.registry import Registry
-from backend.core.models import ApplicationUpdate, ApplicationStatus # Import update models
+from backend.core.models import ApplicationUpdate, ApplicationStatus, AppSuiteData # Import update models
 from typing import Optional
 from backend.core.dependencies import registry 
 
@@ -19,6 +19,20 @@ def list_applications():
     """List all application records."""
     return registry.all_applications()
 
+# --- 2. ADD THE NEW ENDPOINT (at the end of the file) ---
+@router.get("/app-suite-data/", response_model=AppSuiteData)
+def get_app_suite_data():
+    """
+    Fetch all jobs and applications in a single call
+    for the Application Suite view.
+    """
+    try:
+        # This calls the new registry method
+        return registry.get_app_suite_data()
+    except Exception as e:
+        # Generic catch-all in case of read errors
+        raise HTTPException(status_code=500, detail=str(e))
+    
 @router.get("/{app_id}")
 def get_application(app_id: str):
     """Fetch a specific application by ID."""
@@ -26,6 +40,7 @@ def get_application(app_id: str):
     if not app:
         raise HTTPException(status_code=404, detail="Application not found")
     return app
+
 
 @router.patch("/{app_id}")
 def update_application(app_id: str, data: ApplicationUpdate):

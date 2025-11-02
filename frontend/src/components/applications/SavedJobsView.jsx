@@ -1,8 +1,7 @@
 // frontend/src/components/applications/SavedJobsView.jsx
 import React, { useState, useEffect } from 'react';
 import { 
-    fetchAllJobs, 
-    fetchAllApplications, 
+    fetchAppSuiteData,
     createJob,
     createMapping,
     createApplication
@@ -21,14 +20,23 @@ const SavedJobsView = ({ defaultCvId, onNavigateToWorkspace }) => {
         setLoading(true);
         setError(null);
         try {
-            const [jobsRes, appsRes] = await Promise.all([
-                fetchAllJobs(),
-                fetchAllApplications()
-            ]);
-            setJobs(jobsRes.data || []);
-            setApplications(appsRes.data || []);
+            // --- 2. REPLACE the Promise.all ---
+            // OLD:
+            // const [jobsRes, appsRes] = await Promise.all([
+            //     fetchAllJobs(),
+            //     fetchAllApplications()
+            // ]);
+            // setJobs(jobsRes.data || []);
+            // setApplications(appsRes.data || []);
+
+            // NEW:
+            const res = await fetchAppSuiteData();
+            setJobs(res.data.jobs || []);
+            setApplications(res.data.applications || []);
+            // --- End of change ---
+
         } catch (err) {
-            setError("Failed to load jobs.");
+            setError("Failed to load app suite data."); // Updated error message
             console.error(err);
         } finally {
             setLoading(false);
