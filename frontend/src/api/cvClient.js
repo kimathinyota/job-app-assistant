@@ -74,11 +74,36 @@ export const updateExperienceComplex = (cvId, expId, data) => {
 };
 
 
+// --- *** NEW: Complex Education Endpoints *** ---
+
+/**
+ * Creates a new Education item and all its dependencies (skills, achievements)
+ * by sending the full complex payload to the backend.
+ * @param {string} cvId - The ID of the CV.
+ * @param {object} data - The EducationComplexPayload object.
+ * @returns {Promise<object>} - The created Education object.
+ */
+export const addEducationComplex = (cvId, data) => {
+    return apiClient.post(`/cv/${cvId}/education/complex`, data);
+};
+
+/**
+ * Updates an existing Education item and all its dependencies.
+ * @param {string} cvId - The ID of the CV.
+ * @param {string} eduId - The ID of the Education item to update.
+ * @param {object} data - The EducationComplexPayload object.
+ * @returns {Promise<object>} - The updated Education object.
+ */
+export const updateEducationComplex = (cvId, eduId, data) => {
+    return apiClient.patch(`/cv/${cvId}/education/${eduId}/complex`, data);
+};
+
+
 // --- NESTED ITEM ADDITION (CREATE) ---
 // Note: Uses query parameters (params in Axios config)
 
-// *** REMOVED old addExperience and updateExperience ***
-
+// This simple version is now obsolete for CVManagerPage,
+// but might be used elsewhere.
 export const addEducation = (cvId, data) => 
     apiClient.post(`/cv/${cvId}/education`, null, { params: data });
 
@@ -91,7 +116,6 @@ export const addProject = (cvId, data) =>
 export const addAchievement = (cvId, data) => 
     apiClient.post(`/cv/${cvId}/achievement`, null, { params: data });
 
-// *** --- NEWLY ADDED --- ***
 export const addHobby = (cvId, data) => 
     apiClient.post(`/cv/${cvId}/hobby`, null, { params: data });
 

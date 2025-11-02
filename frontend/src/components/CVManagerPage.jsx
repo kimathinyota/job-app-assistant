@@ -4,13 +4,15 @@ import {
     deleteBaseCV,
     fetchCVDetails,
     updateBaseCV,
-    // *** MODIFICATION: Import new complex functions ***
+    // *** MODIFICATION: Import complex functions for BOTH ***
     addExperienceComplex,
     updateExperienceComplex,
+    addEducationComplex,     // <-- ADD
+    updateEducationComplex,   // <-- ADD
     // *** END MODIFICATION ***
     addSkill,
     addAchievement,
-    addEducation,
+    // addEducation, // <-- REMOVE (or keep for other forms)
     addProject,
     addHobby,
     deleteNestedItem
@@ -20,7 +22,8 @@ import {
 import CVSelector from './cv/CVList';
 import NestedList from './cv/NestedList';
 import ExperienceManager from './cv/ExperienceManager';
-import EducationForm from './cv/EducationForm';
+import EducationManager from './cv/EducationManager'; // <-- ADD
+// import EducationForm from './cv/EducationForm'; // <-- REMOVE (now handled by EducationManager)
 import ProjectForm from './cv/ProjectForm';
 import SkillForm from './cv/SkillForm';
 import AchievementForm from './cv/AchievementForm';
@@ -53,7 +56,7 @@ const CVSectionDashboard = ({ cv, onSelectSection }) => (
 
 
 const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
-    // --- STATE DECLARATIONS ---
+    // --- STATE DECLARATIONS (unchanged) ---
     const [selectedCVId, setSelectedCVId] = useState(cvs[0]?.id || null);
     const [detailedCV, setDetailedCV] = useState(null);
     const [loadingDetails, setLoadingDetails] = useState(false);
@@ -78,7 +81,7 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
         }
     };
 
-    // --- useEffect Hook ---
+    // --- useEffect Hook (unchanged) ---
      useEffect(() => {
         setActiveSection(null);
         setIsEditingHeader(false);
@@ -94,9 +97,8 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
     }, [selectedCVId, cvs.length]);
 
 
-    // --- CRUD Handlers ---
+    // --- CRUD Handlers (unchanged) ---
      const handleStartEditHeader = () => {
-        // ... (unchanged)
         setEditFormData({
             name: detailedCV.name,
             summary: detailedCV.summary || ''
@@ -107,7 +109,6 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
     const handleCancelEditHeader = () => setIsEditingHeader(false);
 
      const handleUpdateCVHeader = async (e) => {
-        // ... (unchanged)
         e.preventDefault();
         if (!editFormData.name.trim()) return alert('CV Name is required.');
         try {
@@ -122,7 +123,7 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
     };
 
     const handleStartEditItem = (item, sectionName) => {
-        // This handler is now ONLY for non-experience sections
+        // This handler is now ONLY for non-experience/education sections
         setEditingItem(item);
         setActiveSection(sectionName);
         window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -134,16 +135,16 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
         setActiveSection(null); // Go back to dashboard on cancel
     };
 
-    // --- *** THIS IS THE NEW, SIMPLIFIED FUNCTION *** ---
+    // --- *** THIS IS THE MODIFIED FUNCTION *** ---
     const handleAddOrUpdateNestedItem = async (cvId, data, itemType) => {
         const isUpdating = Boolean(data.id);
         const itemId = data.id;
 
         const apiFunctions = {
-            // *** MODIFICATION: Use complex functions for Experience ***
             'Experience': { add: addExperienceComplex, update: updateExperienceComplex },
+            // *** MODIFICATION: Use complex functions for Education ***
+            'Education': { add: addEducationComplex, update: updateEducationComplex },
             // *** END MODIFICATION ***
-            'Education': { add: addEducation, update: /* updateEducation */ addEducation },
             'Project': { add: addProject, update: /* updateProject */ addProject },
             'Hobby': { add: addHobby, update: /* updateHobby */ addHobby },
             'Achievement': { add: addAchievement, update: /* updateAchievement */ addAchievement },
@@ -158,22 +159,16 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
 
             if (isUpdating) {
                 console.log(`[CVManager] Calling update API for ${itemType} (${itemId})...`);
-                // For Experience, 'data' is the full complex payload
-                // For other items, it's the simple { name: ... } payload
                 await updateFn(cvId, itemId, data);
                 alert(`${itemType} updated successfully!`);
                 setEditingItem(null); 
             } else {
                 console.log(`[CVManager] Calling create API for ${itemType}...`);
-                // For Experience, 'data' is the full complex payload
-                // For other items, it's the simple { name: ... } payload
                 await addFn(cvId, data);
                 alert(`${itemType} added successfully!`);
             }
             
             console.log("[CVManager] Process complete. Refetching details and reloading core data.");
-            // We reload *all* data here to ensure subsequent actions (like in ExperienceManager)
-            // have the absolute latest state for skills/achievements
             await reloadData(); 
             await fetchAndSetDetails(cvId); // Final refetch
 
@@ -182,7 +177,7 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
             console.error(`[CVManager] API call FAILED:`, error);
         }
     };
-    // --- *** END OF NEW FUNCTION *** ---
+    // --- *** END OF MODIFIED FUNCTION *** ---
 
     const handleDeleteCV = async (cvIdToDelete) => {
         // ... (unchanged)
@@ -244,9 +239,26 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
             );
         }
 
+        // --- *** NEW: Special Case for Education *** ---
+        if (activeSection === 'Education') {
+            return (
+                <EducationManager
+                    cvId={detailedCV.id}
+                    education={detailedCV.education || []}
+                    allSkills={masterSkills}
+                    allAchievements={masterAchievements}
+                    onSubmit={handleAddOrUpdateNestedItem} // Pass the main handler
+                    onDelete={handleDeleteNested}         // Pass the main handler
+                    onBack={handleCancelEdit} // Use the main cancel handler
+                />
+            );
+        }
+        // --- *** END NEW CASE *** ---
+
+
         // --- Default logic for all OTHER sections ---
         const sectionMap = {
-            'Education': { Form: EducationForm, items: detailedCV?.education || [], listName: 'education', formProps: { allSkills: masterSkills } },
+            // 'Education': ... (REMOVED FROM HERE)
             'Projects': { Form: ProjectForm, items: detailedCV?.projects || [], listName: 'projects', formProps: { allSkills: masterSkills, allAchievements: masterAchievements } },
             'Skills': { Form: SkillForm, items: detailedCV?.skills || [], listName: 'skills', formProps: {} },
             'Achievements': { Form: AchievementForm, items: detailedCV?.achievements || [], listName: 'achievements', formProps: { allSkills: masterSkills } },
