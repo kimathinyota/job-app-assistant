@@ -1,6 +1,7 @@
 // frontend/src/components/applications/Step1_Mapping.jsx
 import React, { useState, useMemo } from 'react';
 import { addMappingPair, deleteMappingPair } from '../../api/applicationClient';
+import CVItemPreviewModal from './CVItemPreviewModal';
 
 const Step1_Mapping = ({ job, cv, mapping, onMappingChanged, onNext }) => {
     const [selectedReqId, setSelectedReqId] = useState(null);
@@ -9,29 +10,39 @@ const Step1_Mapping = ({ job, cv, mapping, onMappingChanged, onNext }) => {
     const [annotation, setAnnotation] = useState("");
     const [isSubmitting, setIsSubmitting] = useState(false);
 
-    // --- CV Evidence List (Unchanged) ---
+    // --- 2. ADD MODAL STATE ---
+    const [previewItem, setPreviewItem] = useState(null); // e.g., { item: {...}, type: 'experiences' }
+    const [isModalOpen, setIsModalOpen] = useState(false);
+
+
+    // --- 3. UPDATE cvEvidenceList to include the full item ---
     const cvEvidenceList = useMemo(() => [
         ...cv.experiences.map(item => ({
             id: item.id,
             type: 'experiences',
-            text: `${item.title} @ ${item.company}`
+            text: `${item.title} @ ${item.company}`,
+            item: item // <-- ADD THE FULL ITEM OBJECT
         })),
         ...cv.projects.map(item => ({
             id: item.id,
             type: 'projects',
-            text: `${item.title} (Project)`
+            text: `${item.title} (Project)`,
+            item: item // <-- ADD THE FULL ITEM OBJECT
         })),
         ...cv.education.map(item => ({
             id: item.id,
             type: 'education',
-            text: `${item.degree} @ ${item.institution}`
+            text: `${item.degree} @ ${item.institution}`,
+            item: item // <-- ADD THE FULL ITEM OBJECT
         })),
         ...cv.hobbies.map(item => ({
             id: item.id,
             type: 'hobbies',
-            text: `${item.name} (Hobby)`
+            text: `${item.name} (Hobby)`,
+            item: item // <-- ADD THE FULL ITEM OBJECT
         })),
     ], [cv.experiences, cv.projects, cv.education, cv.hobbies]);
+
 
     // --- Text Lookup Maps (Unchanged) ---
     const reqTextMap = useMemo(() => 
@@ -70,6 +81,18 @@ const Step1_Mapping = ({ job, cv, mapping, onMappingChanged, onNext }) => {
                 .map(p => p.feature_id)
         );
     }, [mapping.pairs, selectedContextId]);
+
+    // --- 4. ADD MODAL HANDLERS ---
+    const handlePreviewClick = (e, item, type) => {
+        e.stopPropagation(); // Stop the click from selecting/deselecting the item
+        setPreviewItem({ item, type });
+        setIsModalOpen(true);
+    };
+
+    const handleCloseModal = () => {
+        setIsModalOpen(false);
+        setPreviewItem(null);
+    };
     
     // --- FIX: This is the simple handler you need ---
     const handleSelectContextItem = (item) => {
@@ -148,28 +171,45 @@ const Step1_Mapping = ({ job, cv, mapping, onMappingChanged, onNext }) => {
                     </div>
                 </div>
 
-                {/* Panel 2: Your CV Evidence */}
+                {/* Panel 2: Your CV Evidence (MODIFIED) */}
                 <div className="col-4">
                     <h6 className="border-bottom pb-2">Your CV Evidence</h6>
                     <div className="list-group" style={{ maxHeight: '400px', overflowY: 'auto' }}>
+                        {/* --- 5. MODIFY THE RENDER LOOP --- */}
                         {cvEvidenceList.map(item => {
-                            // Item is disabled *only* if a req is selected
-                            // AND this item is paired with it
                             const isDisabled = disabledEvidenceIds.has(item.id);
+                            const isActive = selectedContextId === item.id;
+                            
                             return (
-                                <button
+                                <div
                                     key={item.id}
-                                    type="button"
-                                    className={`list-group-item list-group-item-action ${selectedContextId === item.id ? 'active' : ''} ${isDisabled ? 'list-group-item-light text-muted' : ''}`}
-                                    // --- FIX: Use simple handler ---
-                                    onClick={() => handleSelectContextItem(item)}
-                                    disabled={isDisabled}
+                                    // Use 'd-flex' to position the icon
+                                    className={`list-group-item list-group-item-action d-flex justify-content-between align-items-center ${isActive ? 'active' : ''} ${isDisabled ? 'list-group-item-light text-muted' : ''}`}
+                                    onClick={() => !isDisabled && handleSelectContextItem(item)}
+                                    style={{ cursor: isDisabled ? 'not-allowed' : 'pointer' }}
                                 >
-                                    {item.text}
-                                    {isDisabled && <span className="ms-2 small">(Paired)</span>}
-                                </button>
+                                    {/* Text content (make it take up available space) */}
+                                    <span style={{ flex: 1, marginRight: '10px' }}>
+                                        {item.text}
+                                        {isDisabled && <span className="ms-2 small">(Paired)</span>}
+                                    </span>
+                                    
+                                    {/* Preview Button */}
+                                    <button
+                                        type="button"
+                                        // Use 'btn-outline-light' when active for better contrast
+                                        className={`btn btn-sm ${isActive ? 'btn-outline-light' : 'btn-outline-secondary'}`}
+                                        onClick={(e) => handlePreviewClick(e, item.item, item.type)}
+                                        title="Preview Item"
+                                        // zIndex ensures it's clickable over the parent div's click handler
+                                        style={{ zIndex: 5 }} 
+                                    >
+                                        👁️
+                                    </button>
+                                </div>
                             );
                         })}
+                        {/* --- END MODIFICATION --- */}
                     </div>
                 </div>
 
@@ -233,6 +273,18 @@ const Step1_Mapping = ({ job, cv, mapping, onMappingChanged, onNext }) => {
                     Next: Review CV &gt;
                 </button>
             </div>
+
+            {/* --- 6. RENDER THE MODAL --- */}
+            <CVItemPreviewModal
+                isOpen={isModalOpen}
+                onClose={handleCloseModal}
+                itemToPreview={previewItem}
+                // Pass all the data from the main CV object
+                allSkills={cv.skills}
+                allAchievements={cv.achievements}
+                allExperiences={cv.experiences}
+                allEducation={cv.education}
+            />
         </div>
     );
 };
