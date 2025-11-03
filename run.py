@@ -5,6 +5,8 @@ import logging
 
 # --- THIS IS THE CRITICAL FIX ---
 # Set these environment variables BEFORE anything else is imported.
+# This forces all downstream libraries (numpy, torch, etc.)
+# to run in single-threaded mode, preventing the fork-deadlock.
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
@@ -26,5 +28,5 @@ if __name__ == "__main__":
         "backend.main:app", 
         host="127.0.0.1", 
         port=8000, 
-        reload=False  # <--- THIS IS THE FIX.
+        reload=False  # Must be False to prevent fork deadlocks
     )

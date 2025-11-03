@@ -4,12 +4,16 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 import json 
 import threading # <-- Import the threading library
+import logging
+
+log = logging.getLogger(__name__)
 
 class TinyDBManager:
     def __init__(self, path: str = "./backend/data/db.json"):
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         self.db = TinyDB(path)
-        self.lock = threading.Lock() # <-- This is fine now
+        log.info(f"TinyDBManager initialized. Creating threading.Lock().")
+        self.lock = threading.Lock() # <-- This is now safe
 
     def insert(self, table: str, obj):
         with self.lock:

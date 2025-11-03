@@ -1,20 +1,20 @@
 # backend/main.py
 import os
 import logging
-
-# REMOVE the os.environ lines from here. They are now in run.py.
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+# Import the *classes*, not instances
+from backend.core.registry import Registry
+from backend.core.inferer import MappingInferer
 
 # Import your routes
 from backend.routes import (
     cv, job, mapping, application, coverletter, 
     prompt, interview, workitem, goal
 )
-# Import your singletons (this is fine now)
-from backend.core.dependencies import registry, inferer 
 
+# Setup logging
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
@@ -23,22 +23,32 @@ app = FastAPI(title="Job Application Assistant API")
 @app.on_event("startup")
 async def startup_event():
     """
-    Load NLP models *after* the fork, in the worker process.
+    This code runs *inside* the worker process, *after* the fork.
+    This is the safe place to create locks and load models.
     """
     log.info("--- Application Startup Event ---")
     try:
-        # The env vars are set, so this load is now safe.
-        inferer.load_models()
-        log.info("Startup event: NLP models loaded successfully.")
+        # 1. Create the singletons and attach them to the app state
+        log.info("Creating Registry singleton...")
+        app.state.registry = Registry("./backend/data/db.json")
+        
+        log.info("Creating Inferer singleton...")
+        app.state.inferer = MappingInferer()
+        
+        # 2. Now, load the models
+        log.info("Loading NLP models...")
+        # app.state.inferer.load_models()
+        
+        log.info("Startup event: All singletons created and models loaded.")
     except Exception as e:
-        log.critical(f"Startup event: Failed to load NLP models: {e}", exc_info=True)
+        log.critical(f"Startup event: Failed: {e}", exc_info=True)
     log.info("--- Application Startup Complete ---")
 
 
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  
+    allow_origins=["http://localhost:5173"],  # Allows your frontend
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
