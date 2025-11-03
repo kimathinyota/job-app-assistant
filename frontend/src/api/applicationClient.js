@@ -94,10 +94,20 @@ export const addCoverLetterParagraph = (coverId, ideaIds, purpose) => {
 
 
 // --- Prompt Endpoints (routes/prompt.py) ---
-export const generateCvPrompt = (baseCvId, jobId) => {
+export const generateCvPrompt = (baseCvId, jobId, selectedSkillIds) => { // <-- 1. Add selectedSkillIds
     const params = new URLSearchParams({ base_cv_id: baseCvId, job_id: jobId });
+    
+    // 2. Append all skill IDs to the query params
+    if (selectedSkillIds && selectedSkillIds.length > 0) {
+        selectedSkillIds.forEach(id => {
+            params.append('selected_skill_ids', id);
+        });
+    }
+    
+    // 3. Send the request
     return apiClient.post(`/prompt/generate-cv-prompt?${params.toString()}`);
 };
+
 export const generateCoverLetterPrompt = (mappingId) => {
     const params = new URLSearchParams({ mapping_id: mappingId });
     return apiClient.post(`/prompt/generate-coverletter-prompt?${params.toString()}`);
@@ -133,3 +143,5 @@ export const deleteJob = (jobId) => {
 export const deleteApplication = (appId) => {
   return apiClient.delete(`/application/${appId}`);
 };
+
+

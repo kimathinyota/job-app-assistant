@@ -68,6 +68,7 @@ const ApplicationWorkspace = ({ applicationId, onExitWorkspace }) => {
         setData(prev => ({ ...prev, mapping: mappingRes.data }));
     };
 
+
     if (loading) return <p>Loading Workspace...</p>;
     if (error) return <p className="text-danger">{error}</p>;
 
@@ -129,6 +130,7 @@ const ApplicationWorkspace = ({ applicationId, onExitWorkspace }) => {
                             mapping={mapping}
                             onPrev={handlePrevStep}
                             onNext={handleNextStep}
+                            onMappingChanged={reloadMapping} // <-- ADD THIS PROP
                         />
                     )}
                     {currentStep === 3 && (
