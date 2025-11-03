@@ -4,11 +4,13 @@ import {
     fetchAllJobs, 
     fetchAllApplications, 
     createMapping,
-    createApplication
+    createApplication,
+    deleteJob
 } from '../../api/applicationClient';
 import { fetchAllCVs } from '../../api/cvClient';
 import JobCard from './JobCard';
 import JobModal from './JobModal'; // <-- 1. Import the new unified modal
+import DeleteConfirmationModal from '../common/DeleteConfirmationModal'; // <-- 2. Import modal
 
 // Delete imports for AddJobModal and JobEditorModal
 // import AddJobModal from './AddJobModal';
@@ -24,6 +26,33 @@ const SavedJobsView = ({ defaultCvId, onNavigateToWorkspace }) => {
     // --- 2. Simplified state for the modal ---
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [modalJobId, setModalJobId] = useState(null); // null = "Add" mode, 'job_id' = "Edit" mode
+
+    // --- 3. Add state for delete modal ---
+    const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+    const [itemToDelete, setItemToDelete] = useState(null);
+
+    // --- 4. Add handlers for delete modal ---
+    const handleOpenDeleteModal = (job) => {
+        setItemToDelete(job);
+        setIsDeleteModalOpen(true);
+    };
+
+    const handleCloseDeleteModal = () => {
+        setItemToDelete(null);
+        setIsDeleteModalOpen(false);
+    };
+
+    const handleConfirmDelete = async () => {
+        if (!itemToDelete) return;
+        try {
+        await deleteJob(itemToDelete.id);
+        handleCloseDeleteModal();
+        loadData(); // Refresh the list
+        } catch (err) {
+        alert(`Failed to delete job: ${err.message}`);
+        console.error(err);
+        }
+    };
 
     const loadData = async () => {
         setLoading(true);
@@ -129,10 +158,13 @@ const SavedJobsView = ({ defaultCvId, onNavigateToWorkspace }) => {
                             application={application} 
                             onStartApplication={handleStartApplication}
                             onEdit={() => handleOpenEditModal(job.id)} // <-- 5. Use new handler
+                            onDelete={() => handleOpenDeleteModal(job)}
                         />
                     );
                 })}
             </div>
+
+
             
             {/* --- 6. Render the new unified modal --- */}
             {/* We add 'key' to force React to re-create the component */}
@@ -143,7 +175,21 @@ const SavedJobsView = ({ defaultCvId, onNavigateToWorkspace }) => {
                 isOpen={isModalOpen}
                 onClose={handleCloseModal}
                 onJobUpdated={handleJobUpdated}
+
             />
+
+            {/* ... (existing JobModal) */}
+
+            {/* --- 6. Render the delete modal --- */}
+            {itemToDelete && (
+                <DeleteConfirmationModal
+                isOpen={isDeleteModalOpen}
+                onClose={handleCloseDeleteModal}
+                onConfirm={handleConfirmDelete}
+                itemName={itemToDelete.title}
+                itemType="job"
+                />
+            )}
         </div>
     );
 };

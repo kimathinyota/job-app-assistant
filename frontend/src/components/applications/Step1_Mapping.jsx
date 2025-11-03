@@ -203,7 +203,7 @@ const Step1_Mapping = ({ job, cv, mapping, onMappingChanged, onNext }) => {
                                     <strong>Req:</strong> {reqTextMap.get(pair.feature_id) || pair.feature_text}
                                 </p>
                                 <p className="small mb-2">
-                                    <strong>Maps to:</strong> 
+                                    <strong>Maps to: </strong> 
                                     {/* This backwards-compatible check is still necessary */}
                                     {/* Once your backend is fixed, this will work */}
                                     {contextItemTextMap.get(pair.context_item_id || pair.experience_id) || pair.context_item_text || pair.experience_text}

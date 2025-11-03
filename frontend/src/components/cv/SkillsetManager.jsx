@@ -2,7 +2,7 @@
 import React, { useState, useMemo } from 'react';
 import SkillForm from './SkillForm';
 import SkillCard from './SkillCard'; // We will create this
-
+import DeleteConfirmationModal from '../common/DeleteConfirmationModal'; // <-- 1. Import modal
 // This is the new component that encapsulates all logic for Master Skills
 const SkillsetManager = ({
   cvId,
@@ -20,6 +20,10 @@ const SkillsetManager = ({
   const [isCreating, setIsCreating] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
+
+  // --- 2. Add state for delete modal ---
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState(null);
 
   // --- Relationship Map Logic ---
   // This powerful 'useMemo' hook builds a map of all skill relationships
@@ -125,8 +129,28 @@ const SkillsetManager = ({
     handleCancel();
   };
 
+  // --- 3. Modify handleDeleteClick ---
   const handleDeleteClick = (itemId) => {
-    onDelete(cvId, itemId, 'skills');
+    const skill = allSkills.find((s) => s.id === itemId);
+    if (skill) {
+      setItemToDelete(skill);
+      setIsDeleteModalOpen(true);
+    }
+    // The original logic is moved to handleConfirmDelete
+    // onDelete(cvId, itemId, 'skills');
+  };
+
+  // --- 4. Add new handlers for modal ---
+  const handleCloseDeleteModal = () => {
+    setItemToDelete(null);
+    setIsDeleteModalOpen(false);
+  };
+
+  const handleConfirmDelete = () => {
+    if (!itemToDelete) return;
+    // This calls the original parent function
+    onDelete(cvId, itemToDelete.id, 'skills');
+    handleCloseDeleteModal();
   };
   
   // --- Filtering and Grouping ---
@@ -240,6 +264,19 @@ const SkillsetManager = ({
               )
           ))}
       </div>
+
+      {/* --- 5. Render the delete modal --- */}
+      {itemToDelete && (
+        <DeleteConfirmationModal
+          isOpen={isDeleteModalOpen}
+          onClose={handleCloseDeleteModal}
+          onConfirm={handleConfirmDelete}
+          itemName={itemToDelete.name}
+          itemType="skill"
+        />
+      )}
+
+
     </div>
   );
 };

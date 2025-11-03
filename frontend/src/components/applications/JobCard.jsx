@@ -7,7 +7,9 @@ const JobCard = ({
     defaultCvId, 
     application, // This is the full application object or undefined
     onStartApplication, 
-    onEdit 
+    onEdit,
+    onDelete,
+
 }) => {
 
     const hasApplication = Boolean(application);
@@ -42,14 +44,51 @@ const JobCard = ({
                         <h5 className="card-title mb-0">{job.title}</h5>
                         <small className="text-muted">{job.company}</small>
                     </div>
-                    <button
+
+                    {/* Edit/Delete Dropdown */}
+          <div className="dropdown">
+            <button className="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+              ...
+            </button>
+            {/* <ul className="dropdown-menu dropdown-menu-end">
+              <li><button
                         className="btn btn-outline-secondary btn-sm"
                         onClick={onEdit}
                         disabled={hasApplication}
                         title={hasApplication ? "Cannot edit a job with an active application" : "Edit Job Details"}
                     >
                         Edit Job
-                    </button>
+                    </button></li>
+              <li><button
+              className="btn btn-outline-danger btn-sm"
+              onClick={onDelete}
+              title={'Delete Job'}
+            >
+              Delete
+            </button></li>
+            </ul> */}
+
+
+            <ul className="dropdown-menu dropdown-menu-end">
+              <li><button
+                        className="dropdown-item"
+                        onClick={onEdit}
+                        disabled={hasApplication}
+                        title={hasApplication ? "Cannot edit a job with an active application" : "Edit Job Details"}
+                    >
+                        Edit Job
+                    </button></li>
+              <li><button
+              className="dropdown-item text-danger"
+              onClick={onDelete}
+              title={'Delete Job'}
+            >
+              Delete
+            </button></li>
+            </ul>
+          </div>
+                    
+                    
                 </div>
             </div>
 

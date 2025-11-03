@@ -123,3 +123,13 @@ export const upsertJob = (jobData) => {
     return apiClient.post('/job/upsert', jobData);
 };
 
+
+// --- ADD THIS FUNCTION ---
+export const deleteJob = (jobId) => {
+  return apiClient.delete(`/job/${jobId}`);
+};
+
+// --- ADD THIS FUNCTION ---
+export const deleteApplication = (appId) => {
+  return apiClient.delete(`/application/${appId}`);
+};
