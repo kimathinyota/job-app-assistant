@@ -1110,8 +1110,8 @@ class Registry:
         )
         # --- END CHANGES ---
         
-        self.pairs.append(pair)
-        self.touch()
+        mapping.pairs.append(pair)
+        mapping.touch()
         self._update("mappings", mapping)
         return pair
 
