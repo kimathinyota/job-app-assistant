@@ -2,9 +2,9 @@
 
 from fastapi import APIRouter, HTTPException
 from backend.core.registry import Registry
-from backend.core.models import MappingUpdate # Import the update model
-from typing import Optional
-from backend.core.dependencies import registry 
+from backend.core.models import MappingUpdate, MappingPair # <-- 1. Import MappingPair
+from typing import Optional, List # <-- 2. Import List
+from backend.core.dependencies import registry, inferer # <-- 3. Import the new 'inferer'
 
 router = APIRouter()
 
@@ -95,3 +95,34 @@ def delete_mapping_pair(mapping_id: str, pair_id: str):
         return {"status": "success", "detail": "Pair deleted"}
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+# --- 4. ADD THIS NEW ENDPOINT AT THE END OF THE FILE ---
+@router.post("/{mapping_id}/infer", response_model=List[MappingPair])
+def infer_mapping_pairs(mapping_id: str):
+    """
+    Runs the NLP inference engine to suggest new mapping pairs
+    for the given job and CV.
+    """
+    mapping = registry.get_mapping(mapping_id)
+    if not mapping:
+        raise HTTPException(status_code=404, detail="Mapping not found")
+    
+    job = registry.get_job(mapping.job_id)
+    cv = registry.get_cv(mapping.base_cv_id)
+    
+    if not job or not cv:
+        raise HTTPException(status_code=404, detail="Job or CV not found")
+    
+    try:
+        # Call the singleton inferer
+        suggestions = inferer.infer_mappings(job, cv)
+        
+        # Note: We just return the suggestions, we don't save them.
+        # The frontend can decide what to do with them.
+        return suggestions
+        
+    except Exception as e:
+        # Catch any potential NLP errors
+        log.error(f"Error during inference for mapping {mapping_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Inference error: {e}")
+    

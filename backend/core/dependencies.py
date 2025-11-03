@@ -1,4 +1,6 @@
+# backend/core/dependencies.py
 from backend.core.registry import Registry
+from backend.core.inferer import MappingInferer # <-- 1. Import
 import logging
 
 # Configure logging for the application
@@ -14,3 +16,8 @@ log.info(f"Initializing singleton Registry with path: {db_path}")
 # to prevent race conditions and database corruption.
 registry = Registry(db_path)
 
+
+# --- 2. Add these lines to create the inferer singleton ---
+log.info("Initializing singleton MappingInferer...")
+inferer = MappingInferer()
+log.info("MappingInferer initialized successfully.")
