@@ -1495,7 +1495,13 @@ class Registry:
 
 
     # ---- AI Prompt Generation Logic ----
-    def generate_cv_prompt(self, base_cv_id: str, job_id: str) -> AIPromptResponse:
+    # ---- AI Prompt Generation Logic ----
+    def generate_cv_prompt(
+        self, 
+        base_cv_id: str, 
+        job_id: str, 
+        selected_skill_ids: Optional[List[str]] # <-- 1. Add parameter
+    ) -> AIPromptResponse:
         """Constructs a structured prompt payload for CV generation."""
         cv = self.get_cv(base_cv_id)
         job = self.get_job(job_id)
@@ -1504,10 +1510,31 @@ class Registry:
         if not cv or not job or not mapping:
             raise ValueError("CV, Job, or related Mapping not found for prompt generation.")
 
+        # --- 2. Create a copy of the CV to filter ---
+        cv_for_prompt = cv.model_copy(deep=True)
+
+        # --- 3. Filter the skills based on the provided list ---
+        # We also need to find all mapped items to pass to the prompt
+        
+        mapped_item_ids = {p.context_item_id or p.experience_id for p in mapping.pairs}
+        
+        cv_for_prompt.experiences = [e for e in cv_for_prompt.experiences if e.id in mapped_item_ids]
+        cv_for_prompt.education = [e for e in cv_for_prompt.education if e.id in mapped_item_ids]
+        cv_for_prompt.projects = [p for p in cv_for_prompt.projects if p.id in mapped_item_ids]
+        cv_for_prompt.hobbies = [h for h in cv_for_prompt.hobbies if h.id in mapped_item_ids]
+
+        if selected_skill_ids is not None:
+            log.info(f"[Registry] Filtering CV skills to {len(selected_skill_ids)} selected IDs.")
+            cv_for_prompt.skills = [s for s in cv_for_prompt.skills if s.id in selected_skill_ids]
+        else:
+            # Fallback: if no list is provided, just use all skills
+            log.info("[Registry] No skill filter provided, using all skills.")
+            pass # cv_for_prompt.skills already contains all skills
+
         structured_payload = CVGenerationPrompt(
             instruction="You are an expert career assistant. Your task is to generate a new Derived CV by selecting and rephrasing experiences and skills from the provided Base CV that directly address the features/requirements in the Job Description, as guided by the Mapping Data.",
             job_description=job,
-            base_cv=cv,
+            base_cv=cv_for_prompt, # <-- 4. Pass the filtered CV object
             mapping_data=mapping,
         )
 
@@ -1517,7 +1544,8 @@ class Registry:
             prompt_type="CV",
             structured_payload=structured_payload,
         )
-
+    
+    
     def generate_coverletter_prompt(self, mapping_id: str) -> AIPromptResponse:
         """Constructs a structured prompt payload for Cover Letter generation."""
         mapping = self.get_mapping(mapping_id)
