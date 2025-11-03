@@ -1,19 +1,17 @@
 # backend/core/database.py
-
 from tinydb import TinyDB, Query
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 import json 
-import threading # <-- 1. Import the threading library
+import threading # <-- Import the threading library
 
 class TinyDBManager:
     def __init__(self, path: str = "./backend/data/db.json"):
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         self.db = TinyDB(path)
-        self.lock = threading.Lock() # <-- 2. Initialize a lock
+        self.lock = threading.Lock() # <-- This is fine now
 
     def insert(self, table: str, obj):
-        # 3. Use the lock for all database operations
         with self.lock:
             data_to_insert = json.loads(obj.model_dump_json())
             tbl = self.db.table(table)

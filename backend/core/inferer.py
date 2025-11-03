@@ -1,10 +1,8 @@
 # backend/core/inferer.py
 from .models import JobDescription, JobDescriptionFeature, CV, MappingPair
 from typing import List, Optional, Dict, Any
-from sentence_transformers import SentenceTransformer, util
-import spacy
-import re
 import logging
+# We NO LONGER import sentence_transformers or spacy here.
 
 log = logging.getLogger(__name__)
 
@@ -28,30 +26,62 @@ class MappingInferer:
     """
     def __init__(self):
         """
-        Initialize the inferer by loading the necessary NLP models.
-        This is done once on server startup to be fast.
+        Initialize the inferer. Models are NOT loaded here to prevent
+        multiprocessing deadlocks with uvicorn reloader.
+        Call load_models() at app startup.
+        """
+        # These are now typed as Optional[Any] since the classes are not imported yet.
+        self.semantic_model: Optional[Any] = None
+        self.nlp: Optional[Any] = None
+        self.util: Optional[Any] = None # To store the 'util' from sentence_transformers
+        log.info("MappingInferer initialized (models NOT loaded).")
+            
+        self.cv_evidence_pool: List[CVEvidence] = []
+        self.skill_map: Dict[str, str] = {} # {skill_name.lower(): skill_id}
+
+    def load_models(self):
+        """
+        Loads the heavy NLP models. This should be called *once*
+        at application startup (e.g., in a FastAPI startup event).
         """
         log.info("Loading NLP models for MappingInferer...")
         try:
+            # --- IMPORTS ARE MOVED HERE ---
+            # This is the key fix. These libraries are now imported *only*
+            # by the worker process, not the reloader.
+            from sentence_transformers import SentenceTransformer, util
+            import spacy
+            # ------------------------------
+
             # 1. Load a powerful model for semantic sentence comparison
             self.semantic_model = SentenceTransformer('all-MiniLM-L6-v2')
             
             # 2. Load a spaCy model for keyword/entity extraction
             self.nlp = spacy.load("en_core_web_sm")
+            
+            # 3. Store the 'util' module for later use
+            self.util = util
+            
             log.info("NLP models loaded successfully.")
+        except ImportError:
+            log.critical("Failed to import NLP libraries. Please run `pip install sentence-transformers spacy`")
+            raise
         except Exception as e:
             log.error(f"Failed to load NLP models: {e}")
-            log.error("Please run `pip install sentence-transformers spacy` and `python -m spacy download en_core_web_sm`")
+            log.error("Have you run `python -m spacy download en_core_web_sm`?")
             raise e
-            
-        self.cv_evidence_pool: List[CVEvidence] = []
-        self.skill_map: Dict[str, str] = {} # {skill_name.lower(): skill_id}
+
+    def _check_models_loaded(self):
+        """Internal check to ensure models are ready before use."""
+        if not self.semantic_model or not self.nlp or not self.util:
+            log.error("Inferer models are not loaded. Call load_models() at application startup.")
+            raise RuntimeError("Inferer models are not loaded. Ensure load_models() is called in a FastAPI startup event.")
 
     def _preprocess_cv(self, cv: CV) -> List[CVEvidence]:
         """
         "Flattens" the CV into a single, searchable list of CVEvidence objects.
-        This is the most critical preprocessing step.
         """
+        self._check_models_loaded() # This check is now critical
         log.info(f"Preprocessing CV {cv.id}...")
         pool: List[CVEvidence] = []
         self.skill_map = {skill.name.lower(): skill.id for skill in cv.skills}
@@ -103,6 +133,7 @@ class MappingInferer:
         Generates a human-readable reason for a semantic match
         by extracting and comparing key topics.
         """
+        self._check_models_loaded() 
         
         def get_topics(text: str, max_topics=3) -> List[str]:
             """Uses spaCy to extract key nouns and verbs."""
@@ -114,17 +145,14 @@ class MappingInferer:
                 and not token.is_stop         # Ignore words like 'a', 'the'
                 and not token.is_punct        # Ignore '.' ',' etc.
             ]
-            # Return a unique list of the first N topics
             return list(dict.fromkeys(topics))[:max_topics]
 
         req_topics = get_topics(req_text)
         cv_topics = get_topics(cv_text)
         
-        # If we can't find good topics, fall back to a generic reason
         if not req_topics or not cv_topics:
             return "Semantic text similarity." # Fallback
 
-        # Format the topics into a clear, readable string
         req_topic_str = f"'{', '.join(req_topics)}'"
         cv_topic_str = f"'{', '.join(cv_topics)}'"
         
@@ -134,48 +162,41 @@ class MappingInferer:
         """
         This is the core pipeline. It runs strategies from most to least precise.
         """
+        self._check_models_loaded() 
         
-        # --- Strategy 1: Rule-Based Filtering (Your "Smart" Routing) ---
+        # --- Strategy 1: Rule-Based Filtering ---
         if req.type == 'qualification':
             target_pool = [e for e in self.cv_evidence_pool if e.item_type == 'education']
         else:
             target_pool = self.cv_evidence_pool
 
         # --- Strategy 2: Direct Keyword/Entity Match ---
-        # Extract keywords from the requirement
         req_doc = self.nlp(req.description)
         req_skills = [token.text.lower() for token in req_doc if token.pos_ in ("NOUN", "PROPN")]
         
         for evidence in target_pool:
-            # Check for direct skill name matches
             matched_skills = [s for s in req_skills if s in evidence.skills]
             if matched_skills:
                 reason = f"Direct skill match for: {', '.join(matched_skills)}"
-                return (evidence, 0.95, reason) # High confidence
+                return (evidence, 0.95, reason) 
 
         # --- Strategy 3: Semantic Similarity (The NLP) ---
-        if not target_pool: # If filtering removed all candidates
+        if not target_pool: 
             return None
 
-        # Encode the job requirement
         req_vector = self.semantic_model.encode(req.description, convert_to_tensor=True)
-        
-        # Get the pre-computed vectors from our pool
         evidence_vectors = [evidence.vector for evidence in target_pool]
         
-        # Compute cosine similarity
-        cosine_scores = util.cos_sim(req_vector, evidence_vectors)[0]
+        # Use the stored 'util' module
+        cosine_scores = self.util.cos_sim(req_vector, evidence_vectors)[0]
         
-        # Find the best score
         top_score_idx = cosine_scores.argmax()
         top_score = cosine_scores[top_score_idx].item()
         best_evidence = target_pool[top_score_idx]
         
-        # Disqualification: Set a confidence threshold
         CONFIDENCE_THRESHOLD = 0.60
         
         if top_score >= CONFIDENCE_THRESHOLD:
-            # Call our new helper to generate an explainable reason
             reason = self._generate_semantic_reason(
                 req.description, 
                 best_evidence.full_text
@@ -193,13 +214,11 @@ class MappingInferer:
         suggestions: List[MappingPair] = []
         
         for req in job.features:
-            # For each requirement, find the best piece of evidence
-            best_match = self_find_best_match(req)
+            best_match = self._find_best_match(req) 
             
             if best_match:
                 evidence, score, reason = best_match
                 
-                # Get a simple display text for the context item
                 item_text = "CV Item"
                 if evidence.item_type == 'experiences':
                     item_text = f"{evidence.source_item.title} @ {evidence.source_item.company}"
@@ -210,7 +229,6 @@ class MappingInferer:
                 elif evidence.item_type == 'hobbies':
                     item_text = f"{evidence.source_item.name} (Hobby)"
 
-                # Create the MappingPair
                 pair = MappingPair.create(
                     feature_id=req.id,
                     context_item_id=evidence.item_id,
