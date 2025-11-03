@@ -1,7 +1,7 @@
 # backend/main.py
 import os
 import logging
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends # <-- Remove Depends, it's not needed here
 from fastapi.middleware.cors import CORSMiddleware
 
 # Import the *classes*, not instances
@@ -14,7 +14,9 @@ from backend.routes import (
     prompt, interview, workitem, goal
 )
 
-# Setup logging
+# REMOVE all imports from backend.core.dependencies
+# from backend.core.dependencies import get_db, get_inferer, registry # <--- DELETE THIS LINE
+
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
@@ -28,18 +30,18 @@ async def startup_event():
     """
     log.info("--- Application Startup Event ---")
     try:
-        # 1. Create the singletons and attach them to the app state
+        # --- UNCOMMENT THESE LINES ---
         log.info("Creating Registry singleton...")
         app.state.registry = Registry("./backend/data/db.json")
         
         log.info("Creating Inferer singleton...")
         app.state.inferer = MappingInferer()
         
-        # 2. Now, load the models
         log.info("Loading NLP models...")
-        # app.state.inferer.load_models()
+        app.state.inferer.load_models()
         
         log.info("Startup event: All singletons created and models loaded.")
+        # --- END UNCOMMENT ---
     except Exception as e:
         log.critical(f"Startup event: Failed: {e}", exc_info=True)
     log.info("--- Application Startup Complete ---")
@@ -48,7 +50,7 @@ async def startup_event():
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # Allows your frontend
+    allow_origins=["http://localhost:5173"],  
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
