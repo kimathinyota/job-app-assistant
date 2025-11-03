@@ -43,20 +43,17 @@ def delete_mapping(mapping_id: str):
         raise HTTPException(status_code=404, detail=str(e))
 
 
-
 @router.post("/{mapping_id}/pair")
-# --- START CHANGES ---
 def add_mapping_pair(
     mapping_id: str, 
     feature_id: str, 
-    context_item_id: str,   # <-- Change from experience_id
-    context_item_type: str, # <-- Add this
-    annotation: Optional[str] = None
+    context_item_id: str,
+    context_item_type: str, 
+    annotation: Optional[str] = None  # <-- ADD THIS
 ):
-# --- END CHANGES ---
     """Add a specific link (pair) between a job feature and a CV item."""
     
-    # 1. Get Feature (No change)
+    # ... (Get Feature, Mapping, and CV logic is unchanged) ...
     job = next((j for j in registry.all_jobs() if any(f.id == feature_id for f in j.features)), None)
     if not job:
         raise HTTPException(status_code=404, detail="Job Feature's parent Job not found")
@@ -64,7 +61,6 @@ def add_mapping_pair(
     if not feature:
         raise HTTPException(status_code=404, detail="Job Feature not found")
 
-    # 2. Get Mapping & CV (No change)
     mapping = registry.get_mapping(mapping_id)
     if not mapping:
         raise HTTPException(status_code=404, detail="Mapping not found")
@@ -73,8 +69,7 @@ def add_mapping_pair(
     if not cv:
         raise HTTPException(status_code=404, detail="Base CV not found for this mapping")
 
-    # --- START CHANGES ---
-    # 3. Get the generic CV item using the registry helper
+    # 3. Get the generic CV item
     try:
         context_item = registry._get_nested_entity(cv, context_item_type, context_item_id)
     except ValueError as e:
@@ -84,7 +79,19 @@ def add_mapping_pair(
 
     # 4. Call the updated registry function
     try:
-        return registry.add_mapping_pair(mapping_id, feature, context_item, context_item_type, annotation)
-    # --- END CHANGES ---
+        # Pass annotation through to the registry
+        return registry.add_mapping_pair(mapping_id, feature, context_item, context_item_type, annotation) 
+    except ValueError as e:
+        # This will now catch duplicate errors as well
+        raise HTTPException(status_code=400, detail=str(e)) # 400 Bad Request is better for duplicates
+
+
+# --- ADD THIS ENTIRE NEW ROUTE FOR DELETING ---
+@router.delete("/{mapping_id}/pair/{pair_id}")
+def delete_mapping_pair(mapping_id: str, pair_id: str):
+    """Deletes a specific pair from a mapping."""
+    try:
+        registry.delete_mapping_pair(mapping_id, pair_id)
+        return {"status": "success", "detail": "Pair deleted"}
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))

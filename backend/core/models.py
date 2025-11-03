@@ -293,9 +293,17 @@ class JobUpsertPayload(BaseModel):
 
 class MappingPair(BaseEntity):
     feature_id: str
-    experience_id: Optional[str] = None
+    # --- START CHANGES ---
+    # experience_id: Optional[str] = None # <-- REMOVE THIS
+    context_item_id: Optional[str] = None # <-- ADD THIS (e.g., 'exp_123', 'proj_456')
+    context_item_type: Optional[str] = None # <-- ADD THIS (e.g., 'experiences', 'projects')
+    # --- END CHANGES ---
     feature_text: Optional[str] = None
-    experience_text: Optional[str] = None
+    # --- START CHANGES ---
+    # experience_text: Optional[str] = None # <-- REMOVE THIS
+    context_item_text: Optional[str] = None # <-- ADD THIS
+    # --- END CHANGES ---
+    
     annotation: Optional[str] = None
 
 
@@ -304,22 +312,22 @@ class Mapping(BaseEntity):
     base_cv_id: str
     pairs: List[MappingPair] = Field(default_factory=list)
 
-    def add_pair(
-        self,
-        feature: JobDescriptionFeature,
-        experience: Experience,
-        annotation: Optional[str] = None,
-    ) -> MappingPair:
-        pair = MappingPair.create(
-            feature_id=feature.id,
-            experience_id=experience.id,
-            feature_text=feature.description,
-            experience_text=experience.description,
-            annotation=annotation,
-        )
-        self.pairs.append(pair)
-        self.touch()
-        return pair
+    # def add_pair(
+    #     self,
+    #     feature: JobDescriptionFeature,
+    #     experience: Experience,
+    #     annotation: Optional[str] = None,
+    # ) -> MappingPair:
+    #     pair = MappingPair.create(
+    #         feature_id=feature.id,
+    #         experience_id=experience.id,
+    #         feature_text=feature.description,
+    #         experience_text=experience.description,
+    #         annotation=annotation,
+    #     )
+    #     self.pairs.append(pair)
+    #     self.touch()
+    #     return pair
 
 
 # ---------------------------------------------------------------------

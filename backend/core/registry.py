@@ -1077,17 +1077,21 @@ class Registry:
         self, 
         mapping_id: str, 
         feature: JobDescriptionFeature, 
-        # --- START CHANGES ---
-        context_item: Union[Experience, Project, Education, Hobby], # <-- Use the generic item
-        context_item_type: str, # <-- Know its type
-        # --- END CHANGES ---
+        context_item: Union[Experience, Project, Education, Hobby],
+        context_item_type: str,
         annotation: Optional[str] = None
     ):
         mapping = self.get_mapping(mapping_id)
         if not mapping:
             raise ValueError("Mapping not found")
-        
-        # --- START CHANGES ---
+
+        # Check for duplicates (if no annotation is provided)
+        if not annotation:
+            for existing_pair in mapping.pairs:
+                if existing_pair.feature_id == feature.id and existing_pair.context_item_id == context_item.id:
+                    raise ValueError("This pair already exists. Add an annotation to create a new link.")
+
+        # --- THIS IS THE CRITICAL PART ---
         # Get the display text for the context item
         if context_item_type == 'experiences':
             item_text = f"{context_item.title} @ {context_item.company}"
@@ -1102,19 +1106,19 @@ class Registry:
             
         pair = MappingPair.create(
             feature_id=feature.id,
-            context_item_id=context_item.id,       # <-- Use new field
-            context_item_type=context_item_type,   # <-- Use new field
+            context_item_id=context_item.id,
+            context_item_type=context_item_type,
             feature_text=feature.description,
-            context_item_text=item_text,           # <-- Use new field
+            context_item_text=item_text,           # <-- THIS LINE MUST BE HERE
             annotation=annotation,
         )
-        # --- END CHANGES ---
+        # --- END CRITICAL PART ---
         
+        # This appends to the MAPPING object, not the REGISTRY
         mapping.pairs.append(pair)
         mapping.touch()
         self._update("mappings", mapping)
         return pair
-
     def get_mapping(self, mapping_id: str):
         return self._get("mappings", Mapping, mapping_id)
 

@@ -46,23 +46,23 @@ export const createMapping = (jobId, baseCvId) => {
 };
 
 
-// --- START CHANGES ---
-export const addMappingPair = (mappingId, featureId, contextItemId, contextItemType) => {
+export const addMappingPair = (mappingId, featureId, contextItemId, contextItemType, annotation) => {
     const params = new URLSearchParams({ 
         feature_id: featureId, 
         context_item_id: contextItemId,
         context_item_type: contextItemType
     });
+    
+    // Add annotation only if it exists
+    if (annotation) {
+        params.append('annotation', annotation);
+    }
+    
     return apiClient.post(`/mapping/${mappingId}/pair?${params.toString()}`);
 };
-// --- END CHANGES ---
-
 
 export const deleteMappingPair = (mappingId, pairId) => {
-    // This route isn't in your files, but is implied by your registry
-    // Assuming it's DELETE /mapping/{mapping_id}/pair/{pair_id}
-    // If you don't have this, you'll need to add it to backend/routes/mapping.py
-    // For now, we'll assume it exists.
+    // This function was being called by the UI but didn't exist here
     return apiClient.delete(`/mapping/${mappingId}/pair/${pairId}`);
 };
 

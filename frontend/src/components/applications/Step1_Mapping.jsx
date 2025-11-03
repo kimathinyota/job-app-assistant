@@ -4,18 +4,12 @@ import { addMappingPair, deleteMappingPair } from '../../api/applicationClient';
 
 const Step1_Mapping = ({ job, cv, mapping, onMappingChanged, onNext }) => {
     const [selectedReqId, setSelectedReqId] = useState(null);
-    
-    // --- START CHANGES ---
-    // State is now generic to hold any context item
     const [selectedContextId, setSelectedContextId] = useState(null);
     const [selectedContextType, setSelectedContextType] = useState(null);
-    // --- END CHANGES ---
-
+    const [annotation, setAnnotation] = useState("");
     const [isSubmitting, setIsSubmitting] = useState(false);
 
-    // --- START CHANGES ---
-    // 1. Create a combined list of ALL CV evidence
-    // We use useMemo to prevent this from recalculating on every render
+    // --- CV Evidence List (Unchanged) ---
     const cvEvidenceList = useMemo(() => [
         ...cv.experiences.map(item => ({
             id: item.id,
@@ -37,44 +31,74 @@ const Step1_Mapping = ({ job, cv, mapping, onMappingChanged, onNext }) => {
             type: 'hobbies',
             text: `${item.name} (Hobby)`
         })),
-    ], [cv.experiences, cv.projects, cv.education, cv.hobbies]); // Dependencies
+    ], [cv.experiences, cv.projects, cv.education, cv.hobbies]);
 
-    
-
-    // 2. Create maps for easy text lookup for BOTH sides
+    // --- Text Lookup Maps (Unchanged) ---
     const reqTextMap = useMemo(() => 
         new Map(job.features.map(f => [f.id, f.description])), 
         [job.features]
     );
-    
     const contextItemTextMap = useMemo(() => 
         new Map(cvEvidenceList.map(item => [item.id, item.text])),
         [cvEvidenceList]
     );
-    // --- END CHANGES ---
+
+    // --- Disabling Logic (This is what you described) ---
+    const existingPairSet = useMemo(() => 
+        new Set(
+            mapping.pairs.map(p => `${p.feature_id}_${p.context_item_id || p.experience_id}`)
+        ),
+        [mapping.pairs]
+    );
+
+    // Find all evidence items paired with the *currently selected requirement*
+    const disabledEvidenceIds = useMemo(() => {
+        if (!selectedReqId) return new Set(); // If no req is selected, disable nothing
+        return new Set(
+            mapping.pairs
+                .filter(p => p.feature_id === selectedReqId)
+                .map(p => p.context_item_id || p.experience_id)
+        );
+    }, [mapping.pairs, selectedReqId]);
+
+    // Find all requirement items paired with the *currently selected evidence*
+    const disabledReqIds = useMemo(() => {
+        if (!selectedContextId) return new Set(); // If no evidence is selected, disable nothing
+        return new Set(
+            mapping.pairs
+                .filter(p => (p.context_item_id || p.experience_id) === selectedContextId)
+                .map(p => p.feature_id)
+        );
+    }, [mapping.pairs, selectedContextId]);
     
-    // 3. Update the click handler for the CV list
+    // --- FIX: This is the simple handler you need ---
     const handleSelectContextItem = (item) => {
         setSelectedContextId(item.id);
         setSelectedContextType(item.type);
+        // We DO NOT clear selectedReqId here
     };
 
     const handleCreatePair = async () => {
-        // 4. Update check to use new state
         if (!selectedReqId || !selectedContextId || !selectedContextType) return;
+        
+        const pairKey = `${selectedReqId}_${selectedContextId}`;
+        if (existingPairSet.has(pairKey) && !annotation.trim()) {
+            alert("This pair already exists. Please add an annotation to create a duplicate link.");
+            return;
+        }
+        
         setIsSubmitting(true);
         try {
-            // 5. Call the updated API client function
-            // (This assumes applicationClient.js was updated as per our previous conversation)
-            await addMappingPair(mapping.id, selectedReqId, selectedContextId, selectedContextType);
-            await onMappingChanged(); // Tell parent to refetch
+            await addMappingPair(mapping.id, selectedReqId, selectedContextId, selectedContextType, annotation);
+            await onMappingChanged(); // Refetch
             
-            // 6. Reset all selection state
+            // Reset all selections
             setSelectedReqId(null);
             setSelectedContextId(null);
             setSelectedContextType(null);
+            setAnnotation(""); // Clear annotation box
         } catch (err) {
-            alert("Failed to create pair.");
+            alert(`Failed to create pair: ${err.response?.data?.detail || err.message}`);
             console.error(err);
         } finally {
             setIsSubmitting(false);
@@ -82,16 +106,14 @@ const Step1_Mapping = ({ job, cv, mapping, onMappingChanged, onNext }) => {
     };
 
     const handleDeletePair = async (pairId) => {
-        // This assumes your API client and backend route for deletion exist
         try {
             await deleteMappingPair(mapping.id, pairId);
-            await onMappingChanged(); // Tell parent to refetch
+            await onMappingChanged(); // Refetch
         } catch (err) {
-             alert("Failed to delete pair. This function might not be fully implemented in the backend.");
+             alert(`Failed to delete pair: ${err.response?.data?.detail || err.message}`);
              console.error(err);
         }
     };
-
 
     return (
         <div>
@@ -99,50 +121,75 @@ const Step1_Mapping = ({ job, cv, mapping, onMappingChanged, onNext }) => {
             <p className="text-muted">
                 Click a requirement, then click the CV item that proves it.
             </p>
+            
             <div className="row" style={{ minHeight: '400px' }}>
                 {/* Panel 1: Job Requirements */}
                 <div className="col-4">
                     <h6 className="border-bottom pb-2">Job Requirements</h6>
                     <div className="list-group" style={{ maxHeight: '400px', overflowY: 'auto' }}>
-                        {job.features.map(req => (
-                            <button
-                                key={req.id}
-                                type="button"
-                                className={`list-group-item list-group-item-action ${selectedReqId === req.id ? 'active' : ''}`}
-                                onClick={() => setSelectedReqId(req.id)}
-                            >
-                                {req.description}
-                            </button>
-                        ))}
+                        {job.features.map(req => {
+                            // Item is disabled *only* if a context item is selected
+                            // AND this req is paired with it
+                            const isDisabled = disabledReqIds.has(req.id);
+                            return (
+                                <button
+                                    key={req.id}
+                                    type="button"
+                                    className={`list-group-item list-group-item-action ${selectedReqId === req.id ? 'active' : ''} ${isDisabled ? 'list-group-item-light text-muted' : ''}`}
+                                    // --- FIX: Use simple setter ---
+                                    onClick={() => setSelectedReqId(req.id)}
+                                    disabled={isDisabled}
+                                >
+                                    {req.description}
+                                    {isDisabled && <span className="ms-2 small">(Paired)</span>}
+                                </button>
+                            );
+                        })}
                     </div>
                 </div>
 
-                {/* Panel 2: Your CV Evidence (MODIFIED) */}
+                {/* Panel 2: Your CV Evidence */}
                 <div className="col-4">
                     <h6 className="border-bottom pb-2">Your CV Evidence</h6>
                     <div className="list-group" style={{ maxHeight: '400px', overflowY: 'auto' }}>
-                        {/* --- START CHANGES --- */}
-                        {/* 7. Map over the new combined cvEvidenceList */}
-                        {cvEvidenceList.map(item => (
-                            <button
-                                key={item.id}
-                                type="button"
-                                className={`list-group-item list-group-item-action ${selectedContextId === item.id ? 'active' : ''}`}
-                                onClick={() => handleSelectContextItem(item)}
-                            >
-                                {item.text}
-                            </button>
-                        ))}
-                        {/* --- END CHANGES --- */}
+                        {cvEvidenceList.map(item => {
+                            // Item is disabled *only* if a req is selected
+                            // AND this item is paired with it
+                            const isDisabled = disabledEvidenceIds.has(item.id);
+                            return (
+                                <button
+                                    key={item.id}
+                                    type="button"
+                                    className={`list-group-item list-group-item-action ${selectedContextId === item.id ? 'active' : ''} ${isDisabled ? 'list-group-item-light text-muted' : ''}`}
+                                    // --- FIX: Use simple handler ---
+                                    onClick={() => handleSelectContextItem(item)}
+                                    disabled={isDisabled}
+                                >
+                                    {item.text}
+                                    {isDisabled && <span className="ms-2 small">(Paired)</span>}
+                                </button>
+                            );
+                        })}
                     </div>
                 </div>
 
-                {/* Panel 3: Mapped Pairs (MODIFIED) */}
+                {/* Panel 3: Mapped Pairs */}
                 <div className="col-4">
                     <h6 className="border-bottom pb-2">✅ Mapped Pairs</h6>
+                    
+                    <div className="mb-2">
+                        <textarea
+                            className="form-control form-control-sm"
+                            rows="2"
+                            placeholder="Optional: Add annotation..."
+                            value={annotation}
+                            onChange={(e) => setAnnotation(e.target.value)}
+                        ></textarea>
+                    </div>
+
                     <button 
                         className="btn btn-success w-100 mb-3"
-                        // 8. Update disabled check
+                        // Button is active if one from each side is selected
                         disabled={!selectedReqId || !selectedContextId || isSubmitting}
                         onClick={handleCreatePair}
                     >
@@ -150,7 +197,6 @@ const Step1_Mapping = ({ job, cv, mapping, onMappingChanged, onNext }) => {
                     </button>
                     
                     <div style={{ maxHeight: '340px', overflowY: 'auto' }}>
-                        {/* 9. Update rendering to use new model fields */}
                         {mapping.pairs.map(pair => (
                             <div key={pair.id} className="card card-body p-3 mb-2 shadow-sm">
                                 <p className="small mb-1">
@@ -158,9 +204,17 @@ const Step1_Mapping = ({ job, cv, mapping, onMappingChanged, onNext }) => {
                                 </p>
                                 <p className="small mb-2">
                                     <strong>Maps to:</strong> 
-                                    {/* Use the new map and new ID field from the model */}
-                                    {contextItemTextMap.get(pair.context_item_id) || pair.context_item_text}
+                                    {/* This backwards-compatible check is still necessary */}
+                                    {/* Once your backend is fixed, this will work */}
+                                    {contextItemTextMap.get(pair.context_item_id || pair.experience_id) || pair.context_item_text || pair.experience_text}
                                 </p>
+                                
+                                {pair.annotation && (
+                                    <p className="small fst-italic border-top pt-2 mt-2 mb-2">
+                                        <strong>Note:</strong> {pair.annotation}
+                                    </p>
+                                )}
+                                
                                 <button 
                                     className="btn btn-danger btn-sm"
                                     onClick={() => handleDeletePair(pair.id)}
@@ -173,6 +227,7 @@ const Step1_Mapping = ({ job, cv, mapping, onMappingChanged, onNext }) => {
                 </div>
             </div>
             
+            {/* The "Next" button */}
             <div className="text-end mt-4">
                 <button className="btn btn-primary" onClick={onNext}>
                     Next: Review CV &gt;
