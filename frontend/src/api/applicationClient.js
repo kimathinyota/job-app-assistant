@@ -147,3 +147,16 @@ export const deleteApplication = (appId) => {
 };
 
 
+
+// --- *** NEW FUNCTION TO CALL THE INFERER *** ---
+/**
+ * Calls the inference engine for a given mapping.
+ * @param {string} mappingId - The ID of the mapping.
+ *a * @param {string} mode - The tuning mode (e.g., "eager_mode", "picky_mode").
+ */
+export const inferMappingPairs = (mappingId, mode = "balanced_default") => {
+    const params = new URLSearchParams({ mode });
+    // This is a POST request, and the mode is a query parameter
+    return apiClient.post(`/mapping/${mappingId}/infer?${params.toString()}`);
+};
+// --- *** END OF NEW FUNCTION *** ---

@@ -3,9 +3,10 @@
 from fastapi import APIRouter, HTTPException, Request
 from backend.core.registry import Registry
 from backend.core.models import MappingUpdate, MappingPair # <-- 1. Import MappingPair
-from typing import Optional, List # <-- 2. Import List
+from typing import Optional, List, Literal # <-- Import Literal
+from backend.core.tuning import TUNING_MODES # <-- Import your modes
 # from backend.core.dependencies import registry, inferer # <-- 3. Import the new 'inferer'
-
+import logging as log
 router = APIRouter()
 
 @router.post("/")
@@ -104,12 +105,24 @@ def delete_mapping_pair(mapping_id: str, pair_id: str, request: Request):
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-# --- 4. ADD THIS NEW ENDPOINT AT THE END OF THE FILE ---
+# --- *** THIS IS THE MODIFIED ENDPOINT *** ---
 @router.post("/{mapping_id}/infer", response_model=List[MappingPair])
-def infer_mapping_pairs(mapping_id: str, request: Request):
+def infer_mapping_pairs(
+    mapping_id: str, 
+    request: Request,
+    # Add a query parameter for the mode, defaulting to "balanced_default"
+    # Using Literal provides automatic validation for the allowed values
+    mode: Literal[
+        "super_eager", 
+        "eager_mode", 
+        "balanced_default", 
+        "picky_mode", 
+        "super_picky"
+    ] = "balanced_default" 
+):
     """
     Runs the NLP inference engine to suggest new mapping pairs
-    for the given job and CV.
+    for the given job and CV, using the specified tuning mode.
     """
     registry = request.app.state.registry
     mapping = registry.get_mapping(mapping_id)
@@ -123,16 +136,21 @@ def infer_mapping_pairs(mapping_id: str, request: Request):
         raise HTTPException(status_code=404, detail="Job or CV not found")
     
     try:
-        # Call the singleton inferer
+        # Get the singleton inferer
         inferer = request.app.state.inferer
-        suggestions = inferer.infer_mappings(job, cv)
         
-        # Note: We just return the suggestions, we don't save them.
-        # The frontend can decide what to do with them.
+        # Get the config parameters for the requested mode
+        # Default to "balanced_default" if mode is invalid (though Literal should prevent this)
+        mode_settings = TUNING_MODES.get(mode, TUNING_MODES["balanced_default"])
+        config_params = mode_settings.get("config", {})
+        
+        log.info(f"Running inference for mapping {mapping_id} with mode: {mode}")
+        
+        # Call the modified infer_mappings, unpacking the config dict
+        suggestions = inferer.infer_mappings(job, cv, **config_params)
+        
         return suggestions
         
     except Exception as e:
-        # Catch any potential NLP errors
         log.error(f"Error during inference for mapping {mapping_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Inference error: {e}")
-    

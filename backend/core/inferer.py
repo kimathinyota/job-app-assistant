@@ -100,28 +100,31 @@ class MappingInferer:
                  additional_threshold: float = 0.60,
                  use_use: bool = True):
         
-        self.semantic_looseness = float(np.clip(semantic_looseness, 0, 1))
-        self.top_k = int(top_k)
-        self.min_score = float(min_score)
-        self.additional_threshold = float(additional_threshold)
+        # These are the *default* parameters (i.e., "balanced_default")
+        self.default_semantic_looseness = float(np.clip(semantic_looseness, 0, 1))
+        self.default_top_k = int(top_k)
+        self.default_min_score = float(min_score)
+        self.default_additional_threshold = float(additional_threshold)
         self.use_use = bool(use_use)
+
+        # These are the *active* parameters, which can be temporarily changed
+        self.semantic_looseness = self.default_semantic_looseness
+        self.top_k = self.default_top_k
+        self.min_score = self.default_min_score
+        self.additional_threshold = self.default_additional_threshold
 
         self.semantic_model: Optional[USEEmbedder] = None
         self.tfidf: Optional[TfidfVectorizer] = None
         self.nlp: Optional[Any] = None # spaCy model
         self.cn_db_path = os.path.expanduser("~/.conceptnet_lite/conceptnet.db")
 
-        # Specificity weights to prioritize better evidence
-        # These are still relevant for the item types we *are* processing
         self.specificity_weights = {
             "project": 0.04,
             "education": 0.04,
             "experience": 0.0,
             "hobby": -0.15,
-            # Removed skill, achievement, summary
         }
 
-        # Per-run ConceptNet cache
         self._cn_cache: Dict[Tuple[str, int], Dict[str, float]] = {}
 
     def load_models(self):
@@ -134,7 +137,6 @@ class MappingInferer:
             log.error("spaCy not installed. Inferer cannot run. Please install with: pip install spacy")
             return
         except Exception:
-            # Try to download it if it's missing
             try:
                 log.warning("spaCy model 'en_core_web_sm' not found. Attempting to download...")
                 import spacy.cli
@@ -142,7 +144,7 @@ class MappingInferer:
                 self.nlp = load("en_core_web_sm")
                 log.info("spaCy model downloaded and loaded successfully.")
             except Exception as e:
-                log.error(f"Failed to load or download spaCy model. Make sure you have run: python -m spacy download en_core_web_sm. Error: {e}")
+                log.error(f"Failed to load or download spaCy model. Error: {e}")
                 return
 
         if self.use_use:
@@ -154,6 +156,9 @@ class MappingInferer:
             self.semantic_model = None
         log.info(f"Models loaded. spaCy=True, USE={bool(self.semantic_model)}")
 
+    # ... ( _conceptnet_expand, _preprocess_cv, _build_vectors, _composite_score, _make_annotation, _add_candidate ) ...
+    # ... (These functions are unchanged from inferer.py (v3) ) ...
+    
     def _conceptnet_expand(self, phrase: str, hops: int = 2, max_terms: int = 15) -> Dict[str, float]:
         """Per-run cached ConceptNet expansion (1-2 hop)."""
         if not phrase:
@@ -186,15 +191,11 @@ class MappingInferer:
         """
         pool: List[CVEvidence] = []
         
-        # Create skill lookup map. This is STILL NEEDED to add skill names
-        # to the text of Experiences, Projects, etc.
         skill_map: Dict[str, str] = {skill.id: (skill.name or "") for skill in getattr(cv, "skills", [])}
 
-        # Helper to create CVEvidence from a CV item
         def add_item(item: Any, item_type: str, text_fields: List[str]):
             text_parts = [str(getattr(item, field, "") or "") for field in text_fields]
             
-            # Add linked skill names to the text
             linked_skill_ids = getattr(item, "skill_ids", [])
             for skill_id in linked_skill_ids:
                 skill_name = skill_map.get(skill_id)
@@ -204,7 +205,7 @@ class MappingInferer:
             full_text = normalize_text(" ".join(text_parts))
             
             if not full_text:
-                return # Don't add items with no text content
+                return
                 
             ev = CVEvidence(item, item_type, full_text)
             
@@ -218,47 +219,21 @@ class MappingInferer:
             ev.expansion = self._conceptnet_expand(ev.text)
             pool.append(ev)
 
-        # -----------------------------------------------------------------
-        # MODIFICATION: The following items are now COMMENTED OUT
-        # as per the requirement to only match items that can
-        # hold achievements and are supported by the frontend.
-        # -----------------------------------------------------------------
-
-        # 1. Summary (COMMENTED OUT)
-        # if cv.summary:
-        #     class SummaryItem:
-        #         id = f"{cv.id}_summary"
-        #         description = cv.summary
-        #         skill_ids = []
-        #     add_item(SummaryItem(), "summary", ["description"])
-
-        # 2. Experiences (ACTIVE)
+        # 1. Experiences (ACTIVE)
         for item in getattr(cv, "experiences", []):
             add_item(item, "experience", ["title", "description"])
 
-        # 3. Education (ACTIVE)
+        # 2. Education (ACTIVE)
         for item in getattr(cv, "education", []):
             add_item(item, "education", ["institution", "degree", "field"])
 
-        # 4. Projects (ACTIVE)
+        # 3. Projects (ACTIVE)
         for item in getattr(cv, "projects", []):
             add_item(item, "project", ["title", "description"])
             
-        # 5. Skills (COMMENTED OUT)
-        # for item in getattr(cv, "skills", []):
-        #     add_item(item, "skill", ["name", "description"])
-            
-        # 6. Achievements (COMMENTED OUT)
-        # for item in getattr(cv, "achievements", []):
-        #     add_item(item, "achievement", ["text", "context"])
-
-        # 7. Hobbies (ACTIVE)
+        # 4. Hobbies (ACTIVE)
         for item in getattr(cv, "hobbies", []):
             add_item(item, "hobby", ["name", "description"])
-
-        # -----------------------------------------------------------------
-        # End of modifications
-        # -----------------------------------------------------------------
 
         self.cv_pool = pool
         return pool
@@ -295,38 +270,29 @@ class MappingInferer:
         """
         Compute the composite score blending TF-IDF, USE, and ConceptNet.
         """
-        # 1. TF-IDF similarity
         tfidf_s = 0.0
         if ev.vector_tfidf is not None:
             try:
                 tfidf_s = float(cosine_similarity([req_tfidf_vec], [ev.vector_tfidf])[0][0])
-            except Exception:
-                pass
+            except Exception: pass
 
-        # 2. USE similarity
         use_s = 0.0
         if req_use_vec is not None and ev.vector_use is not None:
             try:
                 use_s = float(cosine_similarity([req_use_vec], [ev.vector_use])[0][0])
-            except Exception:
-                pass
+            except Exception: pass
 
         if use_s > 0 and tfidf_s > 0:
             sem_sim = (tfidf_s + use_s) / 2.0
         else:
             sem_sim = max(tfidf_s, use_s)
 
-        # 3. ConceptNet similarity
         cn_sim = weighted_jaccard(req_cn, ev.expansion)
-
-        # 4. Final weighted score
         score = (1 - self.semantic_looseness) * sem_sim + self.semantic_looseness * cn_sim
 
-        # 5. Lexical boost
         if req_lemmas & ev.lemmas:
             score = score + 0.12
 
-        # 6. Specificity adjustment
         specificity_boost = self.specificity_weights.get(ev.item_type, 0.0)
         score = score + specificity_boost
 
@@ -360,10 +326,6 @@ class MappingInferer:
                        req: JobDescriptionFeature,
                        ev: CVEvidence,
                        score: float):
-        """
-        Helper to add a new mapping pair to the candidate map.
-        Handles deduplication by keeping the pair with the highest score.
-        """
         key = (req.id, ev.item_id)
         
         if key in candidate_map:
@@ -384,106 +346,139 @@ class MappingInferer:
         candidate_map[key] = (pair, score)
 
 
-    def infer_mappings(self, job: JobDescription, cv: CV) -> List[MappingPair]:
-        """Main orchestration logic for the refined inferer."""
+    # --- *** THIS IS THE MODIFIED FUNCTION *** ---
+    def infer_mappings(
+        self, 
+        job: JobDescription, 
+        cv: CV,
+        # Accept optional overrides
+        min_score: Optional[float] = None,
+        top_k: Optional[int] = None,
+        additional_threshold: Optional[float] = None,
+        semantic_looseness: Optional[float] = None,
+        **kwargs # To catch 'use_use' or other ignored params
+    ) -> List[MappingPair]:
+        """
+        Main orchestration logic.
+        Accepts optional parameter overrides for a single run.
+        """
         
-        if not self.nlp:
-            log.error("spaCy model not loaded. Call load_models() first.")
-            return []
-
-        # 1. Reset per-run cache
-        self._cn_cache = {}
-
-        # 2. Preprocess CV and Job Requirements
-        req_pool = getattr(job, "features", []) or []
-        cv_pool = self._preprocess_cv(cv) # <-- This now uses the modified version
-
-        if not req_pool or not cv_pool:
-            log.warning("Inference stopped: Job has no features or CV has no scorable content.")
-            return []
-            
-        req_texts = [normalize_text(r.description) for r in req_pool]
-        cv_texts = [ev.text for ev in cv_pool]
+        # Store original values
+        original_min_score = self.min_score
+        original_top_k = self.top_k
+        original_additional_threshold = self.additional_threshold
+        original_semantic_looseness = self.semantic_looseness
         
-        req_precomputed = []
-        if self.nlp:
-            for text in req_texts:
-                doc = self.nlp(text)
-                lemmas = {t.lemma_ for t in doc if t.pos_ in ("NOUN", "PROPN") and not t.is_stop}
-                cn_exp = self._conceptnet_expand(text)
-                req_precomputed.append((text, lemmas, cn_exp))
-
-        # 3. Build TF-IDF and USE vectors
-        req_tfidf, req_use, cv_tfidf, cv_use = self._build_vectors(req_texts, cv_texts)
-        
-        if req_tfidf is None or cv_tfidf is None:
-            log.error("Failed to build TF-IDF vectors. Aborting.")
-            return []
+        try:
+            # Temporarily override settings if provided
+            if min_score is not None:
+                self.min_score = min_score
+            if top_k is not None:
+                self.top_k = top_k
+            if additional_threshold is not None:
+                self.additional_threshold = additional_threshold
+            if semantic_looseness is not None:
+                self.semantic_looseness = semantic_looseness
             
-        for i, ev in enumerate(cv_pool):
-            ev.vector_tfidf = cv_tfidf[i]
-            if cv_use is not None:
-                ev.vector_use = cv_use[i]
+            log.info(f"Running inference with settings: min_score={self.min_score}, top_k={self.top_k}")
 
-        # 4. Compute Full Score Matrix
-        req_scores: Dict[str, List[Tuple[float, JobDescriptionFeature, CVEvidence]]] = defaultdict(list)
-        cv_scores: Dict[str, List[Tuple[float, JobDescriptionFeature, CVEvidence]]] = defaultdict(list)
-        all_scores: List[Tuple[float, JobDescriptionFeature, CVEvidence]] = []
-
-        log.info(f"Computing score matrix for {len(req_pool)} requirements x {len(cv_pool)} CV items...")
-        for i, req in enumerate(req_pool):
-            if i >= len(req_precomputed): continue
-            req_text, req_lemmas, req_cn = req_precomputed[i]
-            req_tf_vec = req_tfidf[i]
-            req_us_vec = req_use[i] if req_use is not None else None
+            # --- (The rest of the function is identical to v3) ---
             
-            for j, ev in enumerate(cv_pool):
-                score = self._composite_score(
-                    req_text, req_lemmas, req_cn, ev, req_tf_vec, req_us_vec
-                )
+            if not self.nlp:
+                log.error("spaCy model not loaded. Call load_models() first.")
+                return []
+
+            self._cn_cache = {}
+
+            req_pool = getattr(job, "features", []) or []
+            cv_pool = self._preprocess_cv(cv)
+
+            if not req_pool or not cv_pool:
+                log.warning("Inference stopped: Job has no features or CV has no scorable content.")
+                return []
                 
-                result = (score, req, ev)
-                req_scores[req.id].append(result)
-                cv_scores[ev.item_id].append(result)
-                all_scores.append(result)
-
-        candidate_map: Dict[Tuple[str, str], Tuple[MappingPair, float]] = {}
-
-        # 5. Apply Filter Stages
-        
-        # --- Stage A: Bottom-Up (For each CV item, find its best req) ---
-        log.debug("Running Stage A: Bottom-Up")
-        for ev_id, scores_for_ev in cv_scores.items():
-            if not scores_for_ev:
-                continue
-            best_result = max(scores_for_ev, key=lambda x: x[0])
-            best_score, best_req, ev = best_result
+            req_texts = [normalize_text(r.description) for r in req_pool]
+            cv_texts = [ev.text for ev in cv_pool]
             
-            if best_score >= self.min_score:
-                self._add_candidate(candidate_map, best_req, ev, best_score)
+            req_precomputed = []
+            if self.nlp:
+                for text in req_texts:
+                    doc = self.nlp(text)
+                    lemmas = {t.lemma_ for t in doc if t.pos_ in ("NOUN", "PROPN") and not t.is_stop}
+                    cn_exp = self._conceptnet_expand(text)
+                    req_precomputed.append((text, lemmas, cn_exp))
 
-        # --- Stage B: Top-Down (For each req, find its top-k CV items) ---
-        log.debug("Running Stage B: Top-Down")
-        for req_id, scores_for_req in req_scores.items():
-            if not scores_for_req:
-                continue
-            scores_for_req.sort(key=lambda x: x[0], reverse=True)
+            req_tfidf, req_use, cv_tfidf, cv_use = self._build_vectors(req_texts, cv_texts)
             
-            for score, req, ev in scores_for_req[:self.top_k]:
-                if score >= self.min_score:
+            if req_tfidf is None or cv_tfidf is None:
+                log.error("Failed to build TF-IDF vectors. Aborting.")
+                return []
+                
+            for i, ev in enumerate(cv_pool):
+                ev.vector_tfidf = cv_tfidf[i]
+                if cv_use is not None:
+                    ev.vector_use = cv_use[i]
+
+            req_scores: Dict[str, List[Tuple[float, JobDescriptionFeature, CVEvidence]]] = defaultdict(list)
+            cv_scores: Dict[str, List[Tuple[float, JobDescriptionFeature, CVEvidence]]] = defaultdict(list)
+            all_scores: List[Tuple[float, JobDescriptionFeature, CVEvidence]] = []
+
+            log.info(f"Computing score matrix for {len(req_pool)} requirements x {len(cv_pool)} CV items...")
+            for i, req in enumerate(req_pool):
+                if i >= len(req_precomputed): continue
+                req_text, req_lemmas, req_cn = req_precomputed[i]
+                req_tf_vec = req_tfidf[i]
+                req_us_vec = req_use[i] if req_use is not None else None
+                
+                for j, ev in enumerate(cv_pool):
+                    score = self._composite_score(
+                        req_text, req_lemmas, req_cn, ev, req_tf_vec, req_us_vec
+                    )
+                    
+                    result = (score, req, ev)
+                    req_scores[req.id].append(result)
+                    cv_scores[ev.item_id].append(result)
+                    all_scores.append(result)
+
+            candidate_map: Dict[Tuple[str, str], Tuple[MappingPair, float]] = {}
+
+            # --- Stage A: Bottom-Up ---
+            log.debug("Running Stage A: Bottom-Up")
+            for ev_id, scores_for_ev in cv_scores.items():
+                if not scores_for_ev: continue
+                best_result = max(scores_for_ev, key=lambda x: x[0])
+                best_score, best_req, ev = best_result
+                
+                if best_score >= self.min_score:
+                    self._add_candidate(candidate_map, best_req, ev, best_score)
+
+            # --- Stage B: Top-Down ---
+            log.debug("Running Stage B: Top-Down")
+            for req_id, scores_for_req in req_scores.items():
+                if not scores_for_req: continue
+                scores_for_req.sort(key=lambda x: x[0], reverse=True)
+                
+                for score, req, ev in scores_for_req[:self.top_k]:
+                    if score >= self.min_score:
+                        self._add_candidate(candidate_map, req, ev, score)
+                    else:
+                        break
+
+            # --- Stage C: Enrichment ---
+            log.debug("Running Stage C: Enrichment")
+            for score, req, ev in all_scores:
+                if score >= self.additional_threshold:
                     self._add_candidate(candidate_map, req, ev, score)
-                else:
-                    break
 
-        # --- Stage C: Enrichment (Find any other pairs "too good to ignore") ---
-        log.debug("Running Stage C: Enrichment")
-        for score, req, ev in all_scores:
-            if score >= self.additional_threshold:
-                self._add_candidate(candidate_map, req, ev, score)
+            final_pairs = [pair for (pair, score) in candidate_map.values()]
+            log.info(f"Inference complete. {len(final_pairs)} unique mappings created.")
+            
+            return final_pairs
 
-        # 6. Finalize
-        final_pairs = [pair for (pair, score) in candidate_map.values()]
-        log.info(f"Inference complete. {len(final_pairs)} unique mappings created from {len(req_pool)} reqs and {len(cv_pool)} CV items.")
-        
-        return final_pairs
-
+        finally:
+            # --- CRITICAL: Reset parameters to default ---
+            log.debug("Resetting inferer parameters to default.")
+            self.min_score = original_min_score
+            self.top_k = original_top_k
+            self.additional_threshold = original_additional_threshold
+            self.semantic_looseness = original_semantic_looseness
