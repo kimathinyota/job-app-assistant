@@ -2,11 +2,9 @@
 import os
 import uvicorn
 import logging
+import multiprocessing # <-- 1. Import multiprocessing
 
-# --- THIS IS THE CRITICAL FIX ---
 # Set these environment variables BEFORE anything else is imported.
-# This forces all downstream libraries (numpy, torch, etc.)
-# to run in single-threaded mode, preventing the fork-deadlock.
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
@@ -19,14 +17,24 @@ log = logging.getLogger(__name__)
 log.info("ENVIRONMENT VARIABLES SET. Starting Uvicorn...")
 log.info(f"TOKENIZERS_PARALLELISM={os.environ.get('TOKENIZERS_PARALLELISM')}")
 log.info(f"OMP_NUM_THREADS={os.environ.get('OMP_NUM_THREADS')}")
+log.info(f"NUMEXPR_NUM_THREADS={os.environ.get('NUMEXPR_NUM_THREADS')}")
 
 
 if __name__ == "__main__":
-    # Now we can safely run uvicorn.
-    # We run it as a function call instead of a shell command.
+    # --- 2. THIS IS THE FIX ---
+    # Set the start method to 'spawn' BEFORE uvicorn runs.
+    # This creates a clean new process instead of 'forking' the main one,
+    # which avoids all threading/mutex inheritance issues.
+    try:
+        multiprocessing.set_start_method("spawn", force=True)
+        log.info("Set multiprocessing start method to 'spawn'.")
+    except RuntimeError:
+        log.warning("Could not set 'spawn' start method (might be already set).")
+    # --- END OF FIX ---
+
     uvicorn.run(
         "backend.main:app", 
         host="127.0.0.1", 
         port=8000, 
-        reload=False  # Must be False to prevent fork deadlocks
+        reload=False  # Must be False
     )
