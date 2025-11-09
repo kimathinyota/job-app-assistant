@@ -7,7 +7,10 @@ import {
 } from '../../api/applicationClient';
 import { fetchCVDetails } from '../../api/cvClient'; // From your existing client
 
-import Step1_Mapping from './Step1_mapping';
+// --- THIS IS THE CHANGE ---
+import Step1_TriageView from './Step1_TriageView'; // <-- Use the new Triage View
+// import Step1_Mapping from './Step1_mapping'; // <-- No longer needed
+// --- END OF CHANGE ---
 import Step2_GenerateCV from './Step2_GenerateCV';
 import Step3_BuildCoverLetter from './Step3_BuildCoverLetter';
 import Step4_Submit from './Step4_Submit';
@@ -114,15 +117,17 @@ const ApplicationWorkspace = ({ applicationId, onExitWorkspace }) => {
             {/* Main Content Area */}
             <div className="wizard-content card shadow-sm">
                 <div className="card-body p-4">
+                    {/* --- THIS IS THE CHANGE --- */}
                     {currentStep === 1 && (
-                        <Step1_Mapping
+                        <Step1_TriageView
                             job={job}
                             cv={cv}
                             mapping={mapping}
-                            onMappingChanged={reloadMapping} // Pass callback
+                            onMappingChanged={reloadMapping}
                             onNext={handleNextStep}
                         />
                     )}
+                    {/* --- END OF CHANGE --- */}
                     {currentStep === 2 && (
                         <Step2_GenerateCV
                             job={job}
