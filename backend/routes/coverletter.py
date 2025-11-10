@@ -3,6 +3,9 @@
 from fastapi import APIRouter, HTTPException, Request
 from backend.core.registry import Registry
 from typing import Optional, List # Ensure List is imported
+# --- 1. IMPORT THE UPDATE MODELS ---
+from backend.core.models import IdeaUpdate, ParagraphUpdate
+
 
 router = APIRouter()
 
@@ -36,19 +39,77 @@ def delete_cover_letter(cover_id: str, request: Request):
 # ---------------------------------------------------------------------
 
 @router.post("/{cover_id}/idea")
-def add_idea(cover_id: str, title: str, request: Request, description: Optional[str] = None, mapping_pair_ids: List[str] = []):
+def add_idea(cover_id: str, title: str, request: Request, 
+             description: Optional[str] = None, 
+             mapping_pair_ids: List[str] = [],
+             annotation: Optional[str] = None): # <-- 1. Add annotation here
     """Add a new core idea/talking point for the cover letter."""
     try:
         registry = request.app.state.registry
-        return registry.add_cover_letter_idea(cover_id, title=title, description=description, mapping_pair_ids=mapping_pair_ids)
+        return registry.add_cover_letter_idea(
+            cover_id, 
+            title=title, 
+            description=description, 
+            mapping_pair_ids=mapping_pair_ids,
+            annotation=annotation # <-- 2. Pass annotation here
+        )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
 @router.post("/{cover_id}/paragraph")
-def add_paragraph(cover_id: str, idea_ids: List[str], purpose: str, request: Request, draft_text: Optional[str] = None):
+def add_paragraph(cover_id: str, purpose: str, request: Request, 
+                  idea_ids: List[str] = [],  # <-- THIS IS THE FIX
+                  draft_text: Optional[str] = None):
     """Add a paragraph structure based on existing ideas (used for generation outline)."""
     try:
         registry = request.app.state.registry
-        return registry.add_cover_letter_paragraph(cover_id, idea_ids=idea_ids, purpose=purpose, draft_text=draft_text)
+        return registry.add_cover_letter_paragraph(
+            cover_id, 
+            idea_ids=idea_ids, 
+            purpose=purpose, 
+            draft_text=draft_text
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+# --- 2. ADD THESE NEW UPDATE (PATCH) ROUTES ---
+
+@router.patch("/{cover_id}/idea/{idea_id}")
+def update_idea(cover_id: str, idea_id: str, data: IdeaUpdate, request: Request):
+    """Update an idea (e.g., its title, or its list of pairs)."""
+    try:
+        registry = request.app.state.registry
+        # This registry method already exists and supports this
+        return registry.update_cover_letter_idea(cover_id, idea_id, data)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+@router.patch("/{cover_id}/paragraph/{para_id}")
+def update_paragraph(cover_id: str, para_id: str, data: ParagraphUpdate, request: Request):
+    """Update a paragraph (e.g., its purpose, or its list of ideas)."""
+    try:
+        registry = request.app.state.registry
+        # This registry method already exists and supports this
+        return registry.update_cover_letter_paragraph(cover_id, para_id, data)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+# --- 3. (Optional but recommended) ADD DELETE ROUTES ---
+
+@router.delete("/{cover_id}/idea/{idea_id}")
+def delete_idea(cover_id: str, idea_id: str, request: Request):
+    """Deletes an idea from the cover letter."""
+    try:
+        registry = request.app.state.registry
+        return registry.delete_cover_letter_idea(cover_id, idea_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+@router.delete("/{cover_id}/paragraph/{para_id}")
+def delete_paragraph(cover_id: str, para_id: str, request: Request):
+    """Deletes a paragraph from the cover letter."""
+    try:
+        registry = request.app.state.registry
+        return registry.delete_cover_letter_paragraph(cover_id, para_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))

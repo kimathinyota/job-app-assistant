@@ -685,10 +685,13 @@ class MappingPairUpdate(BaseModel):
 class IdeaUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
+    mapping_pair_ids: Optional[List[str]] = None  # <-- ADD THIS LINE
     annotation: Optional[str] = None
+
 
 class ParagraphUpdate(BaseModel):
     order: Optional[int] = None
+    idea_ids: Optional[List[str]] = None  # <-- ADD THIS LINE
     purpose: Optional[str] = None
     draft_text: Optional[str] = None
 

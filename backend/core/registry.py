@@ -1217,7 +1217,7 @@ class Registry:
     
     # --- NESTED ADD METHODS ---
 
-    def add_cover_letter_idea(self, cover_id: str, title: str, description: Optional[str] = None, mapping_pair_ids: List[str] = []) -> Idea:
+    def add_cover_letter_idea(self, cover_id: str, title: str, description: Optional[str] = None, mapping_pair_ids: List[str] = [], annotation: Optional[str] = None) -> Idea:
         cover = self.get_cover_letter(cover_id)
         if not cover:
             raise ValueError("CoverLetter not found")
