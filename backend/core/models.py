@@ -603,6 +603,7 @@ class ApplicationStatus(BaseModel):
 class ApplicationUpdate(BaseModel):
     status: Optional[Literal["draft", "applied", "interview", "offer", "rejected"]] = None
     notes: Optional[str] = None
+    cover_letter_id: Optional[str] = None # <-- ADD THIS LINE
 
 class MappingUpdate(BaseModel):
     # This model is primarily a placeholder for consistency; core changes are via mapping pairs.

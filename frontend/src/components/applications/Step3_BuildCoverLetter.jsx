@@ -270,26 +270,42 @@ const IdeaCard = ({ idea, pairsInIdea, onDelete, onUpdateAnnotation }) => {
 
 
 // Col 3: Paragraph Card
+// Col 3: Paragraph Card
 const ParagraphCard = ({ paragraph, ideasInParagraph, onDelete }) => {
+    // This hook makes the *entire card* sortable within Col 3
     const {
         attributes,
         listeners,
-        setNodeRef,
+        setNodeRef: setSortableNodeRef, // Rename to avoid conflict
         transform,
         transition,
-        isOver
     } = useSortable({ 
-        id: `para-${paragraph.id}`, // --- FIX: Unique ID ---
+        id: `para-${paragraph.id}`,
         data: { 
             type: 'paragraph', 
             paragraph 
         } 
     });
 
+    // *** THIS IS THE FIX ***
+    // This hook makes the *card body* a drop zone for ideas
+    const {
+        setNodeRef: setDroppableNodeRef, // Rename to avoid conflict
+        isOver
+    } = useDroppable({
+        id: `para-card-body-${paragraph.id}`, // This ID MUST match the handleDragEnd logic
+        data: {
+            type: 'paragraph-body',
+            paragraph
+        }
+    });
+    // *** END OF FIX ***
+
     const style = { transform: CSS.Transform.toString(transform), transition };
 
     return (
-        <div ref={setNodeRef} style={style} className="paragraph-card">
+        // The whole card is sortable (ref={setSortableNodeRef})
+        <div ref={setSortableNodeRef} style={style} className="paragraph-card">
             <div className="paragraph-card-header" {...attributes} {...listeners}>
                 <h6 className="h6 mb-0">{paragraph.purpose}</h6>
                 <button
@@ -301,13 +317,17 @@ const ParagraphCard = ({ paragraph, ideasInParagraph, onDelete }) => {
                     title="Delete Paragraph"
                 />
             </div>
-            {/* --- FIX: Unique ID for this context --- */}
+            
             <SortableContext
                 id={`para-card-body-${paragraph.id}`}
                 items={ideasInParagraph.map(i => `para-${paragraph.id}-idea-${i.id}`)}
                 strategy={verticalListSortingStrategy}
             >
-                <div className={`paragraph-card-body ${isOver ? 'over' : ''}`}>
+                {/* This div is NOW the drop zone, using the `setDroppableNodeRef`.
+                  The `isOver` is from `useDroppable`, so it highlights when an
+                  "Idea" (Argument) is dragged over it.
+                */}
+                <div ref={setDroppableNodeRef} className={`paragraph-card-body ${isOver ? 'over' : ''}`}>
                     {ideasInParagraph.length === 0 && (
                         <p className="small text-muted fst-italic mb-0">
                             Drag arguments here
@@ -317,7 +337,7 @@ const ParagraphCard = ({ paragraph, ideasInParagraph, onDelete }) => {
                         <SortableIdeaCard
                             key={idea.id}
                             idea={idea}
-                            paragraphId={paragraph.id} // --- FIX: Pass parent ID ---
+                            paragraphId={paragraph.id}
                         />
                     ))}
                 </div>
@@ -325,7 +345,6 @@ const ParagraphCard = ({ paragraph, ideasInParagraph, onDelete }) => {
         </div>
     );
 };
-
 
 // --- Sortable Wrappers (FIXED) ---
 
