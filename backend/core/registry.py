@@ -1525,9 +1525,14 @@ class Registry:
         job = self.get_job(job_id)
         mapping = next((m for m in self.all_mappings() if m.job_id == job_id and m.base_cv_id == base_cv_id), None)
 
+        log.info(f"[Registry][P1] Generated CV prompt for Job ID {job.id} and CV ID {cv.id} using Mapping ID {mapping.id}.")
+
+
         if not cv or not job or not mapping:
+            log.warning(f"DEBUG: cv={cv}, job={job}, mapping={mapping}")
             raise ValueError("CV, Job, or related Mapping not found for prompt generation.")
 
+        log.info(f"[Registry][P2] Generated CV prompt for Job ID {job.id} and CV ID {cv.id} using Mapping ID {mapping.id}.")
         # --- 2. Create a copy of the CV to filter ---
         cv_for_prompt = cv.model_copy(deep=True)
 
@@ -1549,12 +1554,16 @@ class Registry:
             log.info("[Registry] No skill filter provided, using all skills.")
             pass # cv_for_prompt.skills already contains all skills
 
+        log.info(f"[Registry][P3] Generated CV prompt for Job ID {job.id} and CV ID {cv.id} using Mapping ID {mapping.id}.")
+
         structured_payload = CVGenerationPrompt(
             instruction="You are an expert career assistant. Your task is to generate a new Derived CV by selecting and rephrasing experiences and skills from the provided Base CV that directly address the features/requirements in the Job Description, as guided by the Mapping Data.",
             job_description=job,
-            base_cv=cv_for_prompt, # <-- 4. Pass the filtered CV object
+            base_cv=cv_for_prompt, 
             mapping_data=mapping,
+            goal="Generate a derived CV by prioritizing experience in the CV that is linked to job requirements in the mapping_data." # <-- ADD THIS LINE
         )
+        
 
         return AIPromptResponse(
             job_id=job_id,
@@ -1576,6 +1585,8 @@ class Registry:
 
         if not job or not cv or not cover_letter:
             raise ValueError("Job, CV, or Cover Letter Ideas not found for prompt generation.")
+        
+        log.info(f"[Registry] [p2] Generated Cover Letter prompt for Job ID {job.id} and CV ID {cv.id} using Mapping ID {mapping.id}.")
 
         structured_payload = CoverLetterGenerationPrompt(
             instruction="You are an expert copywriter. Generate a professional cover letter. Use the Cover Letter Ideas and Paragraph structure as the outline, ensuring the text powerfully connects the Base CV experiences to the Job Description requirements using the Mapping Data as evidence.",
@@ -1584,6 +1595,8 @@ class Registry:
             mapping_data=mapping,
             cover_letter_ideas=cover_letter.ideas,
         )
+
+        log.info(f"[Registry] [p3] Generated Cover Letter prompt for Job ID {job.id} and CV ID {cv.id} using Mapping ID {mapping.id}.")
 
         return AIPromptResponse(
             job_id=job.id,
