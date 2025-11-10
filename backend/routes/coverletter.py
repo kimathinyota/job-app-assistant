@@ -1,6 +1,6 @@
 # backend/routes/coverletter.py
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Query # <-- ADD Query
 from backend.core.registry import Registry
 from typing import Optional, List # Ensure List is imported
 # --- 1. IMPORT THE UPDATE MODELS ---
@@ -41,8 +41,9 @@ def delete_cover_letter(cover_id: str, request: Request):
 @router.post("/{cover_id}/idea")
 def add_idea(cover_id: str, title: str, request: Request, 
              description: Optional[str] = None, 
-             mapping_pair_ids: List[str] = [],
-             annotation: Optional[str] = None): # <-- 1. Add annotation here
+             # vvv THIS IS THE FIX vvv
+             mapping_pair_ids: List[str] = Query([]),
+             annotation: Optional[str] = None):
     """Add a new core idea/talking point for the cover letter."""
     try:
         registry = request.app.state.registry

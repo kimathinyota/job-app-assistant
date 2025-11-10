@@ -10,8 +10,9 @@ import {
     addCoverLetterParagraph,
     updateCoverLetterParagraph,
     deleteCoverLetterParagraph
-} from '../../api/applicationClient'; // Corrected import path
-import PromptModal from './PromptModal'; // Corrected import path
+} from '../../api/applicationClient.js'; // Added .js
+import PromptModal from './PromptModal.jsx'; // Added .jsx
+// At the top of Step3_BuildCoverLetter.jsx
 import {
     DndContext,
     DragOverlay,
@@ -20,6 +21,7 @@ import {
     PointerSensor,
     useSensor,
     useSensors,
+    useDroppable // <-- ADD THIS IMPORT
 } from '@dnd-kit/core';
 import {
     SortableContext,
@@ -407,7 +409,8 @@ const SortableIdeaCard = ({ idea, paragraphId }) => {
 
 // Droppable Column Body (Container for SortableContext)
 const DroppableColumnBody = ({ id, items, children }) => {
-    const { setNodeRef, isOver } = useSortable({ id }); // This ID is just for the drop target
+    // const { setNodeRef, isOver } = useSortable({ id }); // <-- DELETE THIS LINE
+    const { setNodeRef, isOver } = useDroppable({ id: id }); // <-- ADD THIS LINE
 
     return (
         // This context holds the sortable items
