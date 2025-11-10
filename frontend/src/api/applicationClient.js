@@ -40,6 +40,15 @@ export const updateApplicationStatus = (appId, status) => {
     return apiClient.put(`/application/${appId}/status`, { status });
 };
 
+// --- NEW: General application update function ---
+export const updateApplication = (appId, updateData) => {
+    // updateData is an object, e.g., { cover_letter_id: "..." }
+    return apiClient.patch(`/application/${appId}`, updateData);
+};
+
+
+
+
 // --- Mapping Endpoints (routes/mapping.py) ---
 export const fetchMappingDetails = (mappingId) => apiClient.get(`/mapping/${mappingId}`);
 export const createMapping = (jobId, baseCvId) => {
@@ -78,14 +87,23 @@ export const createCoverLetter = (jobId, baseCvId, mappingId) => {
     return apiClient.post(`/coverletter/?${params.toString()}`);
 };
 export const fetchCoverLetterDetails = (coverId) => apiClient.get(`/coverletter/${coverId}`);
-export const addCoverLetterIdea = (coverId, title, mappingPairIds) => {
-    // Note: FastAPI/Pydantic needs list items sent this way with query params
+
+
+export const addCoverLetterIdea = (coverId, title, mappingPairIds, annotation) => { // <-- 1. Add annotation
     let params = `title=${encodeURIComponent(title)}`;
-    mappingPairIds.forEach(id => {
+    
+    (mappingPairIds || []).forEach(id => {
         params += `&mapping_pair_ids=${encodeURIComponent(id)}`;
     });
+
+    if (annotation) { // <-- 2. Add annotation to params if it exists
+        params += `&annotation=${encodeURIComponent(annotation)}`;
+    }
+    
     return apiClient.post(`/coverletter/${coverId}/idea?${params}`);
 };
+
+
 export const addCoverLetterParagraph = (coverId, ideaIds, purpose) => {
     let params = `purpose=${encodeURIComponent(purpose)}`;
     ideaIds.forEach(id => {
@@ -160,3 +178,28 @@ export const inferMappingPairs = (mappingId, mode = "balanced_default") => {
     return apiClient.post(`/mapping/${mappingId}/infer?${params.toString()}`);
 };
 // --- *** END OF NEW FUNCTION *** ---
+
+
+// --- NEW ---
+export const updateCoverLetterIdea = (coverId, ideaId, ideaData) => {
+    // ideaData is an object like { title, mapping_pair_ids }
+    return apiClient.patch(`/coverletter/${coverId}/idea/${ideaId}`, ideaData);
+};
+
+// --- NEW ---
+export const deleteCoverLetterIdea = (coverId, ideaId) => {
+    return apiClient.delete(`/coverletter/${coverId}/idea/${ideaId}`);
+};
+
+
+// --- NEW ---
+export const updateCoverLetterParagraph = (coverId, paraId, paraData) => {
+    // paraData is an object like { purpose, idea_ids }
+    return apiClient.patch(`/coverletter/${coverId}/paragraph/${paraId}`, paraData);
+};
+
+// --- NEW ---
+export const deleteCoverLetterParagraph = (coverId, paraId) => {
+    return apiClient.delete(`/coverletter/${coverId}/paragraph/${paraId}`);
+};
+
