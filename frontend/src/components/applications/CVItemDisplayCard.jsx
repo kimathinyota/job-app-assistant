@@ -50,6 +50,7 @@ const CVItemDisplayCard = ({
     const renderHeader = () => {
         switch(itemType) {
             case 'experiences':
+            case 'experience':
                 return (
                     <div className="mb-2">
                         <strong className="fs-5 d-block">{item.title || 'Untitled Experience'}</strong>
@@ -74,7 +75,8 @@ const CVItemDisplayCard = ({
                         )}
                     </div>
                 );
-            case 'projects':
+            case 'projects':    
+            case 'project':
                 const relatedExpName = getRelatedExperienceName(item.related_experience_id);
                 const relatedEduName = getRelatedEducationName(item.related_education_id);
                 return (
