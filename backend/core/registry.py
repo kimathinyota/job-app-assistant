@@ -889,23 +889,41 @@ class Registry:
 
     def _get_nested_entity(self, cv: CV, entity_list_name: str, entity_id: str) -> Union[Experience, Education, Project, Hobby, Achievement]:
         """Helper to find a specific nested entity by ID within the CV."""
-        if entity_list_name == 'skills':
+        
+        # --- START MODIFICATION ---
+        # Normalize common singulars to the plural list name
+        list_name_map = {
+            "experience": "experiences",
+            "project": "projects",
+            "education": "education",
+            "hobby": "hobbies",
+            "skill": "skills",
+            "achievement": "achievements"
+        }
+        # Use the normalized name, but default to the original if it's already plural
+        normalized_list_name = list_name_map.get(entity_list_name, entity_list_name)
+        # --- END MODIFICATION ---
+        
+        # Use the new normalized_list_name for all checks
+        if normalized_list_name == 'skills':
              entity = next((e for e in cv.skills if e.id == entity_id), None)
-        elif entity_list_name == 'experiences':
+        elif normalized_list_name == 'experiences':
              entity = next((e for e in cv.experiences if e.id == entity_id), None)
-        elif entity_list_name == 'education':
+        elif normalized_list_name == 'education':
              entity = next((e for e in cv.education if e.id == entity_id), None)
-        elif entity_list_name == 'projects':
+        elif normalized_list_name == 'projects':
              entity = next((e for e in cv.projects if e.id == entity_id), None)
-        elif entity_list_name == 'hobbies':
+        elif normalized_list_name == 'hobbies':
              entity = next((e for e in cv.hobbies if e.id == entity_id), None)
-        elif entity_list_name == 'achievements':
+        elif normalized_list_name == 'achievements':
              entity = next((e for e in cv.achievements if e.id == entity_id), None)
         else:
+             # The error now correctly reports the *original* failing name
              raise ValueError(f"Unknown entity type: {entity_list_name}")
         
         if not entity:
-            raise ValueError(f"{entity_list_name.capitalize()} with ID {entity_id} not found in CV.")
+            # Use normalized_list_name in the error message
+            raise ValueError(f"{normalized_list_name.capitalize()} with ID {entity_id} not found in CV.")
         return entity
 
     def link_skill_to_entity(self, cv_id: str, entity_id: str, skill_id: str, entity_list_name: str):
