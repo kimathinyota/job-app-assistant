@@ -12,6 +12,8 @@ import {
     deleteCoverLetterParagraph
 } from '../../api/applicationClient.js';
 import PromptModal from './PromptModal.jsx';
+import CL_SuggestionModal from './CL_SuggestionModal.jsx';
+import CL_EvidenceGroup from './CL_EvidenceGroup.jsx';
 import {
     DndContext,
     DragOverlay,
@@ -93,6 +95,7 @@ const DND_STYLES = `
     border-radius: 0.375rem;
     margin-bottom: 1rem;
     touch-action: none;
+    position: relative; /* --- ADDED FOR ABSOLUTE BUTTON --- */
 }
 .idea-card-header {
     /* cursor: grab; <-- REMOVED from header */
@@ -145,7 +148,7 @@ const DND_STYLES = `
 }
 `;
 
-// --- Helper Functions (Unchanged) ---
+// --- Helper Functions ---
 const getItemIcon = (itemType) => {
     switch (itemType) {
         case 'experiences': return 'bi bi-briefcase-fill';
@@ -158,10 +161,9 @@ const getItemIcon = (itemType) => {
 
 // --- Draggable Components ---
 
-// Col 1: Pair Chip (NOW WITH onRemove BUTTON)
-const PairChip = forwardRef(({ pair, onRemove, ...props }, ref) => (
+// Col 1: Pair Chip (Exported)
+export const PairChip = forwardRef(({ pair, onRemove, ...props }, ref) => (
     <div ref={ref} {...props} className="pair-chip">
-        {/* --- NEW: Close button --- */}
         {onRemove && (
             <button
                 type="button"
@@ -179,12 +181,10 @@ const PairChip = forwardRef(({ pair, onRemove, ...props }, ref) => (
                 }}
             ></button>
         )}
-        {/* --- MODIFIED: Icon position adjusts if close button exists --- */}
         <i 
             className={`${getItemIcon(pair.context_item_type)} pair-chip-icon`} 
             style={{ right: onRemove ? '30px' : '0.75rem' }}
         ></i>
-        {/* --- MODIFIED: Text padding to avoid close button --- */}
         <strong className="d-block small pe-4">{pair.feature_text}</strong>
         <span className="text-muted small pe-3">
             {pair.context_item_text}
@@ -198,7 +198,7 @@ const PairChip = forwardRef(({ pair, onRemove, ...props }, ref) => (
 ));
 
 
-// Col 2: Idea Card (DELETE BUTTON FIXED)
+// Col 2: Idea Card (Refactored to use CL_EvidenceGroup AND new button location)
 const IdeaCard = ({ idea, pairsInIdea, onDelete, onUpdateAnnotation, onRemovePair }) => {
     const {
         attributes,
@@ -234,74 +234,99 @@ const IdeaCard = ({ idea, pairsInIdea, onDelete, onUpdateAnnotation, onRemovePai
         setAnnotation(idea.annotation || '');
     }, [idea.annotation]);
 
+    // --- NEW: Group pairs by evidence item ---
+    const groupedPairs = useMemo(() => {
+        const groups = new Map();
+        for (const pair of pairsInIdea) {
+            const key = pair.context_item_id;
+            const title = pair.context_item_text || "Unknown Evidence";
+            if (!groups.has(key)) {
+                groups.set(key, { title, pairs: [] });
+            }
+            groups.get(key).pairs.push(pair);
+        }
+        return Array.from(groups.values());
+    }, [pairsInIdea]);
+
     return (
         <div ref={setNodeRef} style={style} className={`idea-card ${isDragging ? 'dragging' : ''}`}>
-            {/* --- FIX: Listeners moved to h6 --- */}
+            {/* --- NEW DELETE BUTTON (Col 2) --- */}
+            <button
+                type="button"
+                className="btn-close btn-sm"
+                onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete(idea.id);
+                }}
+                title="Delete Idea"
+                style={{
+                    position: 'absolute',
+                    top: '0.5rem',
+                    right: '0.75rem',
+                    zIndex: 2,
+                }}
+            />
+            {/* --- END NEW BUTTON --- */}
+            
             <div className="idea-card-header">
                 <h6 
                     className="h6 mb-0" 
                     {...attributes} 
                     {...listeners} 
-                    style={{ cursor: 'grab', flexGrow: 1 }}
+                    style={{ 
+                        cursor: 'grab', 
+                        flexGrow: 1,
+                        paddingRight: '1.5rem' // --- ADDED PADDING ---
+                    }}
                 >
                     {idea.title}
                 </h6>
-                <button
-                    className="btn-close btn-sm"
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        onDelete(idea.id);
-                    }}
-                    title="Delete Idea"
-                />
+                {/* --- Button was removed from here --- */}
             </div>
-            <SortableContext
-                id={`idea-card-body-${idea.id}`}
-                items={pairsInIdea.map(p => `idea-${idea.id}-pair-${p.id}`)}
-                strategy={verticalListSortingStrategy}
-            >
-                <div className={`idea-card-body`}>
-                    {isEditing ? (
-                        <textarea
-                            className="form-control form-control-sm mb-2"
-                            value={annotation}
-                            onChange={(e) => setAnnotation(e.target.value)}
-                            onBlur={handleAnnotationBlur}
-                            autoFocus
-                            rows={3}
-                        />
-                    ) : (
-                        <p 
-                            className="small text-muted fst-italic"
-                            onClick={() => setIsEditing(true)}
-                            style={{minHeight: '1.5rem', cursor: 'pointer', whiteSpace: 'pre-wrap'}}
-                        >
-                            {annotation || "Click to add general notes..."}
-                        </p>
-                    )}
+            
+            <div className={`idea-card-body`}>
+                {isEditing ? (
+                    <textarea
+                        className="form-control form-control-sm mb-2"
+                        value={annotation}
+                        onChange={(e) => setAnnotation(e.target.value)}
+                        onBlur={handleAnnotationBlur}
+                        autoFocus
+                        rows={3}
+                    />
+                ) : (
+                    <p 
+                        className="small text-muted fst-italic"
+                        onClick={() => setIsEditing(true)}
+                        style={{minHeight: '1.5rem', cursor: 'pointer', whiteSpace: 'pre-wrap'}}
+                    >
+                        {annotation || "Click to add general notes..."}
+                    </p>
+                )}
 
-                    {pairsInIdea.map(pair => (
-                        <SortablePairChip 
-                            key={pair.id} 
-                            pair={pair} 
-                            ideaId={idea.id}
-                            onRemove={onRemovePair} // <-- NEW: Pass handler down
-                        />
-                    ))}
-                    {pairsInIdea.length === 0 && !annotation && (
-                         <p className="small text-muted text-center mb-0">
-                            Drag proof here
-                        </p>
-                    )}
-                </div>
-            </SortableContext>
+                {groupedPairs.map(group => (
+                    <CL_EvidenceGroup
+                        key={group.title}
+                        cvItemText={group.title}
+                        pairs={group.pairs}
+                        ideaId={idea.id}
+                        onRemovePair={onRemovePair} // Pass handler down
+                    />
+                ))}
+                
+                {pairsInIdea.length === 0 && !annotation && (
+                     <p className="small text-muted text-center mb-0">
+                        Drag proof here
+                    </p>
+                )}
+            </div>
         </div>
     );
 };
 
 
-// Col 3: Paragraph Card (DELETE BUTTON FIXED)
-const ParagraphCard = ({ paragraph, ideasInParagraph, onDelete }) => {
+// Col 3: Paragraph Card (MODIFIED to pass down onUnlinkIdea)
+const ParagraphCard = ({ paragraph, ideasInParagraph, onDelete, onUnlinkIdea }) => {
     const {
         attributes,
         listeners,
@@ -331,7 +356,6 @@ const ParagraphCard = ({ paragraph, ideasInParagraph, onDelete }) => {
 
     return (
         <div ref={setSortableNodeRef} style={style} className="paragraph-card">
-            {/* --- FIX: Listeners moved to h6 --- */}
             <div className="paragraph-card-header">
                 <h6 
                     className="h6 mb-0" 
@@ -367,6 +391,7 @@ const ParagraphCard = ({ paragraph, ideasInParagraph, onDelete }) => {
                             key={idea.id}
                             idea={idea}
                             paragraphId={paragraph.id}
+                            onUnlink={() => onUnlinkIdea(paragraph.id, idea.id)} // --- PASS HANDLER ---
                         />
                     ))}
                 </div>
@@ -377,8 +402,8 @@ const ParagraphCard = ({ paragraph, ideasInParagraph, onDelete }) => {
 
 // --- Sortable Wrappers ---
 
-// Sortable Pair (NOW ACCEPTS onRemove)
-const SortablePairChip = ({ pair, ideaId, onRemove }) => {
+// Sortable Pair (Exported)
+export const SortablePairChip = ({ pair, ideaId, onRemove }) => {
     const {
         attributes,
         listeners,
@@ -406,7 +431,6 @@ const SortablePairChip = ({ pair, ideaId, onRemove }) => {
             ref={setNodeRef}
             style={style}
             pair={pair}
-            // --- NEW: Pass onRemove handler to PairChip ---
             onRemove={onRemove ? () => onRemove(ideaId, pair.id) : null}
             {...attributes}
             {...listeners}
@@ -414,8 +438,8 @@ const SortablePairChip = ({ pair, ideaId, onRemove }) => {
     );
 };
 
-// Sortable Idea (Unchanged)
-const SortableIdeaCard = ({ idea, paragraphId }) => {
+// Sortable Idea (MODIFIED to include onUnlink in new location)
+const SortableIdeaCard = ({ idea, paragraphId, onUnlink }) => {
      const {
         attributes,
         listeners,
@@ -439,15 +463,44 @@ const SortableIdeaCard = ({ idea, paragraphId }) => {
     };
     
     return (
-        <div ref={setNodeRef} style={style} {...attributes} {...listeners} className="idea-card">
+        <div ref={setNodeRef} style={style} {...attributes} className="idea-card">
+            {/* --- NEW UNLINK BUTTON (Col 3) --- */}
+            <button
+                type="button"
+                className="btn-close btn-sm"
+                onClick={(e) => {
+                    e.stopPropagation();
+                    onUnlink();
+                }}
+                title="Unlink from paragraph"
+                style={{
+                    position: 'absolute',
+                    top: '0.5rem',
+                    right: '0.75rem',
+                    zIndex: 2,
+                }}
+            />
+            {/* --- END NEW BUTTON --- */}
+            
             <div className="idea-card-header">
-                <h6 className="h6 mb-0 small">{idea.title}</h6>
+                {/* Drag Handle */}
+                <h6 
+                    className="h6 mb-0 small" 
+                    {...listeners} 
+                    style={{ 
+                        cursor: 'grab', 
+                        flexGrow: 1,
+                        paddingRight: '1.5rem' // --- ADDED PADDING ---
+                    }}
+                >
+                    {idea.title}
+                </h6>
+                {/* --- Button was removed from here --- */}
             </div>
              {idea.annotation && (
                 <div className="idea-card-body py-2">
                     <p className="small text-muted fst-italic mb-0" style={{whiteSpace: 'pre-wrap'}}>
-                        {idea.annotation.substring(0, 50)}
-                        {idea.annotation.length > 50 ? "..." : ""}
+                        {idea.annotation.substring(0, 50)}{idea.annotation.length > 50 ? "..." : ""}
                     </p>
                 </div>
             )}
@@ -489,13 +542,13 @@ const Step3_BuildCoverLetter = ({
     const [newParaPurpose, setNewParaPurpose] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [clPromptJson, setClPromptJson] = useState('');
-    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [isPromptModalOpen, setIsPromptModalOpen] = useState(false);
     const [isLoadingPrompt, setIsLoadingPrompt] = useState(false);
     
-    const [showResearchModal, setShowResearchModal] = useState(false);
-    const [companyResearch, setCompanyResearch] = useState("");
+    // --- NEW: State for the Suggestion Modal ---
+    const [isSuggestionModalOpen, setIsSuggestionModalOpen] = useState(false);
 
-    // --- Data Loading & Scaffolding (Unchanged) ---
+    // --- Data Loading & Scaffolding (Unchanged, but added reload) ---
     const loadCoverLetter = async () => {
         if (!coverLetter) setIsLoading(true); 
         setError(null);
@@ -533,14 +586,12 @@ const Step3_BuildCoverLetter = ({
              return;
         }
         try {
-             setIsSubmitting(true);
+             // Show subtle loading
              const clData = (await fetchCoverLetterDetails(coverLetter.id)).data;
              setCoverLetter(clData);
         } catch (err) {
              console.error("Failed to reload CL:", err);
              setError("Failed to refresh data.");
-        } finally {
-            setIsSubmitting(false);
         }
     }
 
@@ -548,11 +599,13 @@ const Step3_BuildCoverLetter = ({
         loadCoverLetter();
     }, [application.id, application.cover_letter_id]);
 
-    // --- Memos for Data Manipulation (Unchanged) ---
+    // --- Memos for Data Manipulation (Refactored for Grouping) ---
     const {
         pairMap,
         ideaMap,
-        filteredPairs,
+        // --- NEW: Grouped pairs for Col 1 ---
+        groupedFilteredPairs, 
+        // --- END NEW ---
         availableIdeas,
         paragraphs,
         itemsById,
@@ -560,9 +613,22 @@ const Step3_BuildCoverLetter = ({
         const pMap = new Map((mapping?.pairs || []).map(p => [p.id, p]));
         const iMap = new Map(coverLetter ? coverLetter.ideas.map(i => [i.id, i]) : []);
         
+        // 1. Get pairs matching the filter
         const fPairs = (mapping?.pairs || []).filter(p =>
             pairFilterId === 'all' || p.feature_id === pairFilterId
         );
+
+        // --- NEW: Group the filtered pairs ---
+        const gPairs = new Map();
+        for (const pair of fPairs) {
+            const key = pair.context_item_id;
+            const title = pair.context_item_text || "Unknown Evidence";
+            if (!gPairs.has(key)) {
+                gPairs.set(key, { title, pairs: [] });
+            }
+            gPairs.get(key).pairs.push(pair);
+        }
+        // --- END NEW ---
 
         const pairedIdeaIds = new Set();
         (coverLetter?.paragraphs || []).forEach(para => {
@@ -572,6 +638,7 @@ const Step3_BuildCoverLetter = ({
         
         const paras = (coverLetter?.paragraphs || []).sort((a, b) => a.order - b.order);
 
+        // This lookup map is still needed for the DragOverlay
         const allItems = {};
         (mapping?.pairs || []).forEach(p => {
              allItems[`pool-pair-${p.id}`] = { ...p, type: 'pair' };
@@ -593,7 +660,7 @@ const Step3_BuildCoverLetter = ({
         return {
             pairMap: pMap,
             ideaMap: iMap,
-            filteredPairs: fPairs,
+            groupedFilteredPairs: Array.from(gPairs.values()), // Convert map to array for rendering
             availableIdeas: avIdeas,
             paragraphs: paras,
             itemsById: allItems
@@ -602,110 +669,13 @@ const Step3_BuildCoverLetter = ({
 
     // --- Form Handlers ---
     
-    // --- 'Smart Suggest' Handler (REPLACED) ---
-    const handleSmartSuggest = () => {
-        setShowResearchModal(true);
+    // --- NEW: Handler for the suggestion modal ---
+    const handleSuggestionsAccepted = async () => {
+        // This is called by the modal when an action is successful
+        await reloadCoverLetter();
+        // The modal will stay open and re-calculate its suggestions
     };
 
-    // --- NEW: Handler for the modal submission ---
-    const handleSubmitSmartArguments = async () => {
-        setIsSubmitting(true);
-        setShowResearchModal(false);
-
-        try {
-            const whyMePara = paragraphs.find(p => p.purpose === 'Body 1 (Why Me)');
-            const whyYouPara = paragraphs.find(p => p.purpose === 'Body 2 (Why You)');
-            
-            const ideaCreationPromises = [];
-
-            // 1. Create Company Research Idea
-            if (companyResearch.trim()) {
-                const title = "Company Mission & Values";
-                const annotation = `Agrees with mission statement because... ${companyResearch}`;
-                
-                ideaCreationPromises.push(
-                    addCoverLetterIdea(coverLetter.id, title, [], annotation)
-                        .then(res => ({
-                            newIdea: res.data,
-                            intendedParagraph: whyYouPara
-                        }))
-                );
-            }
-
-            // 2. Create Requirement-based Ideas
-            const pairsByFeature = mapping.pairs.reduce((acc, pair) => {
-                if (!pair.feature_id) return acc;
-                let alreadyUsed = false;
-                for (const idea of coverLetter.ideas) {
-                    if (idea.mapping_pair_ids.includes(pair.id)) {
-                        alreadyUsed = true;
-                        break;
-                    }
-                }
-                if (alreadyUsed) return acc;
-
-                if (!acc[pair.feature_id]) {
-                    acc[pair.feature_id] = {
-                        title: `Regarding: ${pair.feature_text}`,
-                        pairIds: []
-                    };
-                }
-                acc[pair.feature_id].pairIds.push(pair.id);
-                return acc;
-            }, {});
-
-            Object.values(pairsByFeature).forEach(group => {
-                if (group.pairIds.length > 0) { // <-- BUG FIX IS HERE
-                    ideaCreationPromises.push(
-                        addCoverLetterIdea(coverLetter.id, group.title, group.pairIds, null)
-                            .then(res => ({
-                                newIdea: res.data,
-                                intendedParagraph: whyMePara
-                            }))
-                    );
-                }
-            });
-
-            if (ideaCreationPromises.length === 0 && !companyResearch.trim()) {
-                alert("No new arguments to suggest. All mapped pairs are already in use.");
-                setIsSubmitting(false);
-                return;
-            }
-
-            const creationResults = await Promise.all(ideaCreationPromises);
-
-            const updatesByPara = new Map();
-            creationResults.forEach(({ newIdea, intendedParagraph }) => {
-                if (intendedParagraph) {
-                    if (!updatesByPara.has(intendedParagraph.id)) {
-                        updatesByPara.set(intendedParagraph.id, {
-                            para: intendedParagraph,
-                            newIdeaIds: [...intendedParagraph.idea_ids]
-                        });
-                    }
-                    updatesByPara.get(intendedParagraph.id).newIdeaIds.push(newIdea.id);
-                }
-            });
-
-            const updatePromises = [];
-            updatesByPara.forEach(({ para, newIdeaIds }) => {
-                updatePromises.push(
-                    updateCoverLetterParagraph(coverLetter.id, para.id, { idea_ids: newIdeaIds })
-                );
-            });
-
-            await Promise.all(updatePromises);
-
-        } catch (err) {
-            alert("Failed to suggest arguments.");
-            console.error(err);
-        } finally {
-            await reloadCoverLetter();
-            setCompanyResearch("");
-            setIsSubmitting(false);
-        }
-    };
-    
     // --- NEW: Handler to remove a pair from an idea ---
     const handleRemovePairFromIdea = async (ideaId, pairId) => {
         const idea = ideaMap.get(ideaId);
@@ -724,6 +694,35 @@ const Step3_BuildCoverLetter = ({
         }
     };
 
+    // --- NEW HANDLER FOR UNLINKING ---
+    const handleUnlinkIdea = async (paragraphId, ideaId) => {
+        if (isSubmitting) return;
+        setIsSubmitting(true);
+        try {
+            const sourcePara = paragraphs.find(p => p.id === paragraphId);
+            if (!sourcePara) throw new Error("Paragraph not found");
+
+            const newIdeaIds = sourcePara.idea_ids.filter(id => id !== ideaId);
+            
+            await updateCoverLetterParagraph(
+                coverLetter.id, 
+                paragraphId, 
+                { idea_ids: newIdeaIds }
+            );
+            
+            // Reload all data
+            await reloadCoverLetter();
+        } catch (err) {
+            console.error("Failed to unlink idea:", err);
+            alert("Failed to unlink idea.");
+            await reloadCoverLetter(); // Reload even on failure to reset state
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+    // --- END NEW HANDLER ---
+
+    // --- (Unchanged Handlers) ---
     const handleUpdateIdeaAnnotation = async (ideaId, newAnnotation) => {
          try {
             await updateCoverLetterIdea(coverLetter.id, ideaId, { annotation: newAnnotation });
@@ -778,6 +777,7 @@ const Step3_BuildCoverLetter = ({
     );
 
     const handleDragStart = (event) => setActiveDragId(event.active.id);
+
     const handleDragCancel = () => setActiveDragId(null);
 
     const handleDragEnd = async (event) => {
@@ -797,52 +797,64 @@ const Step3_BuildCoverLetter = ({
         setIsSubmitting(true);
         
         try {
+            // --- Dragging a PAIR ---
             if (activeData?.type === 'pair') {
                 const pairId = activeData.pair.id;
                 const sourceIdeaId = activeData.sourceIdeaId;
                 
+                // Dropping PAIR into an IDEA
                 if (overContainerId.startsWith('idea-card-body-')) {
                     const targetIdeaId = overContainerId.split('idea-card-body-')[1];
                     
+                    // 1. Remove from source idea (if it was in one)
                     if (sourceIdeaId && sourceIdeaId !== targetIdeaId) {
                         const sourceIdea = ideaMap.get(sourceIdeaId);
                         const newPairIds = sourceIdea.mapping_pair_ids.filter(id => id !== pairId);
                         await updateCoverLetterIdea(coverLetter.id, sourceIdeaId, { mapping_pair_ids: newPairIds });
                     }
                     
+                    // 2. Add to target idea
                     const targetIdea = ideaMap.get(targetIdeaId);
                     if (targetIdea && !targetIdea.mapping_pair_ids.includes(pairId)) {
                         const newPairIds = [...targetIdea.mapping_pair_ids, pairId];
                         await updateCoverLetterIdea(coverLetter.id, targetIdeaId, { mapping_pair_ids: newPairIds });
                     }
                 }
+                // Dropping PAIR back into the POOL
                 else if (overContainerId === 'pair-pool' && sourceIdeaId) {
+                    // Remove from source idea
                     const sourceIdea = ideaMap.get(sourceIdeaId);
                     const newPairIds = sourceIdea.mapping_pair_ids.filter(id => id !== pairId);
                     await updateCoverLetterIdea(coverLetter.id, sourceIdeaId, { mapping_pair_ids: newPairIds });
                 }
             }
             
+            // --- Dragging an IDEA ---
             if (activeData?.type === 'idea') {
                 const ideaId = activeData.idea.id;
                 const sourceParagraphId = activeData.sourceParagraphId;
                 
+                // Dropping IDEA into a PARAGRAPH
                 if (overContainerId.startsWith('para-card-body-')) {
                     const targetParagraphId = overContainerId.split('para-card-body-')[1];
                     
+                    // 1. Remove from source paragraph (if it was in one)
                     if (sourceParagraphId && sourceParagraphId !== targetParagraphId) {
                         const sourcePara = paragraphs.find(p => p.id === sourceParagraphId);
                         const newIdeaIds = sourcePara.idea_ids.filter(id => id !== ideaId);
                         await updateCoverLetterParagraph(coverLetter.id, sourceParagraphId, { idea_ids: newIdeaIds });
                     }
                     
+                    // 2. Add to target paragraph
                     const targetPara = paragraphs.find(p => p.id === targetParagraphId);
                     if (targetPara && !targetPara.idea_ids.includes(ideaId)) {
                         const newIdeaIds = [...targetPara.idea_ids, ideaId];
                         await updateCoverLetterParagraph(coverLetter.id, targetParagraphId, { idea_ids: newIdeaIds });
                     }
                 }
+                // Dropping IDEA back into the POOL
                 else if (overContainerId === 'idea-pool' && sourceParagraphId) {
+                    // Remove from source paragraph
                     const sourcePara = paragraphs.find(p => p.id === sourceParagraphId);
                     const newIdeaIds = sourcePara.idea_ids.filter(id => id !== ideaId);
                     await updateCoverLetterParagraph(coverLetter.id, sourceParagraphId, { idea_ids: newIdeaIds });
@@ -870,7 +882,7 @@ const Step3_BuildCoverLetter = ({
         try {
             const res = await generateCoverLetterPrompt(mapping.id);
             setClPromptJson(JSON.stringify(res.data, null, 2));
-            setIsModalOpen(true);
+            setIsPromptModalOpen(true);
         } catch (err) { alert("Failed to generate prompt."); }
         finally { setIsLoadingPrompt(false); }
     };
@@ -881,6 +893,11 @@ const Step3_BuildCoverLetter = ({
     if (!coverLetter || !mapping || !job) return <div className="alert alert-info">Initializing...</div>;
 
     const activeDragItem = activeDragId ? itemsById[activeDragId] : null;
+    
+    // We need a flat list of all sortable pair IDs for the Column 1 Droppable
+    const col1SortableIds = groupedFilteredPairs.flatMap(
+        group => group.pairs.map(p => `pool-pair-${p.id}`)
+    );
 
     return (
         <DndContext
@@ -900,7 +917,7 @@ const Step3_BuildCoverLetter = ({
                 {isSubmitting && <div className="spinner-border spinner-border-sm text-primary" role="status"><span className="visually-hidden">Loading...</span></div>}
 
                 <div className="cl-builder-container">
-                    {/* --- Column 1: Proof (Pairs) (Unchanged) --- */}
+                    {/* --- Column 1: Proof (Pairs) (Refactored) --- */}
                     <div className="cl-column">
                         <div className="cl-column-header">
                             <h6 className="h5 mb-0 text-success"><i className="bi bi-check-circle-fill me-2"></i> 1. Proof (Evidence)</h6>
@@ -926,29 +943,36 @@ const Step3_BuildCoverLetter = ({
                         </div>
                         <DroppableColumnBody
                             id="pair-pool"
-                            items={filteredPairs.map(p => `pool-pair-${p.id}`)}
+                            items={col1SortableIds} // Pass flat list of IDs
                         >
-                            {filteredPairs.map(pair => (
-                                <SortablePairChip key={pair.id} pair={pair} ideaId={null} />
+                            {/* Render the new grouped component */}
+                            {groupedFilteredPairs.map(group => (
+                                <CL_EvidenceGroup
+                                    key={group.title}
+                                    cvItemText={group.title}
+                                    pairs={group.pairs}
+                                    ideaId={null} // Not in an idea
+                                    onRemovePair={null} // Not removable
+                                />
                             ))}
                         </DroppableColumnBody>
                     </div>
 
-                    {/* --- Column 2: Arguments (Ideas) (MODIFIED) --- */}
+                    {/* --- Column 2: Arguments (Ideas) (Refactored) --- */}
                     <div className="cl-column">
                          <div className="cl-column-header">
                             <h6 className="h5 mb-0 text-primary"><i className="bi bi-lightbulb-fill me-2"></i> 2. Arguments (Idea Bank)</h6>
                             <small className="text-muted">Your talking points. Drag them to the Outline.</small>
                         </div>
-                        {/* --- MODIFIED: Removed 'Why You' button --- */}
                         <div className="d-grid gap-2 mb-3">
+                            {/* --- MODIFIED: Button now opens new modal --- */}
                             <button 
                                 className="btn btn-primary btn-sm"
-                                onClick={handleSmartSuggest}
+                                onClick={() => setIsSuggestionModalOpen(true)}
                                 disabled={isSubmitting}
                             >
                                 <i className="bi bi-magic me-2"></i>
-                                Smart Suggest Arguments
+                                Open CL Assistant
                             </button>
                         </div>
                         
@@ -957,7 +981,8 @@ const Step3_BuildCoverLetter = ({
                             items={availableIdeas.map(i => `pool-idea-${i.id}`)}
                         >
                             {availableIdeas.length === 0 && (
-                                <p className="small text-muted fst-italic">Suggest arguments or add a 'Why You' argument to start.</p>
+                                <p className="small text-muted fst-italic">No ideas in the bank. Use the Assistant or drag ideas from the outline.</p>
+
                             )}
                             {availableIdeas.map(idea => {
                                 const pairsInIdea = idea.mapping_pair_ids
@@ -970,14 +995,14 @@ const Step3_BuildCoverLetter = ({
                                         pairsInIdea={pairsInIdea}
                                         onDelete={handleDeleteIdea}
                                         onUpdateAnnotation={handleUpdateIdeaAnnotation}
-                                        onRemovePair={handleRemovePairFromIdea} // <-- NEW: Pass handler
+                                        onRemovePair={handleRemovePairFromIdea}
                                     />
                                 );
                             })}
                         </DroppableColumnBody>
                     </div>
                     
-                    {/* --- Column 3: Outline (Paragraphs) (Unchanged) --- */}
+                    {/* --- Column 3: Outline (Paragraphs) (MODIFIED) --- */}
                     <div className="cl-column">
                          <div className="cl-column-header">
                             <h6 className="h5 mb-0"><i className="bi bi-card-list me-2"></i> 3. Outline (Paragraphs)</h6>
@@ -1009,6 +1034,7 @@ const Step3_BuildCoverLetter = ({
                                         paragraph={para}
                                         ideasInParagraph={ideasInPara}
                                         onDelete={handleDeleteParagraph}
+                                        onUnlinkIdea={handleUnlinkIdea} // --- PASS HANDLER DOWN ---
                                     />
                                 );
                             })}
@@ -1022,11 +1048,13 @@ const Step3_BuildCoverLetter = ({
                         activeDragItem.type === 'pair' ? (
                             <PairChip pair={activeDragItem} className="pair-chip dragging" />
                         ) : (
+                            // Pass all required props to IdeaCard
                             <IdeaCard 
                                 idea={activeDragItem} 
-                                pairsInIdea={[]}
+                                pairsInIdea={[]} // Not needed for drag overlay
                                 onDelete={()=>{}} 
                                 onUpdateAnnotation={()=>{}}
+                                onRemovePair={()=>{}}
                             />
                         )
                     ) : null}
@@ -1042,9 +1070,9 @@ const Step3_BuildCoverLetter = ({
                 </button>
 
                 <PromptModal
-                    isOpen={isModalOpen}
+                    isOpen={isPromptModalOpen}
                     jsonString={clPromptJson}
-                    onClose={() => setIsModalOpen(false)}
+                    onClose={() => setIsPromptModalOpen(false)}
                 />
 
                 <div className="d-flex justify-content-between mt-4">
@@ -1057,72 +1085,17 @@ const Step3_BuildCoverLetter = ({
                 </div>
             </div>
 
-            {/* --- NEW: Company Research Modal --- */}
-            {showResearchModal && <div className="modal-backdrop fade show"></div>}
-            <div 
-                className={`modal fade ${showResearchModal ? 'show' : ''}`} 
-                style={{ display: showResearchModal ? 'block' : 'none' }}
-                tabIndex="-1"
-            >
-                <div className="modal-dialog modal-dialog-centered">
-                    <div className="modal-content">
-                        <div className="modal-header">
-                            <h5 className="modal-title">Company Research (Optional)</h5>
-                            <button 
-                                type="button" 
-                                className="btn-close" 
-                                onClick={() => setShowResearchModal(false)}
-                            ></button>
-                        </div>
-                        <div className="modal-body">
-                            <p>
-                                Add any research about the company (e.g., mission statement, ethics, recent news) 
-                                to create a "Why this company" argument.
-                            </p>
-                            <div className="mb-3">
-                                <label htmlFor="company-research-textarea" className="form-label">
-                                    How do you align with their mission?
-                                </label>
-                                <textarea
-                                    id="company-research-textarea"
-                                    className="form-control"
-                                    rows="4"
-                                    placeholder="e.g., 'Their focus on renewable energy aligns with my passion for sustainable technology...'"
-                                    value={companyResearch}
-                                    onChange={(e) => setCompanyResearch(e.target.value)}
-                                ></textarea>
-                            </div>
-                        </div>
-                        <div className="modal-footer">
-                            <button 
-                                type="button" 
-                                className="btn btn-secondary" 
-                                onClick={() => {
-                                    setCompanyResearch("");
-                                    handleSubmitSmartArguments();
-                                }}
-                                disabled={isSubmitting}
-                            >
-                                Skip
-                            </button>
-                            <button 
-                                type="button" 
-                                className="btn btn-primary" 
-                                onClick={handleSubmitSmartArguments}
-                                disabled={isSubmitting}
-                            >
-                                {isSubmitting ? (
-                                    <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-                                ) : (
-                                    'Create Arguments'
-                                )}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            {/* --- END: Company Research Modal --- */}
-
+            {/* --- NEW: Render the Suggestion Modal --- */}
+            {isSuggestionModalOpen && (
+                <CL_SuggestionModal
+                    isOpen={isSuggestionModalOpen}
+                    onClose={() => setIsSuggestionModalOpen(false)}
+                    coverLetter={coverLetter}
+                    mapping={mapping}
+                    job={job}
+                    onSuggestionsAccepted={handleSuggestionsAccepted}
+                />
+            )}
         </DndContext>
     );
 };
