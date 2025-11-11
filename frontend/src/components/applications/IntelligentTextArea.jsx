@@ -8,6 +8,29 @@ const STYLES = `
     width: 100%;
 }
 
+/* --- NEW: Style for the plus button --- */
+.intelligent-textarea-plus-btn {
+    position: absolute;
+    top: 0px;
+    right: 0px;
+    z-index: 5;
+    border: none;
+    background: var(--bs-light);
+    color: var(--bs-primary);
+    border-radius: 0 0.375rem 0 0.375rem;
+    font-size: 1.1rem;
+    width: 30px;
+    height: 30px;
+    line-height: 1;
+    opacity: 0.6;
+    transition: opacity 0.15s ease-in-out;
+}
+.intelligent-textarea-plus-btn:hover {
+    opacity: 1;
+}
+/* --- END NEW --- */
+
+
 .intelligent-editor {
     min-height: 80px;
     width: 100%;
@@ -22,8 +45,9 @@ const STYLES = `
     transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
     overflow-y: auto;
     white-space: pre-wrap;
+    /* --- NEW: Add padding to top-right to avoid button --- */
+    padding-right: 35px;
 }
-
 .intelligent-editor:focus {
     color: var(--bs-body-color);
     background-color: var(--bs-body-bg);
@@ -31,13 +55,12 @@ const STYLES = `
     outline: 0;
     box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
 }
-
 .intelligent-editor[data-placeholder="true"]:before {
     content: 'Click to add notes... Type @ to reference your CV...';
     color: var(--bs-gray-500);
     cursor: text;
+    pointer-events: none;
 }
-
 .intelligent-editor a {
     color: var(--bs-primary);
     text-decoration: none;
@@ -47,10 +70,9 @@ const STYLES = `
     border-radius: 4px;
     cursor: pointer;
 }
-
 .suggestions-popup {
     position: absolute;
-    z-index: 1050; /* Above modals */
+    z-index: 1050;
     background: var(--bs-white);
     border: 1px solid var(--bs-border-color);
     border-radius: 0.375rem;
@@ -59,7 +81,6 @@ const STYLES = `
     overflow-y: auto;
     width: 300px;
 }
-
 .suggestion-item {
     display: block;
     width: 100%;
@@ -74,12 +95,10 @@ const STYLES = `
     border: 0;
     cursor: pointer;
 }
-
 .suggestion-item:hover, .suggestion-item.active {
     background-color: var(--bs-primary-bg-subtle);
     color: var(--bs-primary-text-emphasis);
 }
-
 .suggestion-item small {
     display: block;
     color: var(--bs-text-muted);
@@ -91,14 +110,19 @@ const REFERENCE_REGEX = /\[(.*?)]<:(.*?)><(.*?)>/g;
 
 const IntelligentTextArea = ({ initialValue, onSave, cv, onShowPreview }) => {
     const editorRef = useRef(null);
+    // This state is ONLY for setting the initial value and placeholder
     const [rawText, setRawText] = useState(initialValue || '');
     const [isFocused, setIsFocused] = useState(false);
+    
+    // This ref tracks the *start* of the @ query
+    const suggestionQueryRef = useRef(null);
     
     // --- Suggestion State ---
     const [suggestions, setSuggestions] = useState({
         open: false,
         query: '',
-        type: null,
+        type: null, // 'category' or 'item'
+        categoryType: null, // 'experiences', 'skills', etc.
         items: [],
         position: { top: 0, left: 0 },
         activeIndex: 0,
@@ -120,7 +144,6 @@ const IntelligentTextArea = ({ initialValue, onSave, cv, onShowPreview }) => {
     // --- Convert raw text to display HTML ---
     const parseRawToHtml = (text) => {
         if (!text) return '';
-        // Use a function for replacement to correctly handle special chars
         return text.replace(REFERENCE_REGEX, (match, type, id, name) => {
             const el = document.createElement('a');
             el.href = "#";
@@ -144,14 +167,13 @@ const IntelligentTextArea = ({ initialValue, onSave, cv, onShowPreview }) => {
                 const name = node.textContent;
                 raw += `[${type}]<:${id}><${name}>`;
             } else if (node.nodeType === Node.ELEMENT_NODE) {
-                // Handle newlines from <div> or <br>
                 if (node.tagName === 'BR') {
                     raw += '\n';
                 } else if (node.tagName === 'DIV') {
-                    if (raw.length > 0) raw += '\n'; // Add newline before div content
+                    if (raw.length > 0 && !raw.endsWith('\n')) raw += '\n';
                     raw += parseHtmlToRaw(node);
                 } else {
-                    raw += parseHtmlToRaw(node); // Recurse for other nodes
+                    raw += parseHtmlToRaw(node);
                 }
             }
         });
@@ -164,22 +186,29 @@ const IntelligentTextArea = ({ initialValue, onSave, cv, onShowPreview }) => {
             const newRawText = initialValue || '';
             setRawText(newRawText);
             editorRef.current.innerHTML = parseRawToHtml(newRawText);
+            editorRef.current.dataset.placeholder = !newRawText;
         }
     }, [initialValue]);
 
     // --- Handle editor blur (save) ---
     const handleBlur = () => {
         setIsFocused(false);
-        setSuggestions({ open: false, items: [], query: '', type: null, position: {}, activeIndex: 0 });
-        const currentRawText = parseHtmlToRaw(editorRef.current);
+        // Delay closing suggestions so a click on a suggestion can register
+        setTimeout(() => {
+             if (!isFocused) {
+                setSuggestions(prev => ({ ...prev, open: false, type: null }));
+             }
+        }, 150);
         
+        const currentRawText = parseHtmlToRaw(editorRef.current);
+        setRawText(currentRawText); // Sync state
+
         if (currentRawText !== initialValue) {
             onSave(currentRawText);
         }
-        // Restore placeholder if empty
-        if (editorRef.current && !currentRawText.trim()) {
-            editorRef.current.dataset.placeholder = "true";
-            editorRef.current.innerHTML = ""; // Clear any stray <br>
+        
+        if (editorRef.current) {
+            editorRef.current.dataset.placeholder = !currentRawText.trim();
         }
     };
 
@@ -196,22 +225,22 @@ const IntelligentTextArea = ({ initialValue, onSave, cv, onShowPreview }) => {
         const sel = window.getSelection();
         if (sel.rangeCount > 0) {
             const range = sel.getRangeAt(0).cloneRange();
-            // Create a dummy span to get coords
             range.collapse(true);
             const span = document.createElement('span');
             range.insertNode(span);
             const rect = span.getBoundingClientRect();
             const { top, left } = rect;
-            span.parentNode.removeChild(span); // Clean up
+            span.parentNode.removeChild(span);
             
-            // Fallback if rect is 0,0 (e.g., empty line)
+            const editorRect = editorRef.current.getBoundingClientRect();
+            
             if (top === 0 && left === 0) {
-                const editorRect = editorRef.current.getBoundingClientRect();
                 return { top: editorRect.top + window.scrollY, left: editorRect.left + window.scrollX };
             }
-            return { top: rect.bottom + window.scrollY, left: rect.left + window.scrollX };
+            // Position relative to the wrapper
+            return { top: rect.bottom - editorRect.top, left: rect.left - editorRect.left };
         }
-        return {};
+        return { top: 0, left: 0 };
     };
 
     // --- Handle click on links ---
@@ -229,11 +258,23 @@ const IntelligentTextArea = ({ initialValue, onSave, cv, onShowPreview }) => {
         }
     };
 
-    // --- Main input handler (the magic) ---
+    // --- Main input handler (THE FIX) ---
     const handleInput = () => {
+        // We do NOT call setRawText here.
         const selection = window.getSelection();
-        const node = selection.focusNode;
-        const offset = selection.focusOffset;
+        if (!selection.rangeCount) return;
+        
+        const range = selection.getRangeAt(0);
+        if (!range.collapsed) return;
+        
+        const node = range.startContainer;
+        const offset = range.startOffset;
+
+        // Update placeholder state
+        if (editorRef.current) {
+            const hasText = editorRef.current.textContent.trim().length > 0;
+            editorRef.current.dataset.placeholder = !hasText;
+        }
         
         if (!node || node.nodeType !== Node.TEXT_NODE) {
             setSuggestions(prev => ({ ...prev, open: false }));
@@ -241,59 +282,68 @@ const IntelligentTextArea = ({ initialValue, onSave, cv, onShowPreview }) => {
         }
 
         const text = node.textContent.substring(0, offset);
-        const atMatch = text.match(/@([\w\s]*)$/);
-
-        if (atMatch) {
-            const query = atMatch[1].toLowerCase();
-            let items = [];
-            let type = suggestions.type;
-
-            if (!type) {
-                // Stage 1: Filter categories
-                items = cvCategories.filter(cat => cat.name.toLowerCase().includes(query));
-            } else {
-                // Stage 2: Filter items within a category
-                const category = cvCategories.find(c => c.type === type);
-                items = category.items.filter(item => 
-                    (item.name || item.title || item.degree || item.company)
-                        .toLowerCase().includes(query)
-                );
-            }
+        
+        // Check if we are *inside* a query
+        if (suggestions.type) {
+            const queryStartOffset = suggestionQueryRef.current?.offset || 0;
+            const queryText = text.substring(queryStartOffset);
             
-            setSuggestions({
+            const category = cvCategories.find(c => c.type === suggestions.categoryType);
+            const items = category.items.filter(item => 
+                (item.name || item.title || item.degree || item.company)
+                    .toLowerCase().includes(queryText.toLowerCase())
+            );
+            
+            setSuggestions(prev => ({
+                ...prev,
                 open: true,
-                query: query,
-                type: type,
+                query: queryText,
                 items: items,
                 position: getCaretCoordinates(),
                 activeIndex: 0,
-            });
+            }));
+
         } else {
-            setSuggestions(prev => ({ ...prev, open: false, type: null })); // Close popup and reset type
+            // Check if we are *starting* a new query
+            const atMatch = text.match(/@([\w\s]*)$/);
+            if (atMatch) {
+                const query = atMatch[1].toLowerCase();
+                const items = cvCategories.filter(cat => cat.name.toLowerCase().includes(query));
+                
+                // Store the start of the query
+                suggestionQueryRef.current = {
+                    node: node,
+                    offset: offset - query.length - 1 // -1 for '@'
+                };
+                
+                setSuggestions({
+                    open: true,
+                    query: query,
+                    type: 'category', // Stage 1: searching categories
+                    categoryType: null,
+                    items: items,
+                    position: getCaretCoordinates(),
+                    activeIndex: 0,
+                });
+            } else {
+                setSuggestions(prev => ({ ...prev, open: false, type: null }));
+            }
         }
     };
 
-    // --- Insert reference into editor ---
+    // --- Insert reference ---
     const insertReference = (item, type) => {
         const selection = window.getSelection();
         if (!selection.rangeCount) return;
-        const range = selection.getRangeAt(0);
         
-        // 1. Find text node and delete the "@query"
-        const node = selection.focusNode;
-        const offset = selection.focusOffset;
-        // Adjust query length based on whether we are in stage 1 or 2
-        const queryLength = suggestions.type 
-            ? suggestions.query.length + 1 // @ + query
-            : suggestions.query.length + 1; // @ + category query (which is now part of the text)
-
-        if (node.nodeType === Node.TEXT_NODE) {
-            range.setStart(node, offset - queryLength);
-            range.setEnd(node, offset);
-        }
+        const range = selection.getRangeAt(0);
+        const { node, offset } = suggestionQueryRef.current;
+        
+        // Delete the entire query text ("@category query" or "@item query")
+        range.setStart(node, offset);
+        range.setEnd(selection.focusNode, selection.focusOffset);
         range.deleteContents();
 
-        // 2. Create the link element
         const link = document.createElement('a');
         const itemName = item.name || item.title || item.degree || item.company;
         link.href = "#";
@@ -302,16 +352,12 @@ const IntelligentTextArea = ({ initialValue, onSave, cv, onShowPreview }) => {
         link.setAttribute("contenteditable", "false");
         link.textContent = itemName;
 
-        // 3. Insert the link
         range.insertNode(link);
-
-        // 4. Move cursor after the link
         range.setStartAfter(link);
         range.setEndAfter(link);
         selection.removeAllRanges();
         selection.addRange(range);
 
-        // 5. Add a space after for easy typing
         const space = document.createTextNode(' ');
         range.insertNode(space);
         range.setStartAfter(space);
@@ -319,44 +365,47 @@ const IntelligentTextArea = ({ initialValue, onSave, cv, onShowPreview }) => {
         selection.removeAllRanges();
         selection.addRange(range);
 
-        // 6. Close popup
         setSuggestions({ open: false, items: [], query: '', type: null, position: {}, activeIndex: 0 });
         editorRef.current.focus();
+        handleInput(); // Trigger placeholder update
     };
 
     // --- Handle suggestion selection ---
     const selectSuggestion = (item) => {
-        if (!suggestions.type) {
-            // Stage 1: Category selected, move to Stage 2
+        const selection = window.getSelection();
+        if (!selection.rangeCount) return;
+        const range = selection.getRangeAt(0);
+
+        if (suggestions.type === 'category') {
+            // Stage 1: Category selected
             const category = cvCategories.find(c => c.type === item.type);
+            
+            // --- Replace "@Category" with "@" ---
+            const { node, offset } = suggestionQueryRef.current;
+            range.setStart(node, offset + 1); // After the "@"
+            range.setEnd(selection.focusNode, selection.focusOffset);
+            range.deleteContents();
+            
+            // Update suggestion state for Stage 2
             setSuggestions(prev => ({
                 ...prev,
-                type: item.type,
-                query: '', // Reset query
+                type: 'item',
+                categoryType: item.type,
+                query: '',
                 items: category.items,
                 activeIndex: 0,
             }));
             
-            // --- Replace "@Category" with "@" to start searching
-            const selection = window.getSelection();
-            const range = selection.getRangeAt(0);
-            const node = selection.focusNode;
-            const offset = selection.focusOffset;
-            const queryLength = suggestions.query.length;
-            
-            range.setStart(node, offset - queryLength);
-            range.setEnd(node, offset);
-            range.deleteContents();
-            
         } else {
-            // Stage 2: Item selected, insert it
-            insertReference(item, suggestions.type);
+            // Stage 2: Item selected
+            insertReference(item, suggestions.categoryType);
         }
     };
 
-    // --- Keyboard navigation for suggestions ---
+    // --- Keyboard navigation ---
     const handleKeyDown = (e) => {
         if (!suggestions.open) return;
+        if (suggestions.items.length === 0) return;
 
         if (e.key === 'ArrowDown') {
             e.preventDefault();
@@ -372,25 +421,44 @@ const IntelligentTextArea = ({ initialValue, onSave, cv, onShowPreview }) => {
             }));
         } else if (e.key === 'Enter' || e.key === 'Tab') {
             e.preventDefault();
-            if (suggestions.items.length > 0) {
-                selectSuggestion(suggestions.items[suggestions.activeIndex]);
-            }
-        } else if (e.key === 'Backspace' && suggestions.query === '' && suggestions.type) {
+            selectSuggestion(suggestions.items[suggestions.activeIndex]);
+        } else if (e.key === 'Backspace' && suggestions.query === '' && suggestions.type === 'item') {
              e.preventDefault();
              // Go back to category selection
              setSuggestions(prev => ({
                 ...prev,
-                type: null,
+                type: 'category',
+                categoryType: null,
                 query: '',
                 items: cvCategories,
                 activeIndex: 0,
              }));
+             suggestionQueryRef.current.offset = suggestionQueryRef.current.offset + 1; // Adjust ref
         } else if (e.key === 'Escape') {
             e.preventDefault();
             setSuggestions(prev => ({ ...prev, open: false, type: null }));
         }
     };
+    
+    // --- NEW: Handler for the plus button ---
+    const handlePlusClick = () => {
+        editorRef.current.focus();
+        // Manually open the suggestions to Stage 1
+        setSuggestions({
+            open: true,
+            query: '',
+            type: 'category',
+            categoryType: null,
+            items: cvCategories,
+            position: { top: 30, right: 5 }, // Position relative to wrapper
+            activeIndex: 0,
+        });
+        // Set a dummy query ref
+        suggestionQueryRef.current = { node: null, offset: -1 };
+    };
 
+
+    // --- Helper Functions (Unchanged) ---
     const getItemName = (item, type) => {
         switch(type) {
             case 'experiences': return item.title;
@@ -402,7 +470,6 @@ const IntelligentTextArea = ({ initialValue, onSave, cv, onShowPreview }) => {
             default: return 'Unknown';
         }
     }
-    
     const getItemSubtitle = (item, type) => {
         switch(type) {
             case 'experiences': return item.company;
@@ -414,6 +481,21 @@ const IntelligentTextArea = ({ initialValue, onSave, cv, onShowPreview }) => {
     return (
         <div className="intelligent-textarea-wrapper">
             <style>{STYLES}</style>
+            
+            {/* --- NEW: Plus Button --- */}
+            <button
+                type="button"
+                className="intelligent-textarea-plus-btn"
+                title="Reference your CV"
+                onMouseDown={(e) => {
+                    // Use onMouseDown to prevent the editor from blurring
+                    e.preventDefault(); 
+                    handlePlusClick();
+                }}
+            >
+                <i className="bi bi-plus-lg"></i>
+            </button>
+            
             <div
                 ref={editorRef}
                 className="intelligent-editor"
@@ -423,8 +505,8 @@ const IntelligentTextArea = ({ initialValue, onSave, cv, onShowPreview }) => {
                 onInput={handleInput}
                 onKeyDown={handleKeyDown}
                 onClick={handleClick}
-                dangerouslySetInnerHTML={{ __html: parseRawToHtml(rawText) }}
                 data-placeholder={!rawText && !isFocused}
+                // We only set innerHTML on initial load via useEffect
             />
             {suggestions.open && (
                 <div
@@ -432,21 +514,26 @@ const IntelligentTextArea = ({ initialValue, onSave, cv, onShowPreview }) => {
                     style={{
                         top: suggestions.position.top + 5,
                         left: suggestions.position.left,
+                        right: suggestions.position.right ? suggestions.position.right + 5 : 'auto'
                     }}
                 >
                     {suggestions.items.length === 0 && (
                         <span className="suggestion-item text-muted">No results found</span>
                     )}
                     {suggestions.items.map((item, index) => {
-                        const name = suggestions.type ? getItemName(item, suggestions.type) : item.name;
-                        const subtitle = suggestions.type ? getItemSubtitle(item, suggestions.type) : null;
+                        const name = suggestions.type === 'item' ? getItemName(item, suggestions.categoryType) : item.name;
+                        const subtitle = suggestions.type === 'item' ? getItemSubtitle(item, suggestions.categoryType) : null;
                         
                         return (
                             <button
                                 key={item.id || item.type}
                                 type="button"
                                 className={`suggestion-item ${index === suggestions.activeIndex ? 'active' : ''}`}
-                                onClick={() => selectSuggestion(item)}
+                                // Use onMouseDown to select *before* blur fires
+                                onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    selectSuggestion(item);
+                                }}
                             >
                                 {name}
                                 {subtitle && <small>{subtitle}</small>}

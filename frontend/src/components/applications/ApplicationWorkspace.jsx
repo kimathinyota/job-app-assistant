@@ -167,9 +167,10 @@ const ApplicationWorkspace = ({ applicationId, onExitWorkspace }) => {
                             application={application}
                             job={job}
                             mapping={mapping}
+                            fullCV={cv} // <-- ADD THIS LINE
                             onPrev={handlePrevStep}
                             onNext={handleNextStep}
-                            onCoverLetterCreated={handleCoverLetterCreated} // <-- 3. PASS THE PROP
+                            onCoverLetterCreated={handleCoverLetterCreated}
                         />
                     )}
                     {currentStep === 4 && (

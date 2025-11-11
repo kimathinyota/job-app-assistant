@@ -14,6 +14,10 @@ import {
 import PromptModal from './PromptModal.jsx';
 import CL_SuggestionModal from './CL_SuggestionModal.jsx';
 import CL_EvidenceGroup from './CL_EvidenceGroup.jsx';
+// --- NEW IMPORTS ---
+import IntelligentTextArea from './IntelligentTextArea.jsx';
+import CVItemPreviewModal from './CVItemPreviewModal.jsx';
+// --- END NEW IMPORTS ---
 import {
     DndContext,
     DragOverlay,
@@ -33,9 +37,8 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
-// --- STYLES ---
+// --- STYLES (Unchanged) ---
 const DND_STYLES = `
-/* (Styles are unchanged from your file) */
 .cl-builder-container {
     display: flex;
     flex-direction: row;
@@ -95,10 +98,9 @@ const DND_STYLES = `
     border-radius: 0.375rem;
     margin-bottom: 1rem;
     touch-action: none;
-    position: relative; /* --- ADDED FOR ABSOLUTE BUTTON --- */
+    position: relative;
 }
 .idea-card-header {
-    /* cursor: grab; <-- REMOVED from header */
     padding: 0.75rem 1rem;
     border-bottom: 1px solid var(--bs-border-color-translucent);
     display: flex;
@@ -125,7 +127,6 @@ const DND_STYLES = `
     touch-action: none;
 }
 .paragraph-card-header {
-    /* cursor: grab; <-- REMOVED from header */
     padding: 0.75rem 1rem;
     border-bottom: 1px solid var(--bs-border-color);
     display: flex;
@@ -148,7 +149,7 @@ const DND_STYLES = `
 }
 `;
 
-// --- Helper Functions ---
+// --- Helper Functions (Unchanged) ---
 const getItemIcon = (itemType) => {
     switch (itemType) {
         case 'experiences': return 'bi bi-briefcase-fill';
@@ -169,16 +170,11 @@ export const PairChip = forwardRef(({ pair, onRemove, ...props }, ref) => (
                 type="button"
                 className="btn-close btn-sm"
                 onClick={(e) => {
-                    e.stopPropagation(); // Prevents drag-and-drop
+                    e.stopPropagation();
                     onRemove();
                 }}
                 title="Remove pair"
-                style={{ 
-                    position: 'absolute', 
-                    top: '5px', 
-                    right: '5px', 
-                    zIndex: 2 
-                }}
+                style={{ position: 'absolute', top: '5px', right: '5px', zIndex: 2 }}
             ></button>
         )}
         <i 
@@ -198,8 +194,16 @@ export const PairChip = forwardRef(({ pair, onRemove, ...props }, ref) => (
 ));
 
 
-// Col 2: Idea Card (Refactored to use CL_EvidenceGroup AND new button location)
-const IdeaCard = ({ idea, pairsInIdea, onDelete, onUpdateAnnotation, onRemovePair }) => {
+// --- MODIFIED: Col 2: Idea Card ---
+const IdeaCard = ({ 
+    idea, 
+    pairsInIdea, 
+    onDelete, 
+    onUpdateAnnotation, 
+    onRemovePair,
+    fullCV,         // <-- NEW PROP
+    onShowPreview   // <-- NEW PROP
+}) => {
     const {
         attributes,
         listeners,
@@ -207,34 +211,13 @@ const IdeaCard = ({ idea, pairsInIdea, onDelete, onUpdateAnnotation, onRemovePai
         transform,
         transition,
         isDragging
-    } = useSortable({ 
-        id: `pool-idea-${idea.id}`,
-        data: { 
-            type: 'idea', 
-            idea 
-        } 
-    });
+    } = useSortable({ id: `pool-idea-${idea.id}`, data: { type: 'idea', idea } });
 
-    const style = {
-        transform: CSS.Transform.toString(transform),
-        transition,
-    };
+    const style = { transform: CSS.Transform.toString(transform), transition };
     
-    const [annotation, setAnnotation] = useState(idea.annotation || '');
-    const [isEditing, setIsEditing] = useState(false);
+    // --- REMOVED: Old annotation and isEditing state ---
 
-    const handleAnnotationBlur = () => {
-        setIsEditing(false);
-        if (annotation !== (idea.annotation || '')) {
-            onUpdateAnnotation(idea.id, annotation);
-        }
-    };
-    
-    useEffect(() => {
-        setAnnotation(idea.annotation || '');
-    }, [idea.annotation]);
-
-    // --- NEW: Group pairs by evidence item ---
+    // --- Group pairs by evidence item (Unchanged) ---
     const groupedPairs = useMemo(() => {
         const groups = new Map();
         for (const pair of pairsInIdea) {
@@ -250,72 +233,50 @@ const IdeaCard = ({ idea, pairsInIdea, onDelete, onUpdateAnnotation, onRemovePai
 
     return (
         <div ref={setNodeRef} style={style} className={`idea-card ${isDragging ? 'dragging' : ''}`}>
-            {/* --- NEW DELETE BUTTON (Col 2) --- */}
+            {/* Delete Button (Unchanged) */}
             <button
                 type="button"
                 className="btn-close btn-sm"
-                onClick={(e) => {
-                    e.stopPropagation();
-                    onDelete(idea.id);
-                }}
+                onClick={(e) => { e.stopPropagation(); onDelete(idea.id); }}
                 title="Delete Idea"
-                style={{
-                    position: 'absolute',
-                    top: '0.5rem',
-                    right: '0.75rem',
-                    zIndex: 2,
-                }}
+                style={{ position: 'absolute', top: '0.5rem', right: '0.75rem', zIndex: 2 }}
             />
-            {/* --- END NEW BUTTON --- */}
             
+            {/* Card Header (Unchanged) */}
             <div className="idea-card-header">
                 <h6 
                     className="h6 mb-0" 
                     {...attributes} 
                     {...listeners} 
-                    style={{ 
-                        cursor: 'grab', 
-                        flexGrow: 1,
-                        paddingRight: '1.5rem' // --- ADDED PADDING ---
-                    }}
+                    style={{ cursor: 'grab', flexGrow: 1, paddingRight: '1.5rem' }}
                 >
                     {idea.title}
                 </h6>
-                {/* --- Button was removed from here --- */}
             </div>
             
+            {/* --- REPLACED: Old textarea/p with IntelligentTextArea --- */}
             <div className={`idea-card-body`}>
-                {isEditing ? (
-                    <textarea
-                        className="form-control form-control-sm mb-2"
-                        value={annotation}
-                        onChange={(e) => setAnnotation(e.target.value)}
-                        onBlur={handleAnnotationBlur}
-                        autoFocus
-                        rows={3}
-                    />
-                ) : (
-                    <p 
-                        className="small text-muted fst-italic"
-                        onClick={() => setIsEditing(true)}
-                        style={{minHeight: '1.5rem', cursor: 'pointer', whiteSpace: 'pre-wrap'}}
-                    >
-                        {annotation || "Click to add general notes..."}
-                    </p>
-                )}
+                <IntelligentTextArea
+                    initialValue={idea.annotation || ''}
+                    onSave={(newAnnotation) => onUpdateAnnotation(idea.id, newAnnotation)}
+                    cv={fullCV}
+                    onShowPreview={onShowPreview}
+                />
+            {/* --- END REPLACEMENT --- */}
 
+                {/* Grouped Pairs (Unchanged) */}
                 {groupedPairs.map(group => (
                     <CL_EvidenceGroup
                         key={group.title}
                         cvItemText={group.title}
                         pairs={group.pairs}
                         ideaId={idea.id}
-                        onRemovePair={onRemovePair} // Pass handler down
+                        onRemovePair={onRemovePair}
                     />
                 ))}
                 
-                {pairsInIdea.length === 0 && !annotation && (
-                     <p className="small text-muted text-center mb-0">
+                {pairsInIdea.length === 0 && !idea.annotation && (
+                     <p className="small text-muted text-center mb-0" style={{marginTop: '0.5rem'}}>
                         Drag proof here
                     </p>
                 )}
@@ -323,9 +284,10 @@ const IdeaCard = ({ idea, pairsInIdea, onDelete, onUpdateAnnotation, onRemovePai
         </div>
     );
 };
+// --- END MODIFICATION ---
 
 
-// Col 3: Paragraph Card (MODIFIED to pass down onUnlinkIdea)
+// Col 3: Paragraph Card (Unchanged)
 const ParagraphCard = ({ paragraph, ideasInParagraph, onDelete, onUnlinkIdea }) => {
     const {
         attributes,
@@ -333,23 +295,11 @@ const ParagraphCard = ({ paragraph, ideasInParagraph, onDelete, onUnlinkIdea }) 
         setNodeRef: setSortableNodeRef,
         transform,
         transition,
-    } = useSortable({ 
-        id: `para-${paragraph.id}`,
-        data: { 
-            type: 'paragraph', 
-            paragraph 
-        } 
-    });
+    } = useSortable({ id: `para-${paragraph.id}`, data: { type: 'paragraph', paragraph } });
 
-    const {
-        setNodeRef: setDroppableNodeRef,
-        isOver
-    } = useDroppable({
+    const { setNodeRef: setDroppableNodeRef, isOver } = useDroppable({
         id: `para-card-body-${paragraph.id}`,
-        data: {
-            type: 'paragraph-body',
-            paragraph
-        }
+        data: { type: 'paragraph-body', paragraph }
     });
 
     const style = { transform: CSS.Transform.toString(transform), transition };
@@ -357,20 +307,12 @@ const ParagraphCard = ({ paragraph, ideasInParagraph, onDelete, onUnlinkIdea }) 
     return (
         <div ref={setSortableNodeRef} style={style} className="paragraph-card">
             <div className="paragraph-card-header">
-                <h6 
-                    className="h6 mb-0" 
-                    {...attributes} 
-                    {...listeners} 
-                    style={{ cursor: 'grab', flexGrow: 1 }}
-                >
+                <h6 className="h6 mb-0" {...attributes} {...listeners} style={{ cursor: 'grab', flexGrow: 1 }}>
                     {paragraph.purpose}
                 </h6>
                 <button
                     className="btn-close btn-sm"
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        onDelete(paragraph.id);
-                    }}
+                    onClick={(e) => { e.stopPropagation(); onDelete(paragraph.id); }}
                     title="Delete Paragraph"
                 />
             </div>
@@ -382,16 +324,14 @@ const ParagraphCard = ({ paragraph, ideasInParagraph, onDelete, onUnlinkIdea }) 
             >
                 <div ref={setDroppableNodeRef} className={`paragraph-card-body ${isOver ? 'over' : ''}`}>
                     {ideasInParagraph.length === 0 && (
-                        <p className="small text-muted fst-italic mb-0">
-                            Drag arguments here
-                        </p>
+                        <p className="small text-muted fst-italic mb-0">Drag arguments here</p>
                     )}
                     {ideasInParagraph.map(idea => (
                         <SortableIdeaCard
                             key={idea.id}
                             idea={idea}
                             paragraphId={paragraph.id}
-                            onUnlink={() => onUnlinkIdea(paragraph.id, idea.id)} // --- PASS HANDLER ---
+                            onUnlink={() => onUnlinkIdea(paragraph.id, idea.id)}
                         />
                     ))}
                 </div>
@@ -402,7 +342,7 @@ const ParagraphCard = ({ paragraph, ideasInParagraph, onDelete, onUnlinkIdea }) 
 
 // --- Sortable Wrappers ---
 
-// Sortable Pair (Exported)
+// Sortable Pair (Unchanged)
 export const SortablePairChip = ({ pair, ideaId, onRemove }) => {
     const {
         attributes,
@@ -413,19 +353,13 @@ export const SortablePairChip = ({ pair, ideaId, onRemove }) => {
         isDragging
     } = useSortable({ 
         id: ideaId ? `idea-${ideaId}-pair-${pair.id}` : `pool-pair-${pair.id}`,
-        data: { 
-            type: 'pair', 
-            pair,
-            sourceIdeaId: ideaId
-        } 
+        data: { type: 'pair', pair, sourceIdeaId: ideaId } 
     });
-
     const style = {
         transform: CSS.Transform.toString(transform),
         transition,
         opacity: isDragging ? 0.5 : 1
     };
-
     return (
         <PairChip
             ref={setNodeRef}
@@ -438,7 +372,7 @@ export const SortablePairChip = ({ pair, ideaId, onRemove }) => {
     );
 };
 
-// Sortable Idea (MODIFIED to include onUnlink in new location)
+// Sortable Idea (Unchanged)
 const SortableIdeaCard = ({ idea, paragraphId, onUnlink }) => {
      const {
         attributes,
@@ -449,53 +383,26 @@ const SortableIdeaCard = ({ idea, paragraphId, onUnlink }) => {
         isDragging
     } = useSortable({ 
         id: `para-${paragraphId}-idea-${idea.id}`, 
-        data: { 
-            type: 'idea', 
-            idea,
-            sourceParagraphId: paragraphId
-        } 
+        data: { type: 'idea', idea, sourceParagraphId: paragraphId } 
     });
-
     const style = {
         transform: CSS.Transform.toString(transform),
         transition,
         opacity: isDragging ? 0.5 : 1
     };
-    
     return (
         <div ref={setNodeRef} style={style} {...attributes} className="idea-card">
-            {/* --- NEW UNLINK BUTTON (Col 3) --- */}
             <button
                 type="button"
                 className="btn-close btn-sm"
-                onClick={(e) => {
-                    e.stopPropagation();
-                    onUnlink();
-                }}
+                onClick={(e) => { e.stopPropagation(); onUnlink(); }}
                 title="Unlink from paragraph"
-                style={{
-                    position: 'absolute',
-                    top: '0.5rem',
-                    right: '0.75rem',
-                    zIndex: 2,
-                }}
+                style={{ position: 'absolute', top: '0.5rem', right: '0.75rem', zIndex: 2 }}
             />
-            {/* --- END NEW BUTTON --- */}
-            
             <div className="idea-card-header">
-                {/* Drag Handle */}
-                <h6 
-                    className="h6 mb-0 small" 
-                    {...listeners} 
-                    style={{ 
-                        cursor: 'grab', 
-                        flexGrow: 1,
-                        paddingRight: '1.5rem' // --- ADDED PADDING ---
-                    }}
-                >
+                <h6 className="h6 mb-0 small" {...listeners} style={{ cursor: 'grab', flexGrow: 1, paddingRight: '1.5rem' }}>
                     {idea.title}
                 </h6>
-                {/* --- Button was removed from here --- */}
             </div>
              {idea.annotation && (
                 <div className="idea-card-body py-2">
@@ -511,13 +418,8 @@ const SortableIdeaCard = ({ idea, paragraphId, onUnlink }) => {
 // Droppable Column Body (Unchanged)
 const DroppableColumnBody = ({ id, items, children }) => {
     const { setNodeRef, isOver } = useDroppable({ id: id });
-
     return (
-        <SortableContext
-            id={id}
-            items={items}
-            strategy={verticalListSortingStrategy}
-        >
+        <SortableContext id={id} items={items} strategy={verticalListSortingStrategy}>
             <div ref={setNodeRef} className={`cl-column-body ${isOver ? 'over' : ''}`}>
                 {children}
             </div>
@@ -532,7 +434,8 @@ const Step3_BuildCoverLetter = ({
     onPrev, 
     onNext, 
     job, 
-    onCoverLetterCreated 
+    onCoverLetterCreated,
+    fullCV // <-- ACCEPT NEW PROP
 }) => {
     const [coverLetter, setCoverLetter] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -544,11 +447,14 @@ const Step3_BuildCoverLetter = ({
     const [clPromptJson, setClPromptJson] = useState('');
     const [isPromptModalOpen, setIsPromptModalOpen] = useState(false);
     const [isLoadingPrompt, setIsLoadingPrompt] = useState(false);
-    
-    // --- NEW: State for the Suggestion Modal ---
     const [isSuggestionModalOpen, setIsSuggestionModalOpen] = useState(false);
 
-    // --- Data Loading & Scaffolding (Unchanged, but added reload) ---
+    // --- NEW: State for the preview modal ---
+    const [previewItem, setPreviewItem] = useState(null);
+    const [previewItemType, setPreviewItemType] = useState(null);
+    // --- END NEW ---
+
+    // --- Data Loading & Handlers (Unchanged) ---
     const loadCoverLetter = async () => {
         if (!coverLetter) setIsLoading(true); 
         setError(null);
@@ -559,16 +465,11 @@ const Step3_BuildCoverLetter = ({
             } else {
                 const res = await createCoverLetter(application.job_id, application.base_cv_id, application.mapping_id);
                 clData = res.data;
-                
-                if (onCoverLetterCreated) {
-                    await onCoverLetterCreated(clData.id);
-                }
-                
+                if (onCoverLetterCreated) { await onCoverLetterCreated(clData.id); }
                 await addCoverLetterParagraph(clData.id, [], "Introduction");
                 await addCoverLetterParagraph(clData.id, [], "Body 1 (Why Me)");
                 await addCoverLetterParagraph(clData.id, [], "Body 2 (Why You)");
                 await addCoverLetterParagraph(clData.id, [], "Conclusion");
-                
                 clData = (await fetchCoverLetterDetails(clData.id)).data;
             }
             setCoverLetter(clData);
@@ -581,12 +482,8 @@ const Step3_BuildCoverLetter = ({
     };
 
     const reloadCoverLetter = async () => {
-        if (!coverLetter?.id) {
-             await loadCoverLetter();
-             return;
-        }
+        if (!coverLetter?.id) { await loadCoverLetter(); return; }
         try {
-             // Show subtle loading
              const clData = (await fetchCoverLetterDetails(coverLetter.id)).data;
              setCoverLetter(clData);
         } catch (err) {
@@ -595,17 +492,13 @@ const Step3_BuildCoverLetter = ({
         }
     }
 
-    useEffect(() => {
-        loadCoverLetter();
-    }, [application.id, application.cover_letter_id]);
-
-    // --- Memos for Data Manipulation (Refactored for Grouping) ---
+    useEffect(() => { loadCoverLetter(); }, [application.id, application.cover_letter_id]);
+    
+    // --- Memos for Data (Unchanged) ---
     const {
         pairMap,
         ideaMap,
-        // --- NEW: Grouped pairs for Col 1 ---
         groupedFilteredPairs, 
-        // --- END NEW ---
         availableIdeas,
         paragraphs,
         itemsById,
@@ -613,12 +506,10 @@ const Step3_BuildCoverLetter = ({
         const pMap = new Map((mapping?.pairs || []).map(p => [p.id, p]));
         const iMap = new Map(coverLetter ? coverLetter.ideas.map(i => [i.id, i]) : []);
         
-        // 1. Get pairs matching the filter
         const fPairs = (mapping?.pairs || []).filter(p =>
             pairFilterId === 'all' || p.feature_id === pairFilterId
         );
 
-        // --- NEW: Group the filtered pairs ---
         const gPairs = new Map();
         for (const pair of fPairs) {
             const key = pair.context_item_id;
@@ -628,7 +519,6 @@ const Step3_BuildCoverLetter = ({
             }
             gPairs.get(key).pairs.push(pair);
         }
-        // --- END NEW ---
 
         const pairedIdeaIds = new Set();
         (coverLetter?.paragraphs || []).forEach(para => {
@@ -638,7 +528,6 @@ const Step3_BuildCoverLetter = ({
         
         const paras = (coverLetter?.paragraphs || []).sort((a, b) => a.order - b.order);
 
-        // This lookup map is still needed for the DragOverlay
         const allItems = {};
         (mapping?.pairs || []).forEach(p => {
              allItems[`pool-pair-${p.id}`] = { ...p, type: 'pair' };
@@ -660,7 +549,7 @@ const Step3_BuildCoverLetter = ({
         return {
             pairMap: pMap,
             ideaMap: iMap,
-            groupedFilteredPairs: Array.from(gPairs.values()), // Convert map to array for rendering
+            groupedFilteredPairs: Array.from(gPairs.values()),
             availableIdeas: avIdeas,
             paragraphs: paras,
             itemsById: allItems
@@ -669,18 +558,13 @@ const Step3_BuildCoverLetter = ({
 
     // --- Form Handlers ---
     
-    // --- NEW: Handler for the suggestion modal ---
     const handleSuggestionsAccepted = async () => {
-        // This is called by the modal when an action is successful
         await reloadCoverLetter();
-        // The modal will stay open and re-calculate its suggestions
     };
 
-    // --- NEW: Handler to remove a pair from an idea ---
     const handleRemovePairFromIdea = async (ideaId, pairId) => {
         const idea = ideaMap.get(ideaId);
         if (!idea) return;
-        
         setIsSubmitting(true);
         try {
             const newPairIds = idea.mapping_pair_ids.filter(id => id !== pairId);
@@ -694,49 +578,42 @@ const Step3_BuildCoverLetter = ({
         }
     };
 
-    // --- NEW HANDLER FOR UNLINKING ---
     const handleUnlinkIdea = async (paragraphId, ideaId) => {
         if (isSubmitting) return;
         setIsSubmitting(true);
         try {
             const sourcePara = paragraphs.find(p => p.id === paragraphId);
             if (!sourcePara) throw new Error("Paragraph not found");
-
             const newIdeaIds = sourcePara.idea_ids.filter(id => id !== ideaId);
-            
-            await updateCoverLetterParagraph(
-                coverLetter.id, 
-                paragraphId, 
-                { idea_ids: newIdeaIds }
-            );
-            
-            // Reload all data
+            await updateCoverLetterParagraph(coverLetter.id, paragraphId, { idea_ids: newIdeaIds });
             await reloadCoverLetter();
         } catch (err) {
             console.error("Failed to unlink idea:", err);
             alert("Failed to unlink idea.");
-            await reloadCoverLetter(); // Reload even on failure to reset state
+            await reloadCoverLetter();
         } finally {
             setIsSubmitting(false);
         }
     };
-    // --- END NEW HANDLER ---
 
-    // --- (Unchanged Handlers) ---
+    // --- MODIFIED: This is now the onSave handler for IntelligentTextArea ---
     const handleUpdateIdeaAnnotation = async (ideaId, newAnnotation) => {
          try {
-            await updateCoverLetterIdea(coverLetter.id, ideaId, { annotation: newAnnotation });
+            // Optimistic update first
             setCoverLetter(prev => ({
                 ...prev,
                 ideas: prev.ideas.map(i => 
                     i.id === ideaId ? { ...i, annotation: newAnnotation } : i
                 )
             }));
+            // Then save to backend
+            await updateCoverLetterIdea(coverLetter.id, ideaId, { annotation: newAnnotation });
         } catch (err) { 
             alert("Failed to update annotation."); 
-            await reloadCoverLetter();
+            await reloadCoverLetter(); // Re-sync on failure
         }
     };
+    // --- END MODIFICATION ---
 
     const handleDeleteIdea = async (ideaId) => {
         if (!window.confirm("Delete this idea?")) return;
@@ -769,100 +646,76 @@ const Step3_BuildCoverLetter = ({
         } catch (err) { alert("Failed to delete paragraph."); }
         finally { setIsSubmitting(false); }
     };
+    
+    // --- NEW: Handler for the preview modal ---
+    const handleShowPreview = (item, type) => {
+        setPreviewItem(item);
+        setPreviewItemType(type);
+    };
+    // --- END NEW ---
 
     // --- Drag-and-Drop Handlers (Unchanged) ---
     const sensors = useSensors(
         useSensor(PointerSensor),
         useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
     );
-
     const handleDragStart = (event) => setActiveDragId(event.active.id);
-
     const handleDragCancel = () => setActiveDragId(null);
-
     const handleDragEnd = async (event) => {
         const { active, over } = event;
         setActiveDragId(null);
         if (!over) return;
-        
         const activeData = active.data.current;
         const overId = over.id;
-
         if (active.id === over.id) return;
-        
-        const overContainerId = (over.data.current?.sortable?.containerId) 
-            ? over.data.current.sortable.containerId 
-            : overId;
-
+        const overContainerId = (over.data.current?.sortable?.containerId) ? over.data.current.sortable.containerId : overId;
         setIsSubmitting(true);
-        
         try {
-            // --- Dragging a PAIR ---
             if (activeData?.type === 'pair') {
                 const pairId = activeData.pair.id;
                 const sourceIdeaId = activeData.sourceIdeaId;
-                
-                // Dropping PAIR into an IDEA
                 if (overContainerId.startsWith('idea-card-body-')) {
                     const targetIdeaId = overContainerId.split('idea-card-body-')[1];
-                    
-                    // 1. Remove from source idea (if it was in one)
                     if (sourceIdeaId && sourceIdeaId !== targetIdeaId) {
                         const sourceIdea = ideaMap.get(sourceIdeaId);
                         const newPairIds = sourceIdea.mapping_pair_ids.filter(id => id !== pairId);
                         await updateCoverLetterIdea(coverLetter.id, sourceIdeaId, { mapping_pair_ids: newPairIds });
                     }
-                    
-                    // 2. Add to target idea
                     const targetIdea = ideaMap.get(targetIdeaId);
                     if (targetIdea && !targetIdea.mapping_pair_ids.includes(pairId)) {
                         const newPairIds = [...targetIdea.mapping_pair_ids, pairId];
                         await updateCoverLetterIdea(coverLetter.id, targetIdeaId, { mapping_pair_ids: newPairIds });
                     }
                 }
-                // Dropping PAIR back into the POOL
                 else if (overContainerId === 'pair-pool' && sourceIdeaId) {
-                    // Remove from source idea
                     const sourceIdea = ideaMap.get(sourceIdeaId);
                     const newPairIds = sourceIdea.mapping_pair_ids.filter(id => id !== pairId);
                     await updateCoverLetterIdea(coverLetter.id, sourceIdeaId, { mapping_pair_ids: newPairIds });
                 }
             }
-            
-            // --- Dragging an IDEA ---
             if (activeData?.type === 'idea') {
                 const ideaId = activeData.idea.id;
                 const sourceParagraphId = activeData.sourceParagraphId;
-                
-                // Dropping IDEA into a PARAGRAPH
                 if (overContainerId.startsWith('para-card-body-')) {
                     const targetParagraphId = overContainerId.split('para-card-body-')[1];
-                    
-                    // 1. Remove from source paragraph (if it was in one)
                     if (sourceParagraphId && sourceParagraphId !== targetParagraphId) {
                         const sourcePara = paragraphs.find(p => p.id === sourceParagraphId);
                         const newIdeaIds = sourcePara.idea_ids.filter(id => id !== ideaId);
                         await updateCoverLetterParagraph(coverLetter.id, sourceParagraphId, { idea_ids: newIdeaIds });
                     }
-                    
-                    // 2. Add to target paragraph
                     const targetPara = paragraphs.find(p => p.id === targetParagraphId);
                     if (targetPara && !targetPara.idea_ids.includes(ideaId)) {
                         const newIdeaIds = [...targetPara.idea_ids, ideaId];
                         await updateCoverLetterParagraph(coverLetter.id, targetParagraphId, { idea_ids: newIdeaIds });
                     }
                 }
-                // Dropping IDEA back into the POOL
                 else if (overContainerId === 'idea-pool' && sourceParagraphId) {
-                    // Remove from source paragraph
                     const sourcePara = paragraphs.find(p => p.id === sourceParagraphId);
                     const newIdeaIds = sourcePara.idea_ids.filter(id => id !== ideaId);
                     await updateCoverLetterParagraph(coverLetter.id, sourceParagraphId, { idea_ids: newIdeaIds });
                 }
             }
-
             await reloadCoverLetter();
-
         } catch (err) {
             alert("Error during drag operation.");
             console.error(err);
@@ -893,8 +746,6 @@ const Step3_BuildCoverLetter = ({
     if (!coverLetter || !mapping || !job) return <div className="alert alert-info">Initializing...</div>;
 
     const activeDragItem = activeDragId ? itemsById[activeDragId] : null;
-    
-    // We need a flat list of all sortable pair IDs for the Column 1 Droppable
     const col1SortableIds = groupedFilteredPairs.flatMap(
         group => group.pairs.map(p => `pool-pair-${p.id}`)
     );
@@ -917,7 +768,7 @@ const Step3_BuildCoverLetter = ({
                 {isSubmitting && <div className="spinner-border spinner-border-sm text-primary" role="status"><span className="visually-hidden">Loading...</span></div>}
 
                 <div className="cl-builder-container">
-                    {/* --- Column 1: Proof (Pairs) (Refactored) --- */}
+                    {/* --- Column 1: Proof (Unchanged) --- */}
                     <div className="cl-column">
                         <div className="cl-column-header">
                             <h6 className="h5 mb-0 text-success"><i className="bi bi-check-circle-fill me-2"></i> 1. Proof (Evidence)</h6>
@@ -941,31 +792,26 @@ const Step3_BuildCoverLetter = ({
                                 ))}
                             </select>
                         </div>
-                        <DroppableColumnBody
-                            id="pair-pool"
-                            items={col1SortableIds} // Pass flat list of IDs
-                        >
-                            {/* Render the new grouped component */}
+                        <DroppableColumnBody id="pair-pool" items={col1SortableIds} >
                             {groupedFilteredPairs.map(group => (
                                 <CL_EvidenceGroup
                                     key={group.title}
                                     cvItemText={group.title}
                                     pairs={group.pairs}
-                                    ideaId={null} // Not in an idea
-                                    onRemovePair={null} // Not removable
+                                    ideaId={null}
+                                    onRemovePair={null}
                                 />
                             ))}
                         </DroppableColumnBody>
                     </div>
 
-                    {/* --- Column 2: Arguments (Ideas) (Refactored) --- */}
+                    {/* --- Column 2: Arguments (MODIFIED) --- */}
                     <div className="cl-column">
                          <div className="cl-column-header">
                             <h6 className="h5 mb-0 text-primary"><i className="bi bi-lightbulb-fill me-2"></i> 2. Arguments (Idea Bank)</h6>
                             <small className="text-muted">Your talking points. Drag them to the Outline.</small>
                         </div>
                         <div className="d-grid gap-2 mb-3">
-                            {/* --- MODIFIED: Button now opens new modal --- */}
                             <button 
                                 className="btn btn-primary btn-sm"
                                 onClick={() => setIsSuggestionModalOpen(true)}
@@ -982,8 +828,8 @@ const Step3_BuildCoverLetter = ({
                         >
                             {availableIdeas.length === 0 && (
                                 <p className="small text-muted fst-italic">No ideas in the bank. Use the Assistant or drag ideas from the outline.</p>
-
                             )}
+                            {/* --- MODIFIED: Pass new props to IdeaCard --- */}
                             {availableIdeas.map(idea => {
                                 const pairsInIdea = idea.mapping_pair_ids
                                     .map(id => pairMap.get(id))
@@ -996,13 +842,16 @@ const Step3_BuildCoverLetter = ({
                                         onDelete={handleDeleteIdea}
                                         onUpdateAnnotation={handleUpdateIdeaAnnotation}
                                         onRemovePair={handleRemovePairFromIdea}
+                                        fullCV={fullCV} // <-- NEW
+                                        onShowPreview={handleShowPreview} // <-- NEW
                                     />
                                 );
                             })}
+                            {/* --- END MODIFICATION --- */}
                         </DroppableColumnBody>
                     </div>
                     
-                    {/* --- Column 3: Outline (Paragraphs) (MODIFIED) --- */}
+                    {/* --- Column 3: Outline (Unchanged) --- */}
                     <div className="cl-column">
                          <div className="cl-column-header">
                             <h6 className="h5 mb-0"><i className="bi bi-card-list me-2"></i> 3. Outline (Paragraphs)</h6>
@@ -1034,7 +883,7 @@ const Step3_BuildCoverLetter = ({
                                         paragraph={para}
                                         ideasInParagraph={ideasInPara}
                                         onDelete={handleDeleteParagraph}
-                                        onUnlinkIdea={handleUnlinkIdea} // --- PASS HANDLER DOWN ---
+                                        onUnlinkIdea={handleUnlinkIdea}
                                     />
                                 );
                             })}
@@ -1042,23 +891,26 @@ const Step3_BuildCoverLetter = ({
                     </div>
                 </div>
 
-                {/* --- Drag Overlay (Unchanged) --- */}
+                {/* --- Drag Overlay (MODIFIED) --- */}
                 <DragOverlay>
                     {activeDragItem ? (
                         activeDragItem.type === 'pair' ? (
                             <PairChip pair={activeDragItem} className="pair-chip dragging" />
                         ) : (
-                            // Pass all required props to IdeaCard
                             <IdeaCard 
                                 idea={activeDragItem} 
-                                pairsInIdea={[]} // Not needed for drag overlay
+                                pairsInIdea={[]}
                                 onDelete={()=>{}} 
                                 onUpdateAnnotation={()=>{}}
                                 onRemovePair={()=>{}}
+                                fullCV={null} // <-- NEW
+                                onShowPreview={()=>{}} // <-- NEW
                             />
                         )
                     ) : null}
                 </DragOverlay>
+                {/* --- END MODIFICATION --- */}
+
 
                 {/* --- Navigation (Unchanged) --- */}
                 <button
@@ -1085,7 +937,7 @@ const Step3_BuildCoverLetter = ({
                 </div>
             </div>
 
-            {/* --- NEW: Render the Suggestion Modal --- */}
+            {/* --- Modals (CL Assistant, Prompt) --- */}
             {isSuggestionModalOpen && (
                 <CL_SuggestionModal
                     isOpen={isSuggestionModalOpen}
@@ -1096,6 +948,17 @@ const Step3_BuildCoverLetter = ({
                     onSuggestionsAccepted={handleSuggestionsAccepted}
                 />
             )}
+            
+            {/* --- NEW: Render the Preview Modal --- */}
+            {previewItem && (
+                <CVItemPreviewModal
+                    item={previewItem}
+                    itemType={previewItemType}
+                    onClose={() => setPreviewItem(null)}
+                />
+            )}
+            {/* --- END NEW --- */}
+            
         </DndContext>
     );
 };
