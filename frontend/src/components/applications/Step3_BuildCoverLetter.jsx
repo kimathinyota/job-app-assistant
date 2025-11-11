@@ -215,6 +215,12 @@ const IdeaCard = ({
 
     const style = { transform: CSS.Transform.toString(transform), transition };
     
+    // --- FIX 1: Add useDroppable hook ---
+    const { setNodeRef: setDroppableNodeRef, isOver } = useDroppable({
+        id: `idea-card-body-${idea.id}`, // This ID matches what onDragEnd expects
+        data: { type: 'idea-body', idea: idea }
+    });
+    
     // --- REMOVED: Old annotation and isEditing state ---
 
     // --- Group pairs by evidence item (Unchanged) ---
@@ -255,7 +261,11 @@ const IdeaCard = ({
             </div>
             
             {/* --- REPLACED: Old textarea/p with IntelligentTextArea --- */}
-            <div className={`idea-card-body`}>
+            {/* --- MODIFIED: Apply the droppable ref and 'over' class --- */}
+            <div 
+                ref={setDroppableNodeRef} // <-- FIX 1 Cont.
+                className={`idea-card-body ${isOver ? 'over' : ''}`} // <-- FIX 1 Cont.
+            >
                 <IntelligentTextArea
                     initialValue={idea.annotation || ''}
                     onSave={(newAnnotation) => onUpdateAnnotation(idea.id, newAnnotation)}
@@ -342,7 +352,7 @@ const ParagraphCard = ({ paragraph, ideasInParagraph, onDelete, onUnlinkIdea }) 
 
 // --- Sortable Wrappers ---
 
-// Sortable Pair (Unchanged)
+// --- FIX 2: Sortable Pair Chip ---
 export const SortablePairChip = ({ pair, ideaId, onRemove }) => {
     const {
         attributes,
@@ -365,12 +375,13 @@ export const SortablePairChip = ({ pair, ideaId, onRemove }) => {
             ref={setNodeRef}
             style={style}
             pair={pair}
-            onRemove={onRemove ? () => onRemove(ideaId, pair.id) : null}
+            onRemove={onRemove} // <-- THIS IS THE FIX. Just pass the prop through.
             {...attributes}
             {...listeners}
         />
     );
 };
+// --- END FIX 2 ---
 
 // Sortable Idea (Unchanged)
 const SortableIdeaCard = ({ idea, paragraphId, onUnlink }) => {
@@ -952,9 +963,13 @@ const Step3_BuildCoverLetter = ({
             {/* --- NEW: Render the Preview Modal --- */}
             {previewItem && (
                 <CVItemPreviewModal
-                    item={previewItem}
-                    itemType={previewItemType}
+                    isOpen={previewItem !== null} // <-- Control modal visibility
                     onClose={() => setPreviewItem(null)}
+                    itemToPreview={{ item: previewItem, type: previewItemType }}
+                    allSkills={fullCV.skills}
+                    allAchievements={fullCV.achievements}
+                    allExperiences={fullCV.experiences}
+                    allEducation={fullCV.education}
                 />
             )}
             {/* --- END NEW --- */}
