@@ -1,27 +1,32 @@
-// frontend/src/components/applications/ApplicationWorkspace.jsx
 import React, { useState, useEffect } from 'react';
+import { ArrowLeft, CheckCircle } from 'lucide-react';
+
+// --- 1. RESTORED API IMPORTS ---
 import { 
     fetchApplicationDetails, 
     fetchJobDetails, 
     fetchMappingDetails,
-    updateApplication // <-- 1. IMPORT THE NEW API FUNCTION
-} from '../../api/applicationClient.js';
-import { fetchCVDetails } from '../../api/cvClient.js';
+    updateApplication 
+} from '../../api/applicationClient';
+import { fetchCVDetails } from '../../api/cvClient';
 
-import Step1_TriageView from './Step1_TriageView.jsx';
-import Step2_GenerateCV from './Step2_GenerateCV.jsx';
-import Step3_BuildCoverLetter from './Step3_BuildCoverLetter.jsx';
-import Step4_Submit from './Step4_Submit.jsx';
-import JobPreviewModal from './JobPreviewModal.jsx';
+// --- 2. RESTORED COMPONENT IMPORTS ---
+import Step1_TriageView from './Step1_TriageView'; // Was Step1_Mapping in your snippet, assuming TriageView is the correct UI component
+import Step2_GenerateCV from './Step2_GenerateCV';
+import Step3_BuildCoverLetter from './Step3_BuildCoverLetter';
+import Step4_Submit from './Step4_Submit';
+import JobPreviewModal from './JobPreviewModal';
 
 import './ApplicationWorkspace.css';
 
 const ApplicationWorkspace = ({ applicationId, onExitWorkspace }) => {
+    // UI State
     const [currentStep, setCurrentStep] = useState(1);
+    const [isJobModalOpen, setIsJobModalOpen] = useState(false);
+
+    // Data State
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
-    const [isJobModalOpen, setIsJobModalOpen] = useState(false);
-    
     const [data, setData] = useState({
         application: null,
         job: null,
@@ -29,13 +34,16 @@ const ApplicationWorkspace = ({ applicationId, onExitWorkspace }) => {
         mapping: null
     });
 
+    // --- 3. RESTORED DATA FETCHING LOGIC ---
     useEffect(() => {
         const loadAllData = async () => {
             try {
                 setLoading(true);
+                // 1. Fetch Application
                 const appRes = await fetchApplicationDetails(applicationId);
                 const app = appRes.data;
 
+                // 2. Fetch dependencies in parallel
                 const [jobRes, cvRes, mappingRes] = await Promise.all([
                     fetchJobDetails(app.job_id),
                     fetchCVDetails(app.base_cv_id),
@@ -59,6 +67,7 @@ const ApplicationWorkspace = ({ applicationId, onExitWorkspace }) => {
         loadAllData();
     }, [applicationId]);
 
+    // --- 4. RESTORED HANDLERS ---
     const handleNextStep = () => setCurrentStep(prev => prev + 1);
     const handlePrevStep = () => setCurrentStep(prev => prev - 1);
 
@@ -67,81 +76,98 @@ const ApplicationWorkspace = ({ applicationId, onExitWorkspace }) => {
         setData(prev => ({ ...prev, mapping: mappingRes.data }));
     };
 
-    // --- 2. ADD THIS CALLBACK HANDLER ---
-    /**
-     * Called by Step3 when a cover letter is first created.
-     * This links the new CL to the application in the DB and updates local state.
-     */
     const handleCoverLetterCreated = async (newCoverLetterId) => {
-        // Only run if the application doesn't already have a linked CL
         if (!data.application || data.application.cover_letter_id) return; 
-        
         try {
-            // Update the backend application object
             await updateApplication(applicationId, { cover_letter_id: newCoverLetterId });
-            
-            // Update local state so the `application` prop is correct
             setData(prev => ({
                 ...prev,
                 application: { ...prev.application, cover_letter_id: newCoverLetterId }
             }));
         } catch (err) {
-            console.error("Failed to link cover letter to application:", err);
-            // Don't block the UI, but log the error
+            console.error("Failed to link cover letter:", err);
         }
     };
 
-
-    if (loading) return <p>Loading Workspace...</p>;
-    if (error) return <p className="text-danger">{error}</p>;
+    // --- 5. RENDER LOADING STATES ---
+    if (loading) return (
+        <div className="d-flex justify-content-center align-items-center py-5">
+            <div className="spinner-border text-primary" role="status">
+                <span className="visually-hidden">Loading...</span>
+            </div>
+        </div>
+    );
+    
+    if (error) return <div className="alert alert-danger m-4">{error}</div>;
     
     const { application, job, cv, mapping } = data;
+    if (!application || !job || !cv || !mapping) return <p className="p-4">Initializing Workspace...</p>;
 
-    if (!application || !job || !cv || !mapping) {
-        console.warn("Waiting for all data to be populated:", { application, job, cv, mapping });
-        return <p>Loading Workspace data...</p>;
-    }
+    // --- 6. MAIN RENDER (THE NEW UI SHELL) ---
+    const steps = [
+        { id: 1, label: 'Job Analysis' },
+        { id: 2, label: 'Tailor CV' },
+        { id: 3, label: 'Cover Letter' },
+        { id: 4, label: 'Submit' }
+    ];
 
     return (
-        <div className="container-fluid text-start">
-            <button onClick={onExitWorkspace} className="btn btn-outline-secondary btn-sm mb-3">
-                &larr; Back to All Applications
-            </button>
+        <div className="application-workspace animate-fade-in">
             
-            <div className="d-flex justify-content-between align-items-center mb-3">
-                <h2 className="h4 mb-0">{job.title} <span className="text-muted fw-normal">@ {job.company}</span></h2>
+            {/* Header */}
+            <div className="d-flex align-items-center justify-content-between mb-4">
+                <div className="d-flex align-items-center gap-3">
+                    <button 
+                        onClick={onExitWorkspace} 
+                        className="btn btn-outline-secondary d-flex align-items-center gap-2"
+                    >
+                        <ArrowLeft size={16} />
+                        Back
+                    </button>
+                    <div>
+                        <h4 className="mb-0 fw-bold">{job.title}</h4>
+                        <small className="text-muted">@ {job.company}</small>
+                    </div>
+                </div>
                 <button 
-                    className="btn btn-outline-info" 
+                    className="btn btn-outline-info btn-sm" 
                     onClick={() => setIsJobModalOpen(true)}
                 >
-                    <i className="bi bi-eye-fill me-2"></i>
-                    View Job Details
+                    View Job Description
                 </button>
             </div>
 
-
-            {/* The Stepper UI */}
-            <div className="stepper-ui mb-4">
-                <div className={`step ${currentStep === 1 ? 'active' : (currentStep > 1 ? 'complete' : '')}`}>
-                    <div className="step-circle">1</div>
-                    <div>Map CV</div>
-                </div>
-                <div className={`step ${currentStep === 2 ? 'active' : (currentStep > 2 ? 'complete' : '')}`}>
-                    <div className="step-circle">2</div>
-                    <div>Generate CV</div>
-                </div>
-                <div className={`step ${currentStep === 3 ? 'active' : (currentStep > 3 ? 'complete' : '')}`}>
-                    <div className="step-circle">3</div>
-                    <div>Build Cover Letter</div>
-                </div>
-                <div className={`step ${currentStep === 4 ? 'active' : ''}`}>
-                    <div className="step-circle">4</div>
-                    <div>Submit & Track</div>
+            {/* Progress Stepper */}
+            <div className="card border-0 shadow-sm mb-4">
+                <div className="card-body py-3">
+                    <div className="d-flex justify-content-between align-items-center position-relative">
+                        <div className="position-absolute top-50 start-0 w-100 bg-light" style={{ height: '2px', zIndex: 0 }}></div>
+                        
+                        {steps.map((step) => {
+                            const isCompleted = step.id < currentStep;
+                            const isActive = step.id === currentStep;
+                            return (
+                                <div key={step.id} className="d-flex flex-column align-items-center position-relative" style={{ zIndex: 1 }}>
+                                    <div 
+                                        className={`rounded-circle d-flex align-items-center justify-content-center border border-2 ${
+                                            isCompleted || isActive ? 'bg-primary border-primary text-white' : 'bg-white border-secondary-subtle text-muted'
+                                        }`}
+                                        style={{ width: '32px', height: '32px', transition: 'all 0.3s' }}
+                                    >
+                                        {isCompleted ? <CheckCircle size={16} /> : <span style={{ fontSize: '12px', fontWeight: 'bold' }}>{step.id}</span>}
+                                    </div>
+                                    <span className={`mt-2 small fw-bold ${isActive ? 'text-primary' : 'text-muted'}`}>
+                                        {step.label}
+                                    </span>
+                                </div>
+                            );
+                        })}
+                    </div>
                 </div>
             </div>
 
-            {/* Main Content Area */}
-            <div className="wizard-content card shadow-sm">
+            {/* Step Content Area */}
+            <div className="card shadow-sm border-light">
                 <div className="card-body p-4">
                     {currentStep === 1 && (
                         <Step1_TriageView
@@ -167,7 +193,7 @@ const ApplicationWorkspace = ({ applicationId, onExitWorkspace }) => {
                             application={application}
                             job={job}
                             mapping={mapping}
-                            fullCV={cv} // <-- ADD THIS LINE
+                            fullCV={cv}
                             onPrev={handlePrevStep}
                             onNext={handleNextStep}
                             onCoverLetterCreated={handleCoverLetterCreated}
@@ -182,7 +208,7 @@ const ApplicationWorkspace = ({ applicationId, onExitWorkspace }) => {
                     )}
                 </div>
             </div>
-            
+
             <JobPreviewModal
                 isOpen={isJobModalOpen}
                 onClose={() => setIsJobModalOpen(false)}

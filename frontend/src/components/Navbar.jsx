@@ -4,27 +4,26 @@ import logoLight from '../assets/logo_light.svg';
 import logoDark from '../assets/logo_dark.svg';
 
 const Navbar = ({ activeView, setActiveView }) => {
-  const [isScrolled, setIsScrolled] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
 
+  // Handle Theme Persistence
   useEffect(() => {
-    const handleScroll = () => setIsScrolled(window.scrollY > 10);
-    window.addEventListener('scroll', handleScroll);
-    
-    const checkTheme = () => setIsDarkMode(document.documentElement.classList.contains('dark'));
-    checkTheme();
-    const observer = new MutationObserver(checkTheme);
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
-    
-    return () => {
-        window.removeEventListener('scroll', handleScroll);
-        observer.disconnect();
-    };
+    const storedTheme = localStorage.getItem('theme');
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    if (storedTheme === 'dark' || (!storedTheme && prefersDark)) {
+      setTheme(true);
+    }
   }, []);
 
+  const setTheme = (isDark) => {
+    document.documentElement.setAttribute('data-bs-theme', isDark ? 'dark' : 'light');
+    setIsDarkMode(isDark);
+  };
+
   const toggleTheme = () => {
-    document.documentElement.classList.toggle('dark');
-    setIsDarkMode(!isDarkMode);
+    const newMode = !isDarkMode;
+    setTheme(newMode);
+    localStorage.setItem('theme', newMode ? 'dark' : 'light');
   };
 
   const navItems = [
@@ -35,88 +34,73 @@ const Navbar = ({ activeView, setActiveView }) => {
   ];
 
   return (
-    <header 
-      className={`sticky top-0 z-50 w-full transition-all duration-200 ${
-        isScrolled 
-          ? 'bg-white/80 dark:bg-slate-950/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800' 
-          : 'bg-transparent border-b border-transparent'
-      }`}
-      // Fallback style if Tailwind fails to load
-      style={{ 
-        position: 'sticky', top: 0, zIndex: 1030, 
-        backgroundColor: isScrolled ? 'rgba(255,255,255,0.9)' : 'transparent',
-        borderBottom: isScrolled ? '1px solid #e2e8f0' : 'none'
-      }}
-    >
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex h-16 items-center justify-between" style={{ display: 'flex', height: '64px', alignItems: 'center', justifyContent: 'space-between' }}>
-          
-          {/* 1. Brand Identity */}
-          <div 
-            className="flex items-center gap-3 cursor-pointer group"
+    // FIXED-TOP: This class pins the navbar to the top of the viewport
+    <nav className="navbar navbar-expand-lg fixed-top navbar-glass border-bottom">
+      <div className="container-xxl">
+        
+        {/* Brand */}
+        <div 
+            className="d-flex align-items-center cursor-pointer" 
             onClick={() => setActiveView('Dashboard')}
-            style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer' }}
-          >
-            {/* FORCE LOGO SIZE HERE */}
-            <div className="relative w-8 h-8 flex items-center justify-center" style={{ width: '32px', height: '32px', display: 'flex', alignItems: 'center' }}>
-               <img 
-                  src={isDarkMode ? logoDark : logoLight} 
-                  alt="RoleCraft" 
-                  className="w-full h-full object-contain"
-                  style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                  onError={(e) => { e.target.style.display = 'none'; }} 
-               />
+            style={{ cursor: 'pointer' }}
+        >
+            <img 
+                src={isDarkMode ? logoDark : logoLight} 
+                alt="RoleCraft Logo" 
+                width="32" 
+                height="32"
+                className="me-2"
+            />
+            <div className="d-flex flex-column">
+                <span className="fw-bold lh-1" style={{ color: 'var(--brand-text)' }}>
+                    RoleCraft
+                </span>
+                <span className="text-uppercase fw-bold" style={{ fontSize: '0.65rem', color: 'var(--brand-text-muted)' }}>
+                    Career OS
+                </span>
             </div>
-            
-            <div className="flex flex-col" style={{ display: 'flex', flexDirection: 'column' }}>
-              <span className="text-lg font-bold tracking-tight text-slate-900 dark:text-white leading-none" style={{ fontSize: '18px', fontWeight: 'bold', lineHeight: 1 }}>
-                RoleCraft
-              </span>
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400" style={{ fontSize: '10px', textTransform: 'uppercase', color: '#64748b' }}>
-                Career OS
-              </span>
-            </div>
-          </div>
-
-          {/* 2. Center Navigation */}
-          <nav className="hidden md:flex items-center gap-1" style={{ display: 'flex', gap: '4px' }}>
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = activeView === item.key;
-              return (
-                <button
-                  key={item.key}
-                  onClick={() => setActiveView(item.key)}
-                  className={`
-                    flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-all duration-200
-                    ${isActive 
-                      ? 'bg-slate-100 dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm ring-1 ring-slate-200 dark:ring-slate-700' 
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800'}
-                  `}
-                >
-                  <Icon size={16} />
-                  {item.label}
-                </button>
-              );
-            })}
-          </nav>
-
-          {/* 3. Right Actions */}
-          <div className="flex items-center gap-2" style={{ display: 'flex', gap: '8px' }}>
-            <button 
-              onClick={toggleTheme}
-              className="p-2 text-slate-500 hover:text-slate-700 rounded-full transition-colors"
-            >
-              {isDarkMode ? <Sun size={18} /> : <Moon size={18} />}
-            </button>
-            <button className="p-2 text-slate-500 hover:text-slate-700 rounded-full transition-colors">
-              <Settings size={18} />
-            </button>
-          </div>
-
         </div>
+
+        {/* Mobile Toggle */}
+        <button className="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarContent">
+          <span className="navbar-toggler-icon"></span>
+        </button>
+
+        {/* Links */}
+        <div className="collapse navbar-collapse justify-content-center" id="navbarContent">
+            <ul className="navbar-nav mb-2 mb-lg-0 gap-2">
+                {navItems.map((item) => {
+                    const Icon = item.icon;
+                    const isActive = activeView === item.key;
+                    return (
+                        <li className="nav-item" key={item.key}>
+                            <button
+                                onClick={() => setActiveView(item.key)}
+                                className={`nav-link d-flex align-items-center gap-2 px-3 rounded-3 ${isActive ? 'active bg-primary-subtle text-primary fw-semibold' : ''}`}
+                                style={{ border: 'none', background: isActive ? '' : 'transparent' }}
+                            >
+                                <Icon size={18} />
+                                {item.label}
+                            </button>
+                        </li>
+                    );
+                })}
+            </ul>
+        </div>
+
+        {/* Right Actions */}
+        <div className="d-none d-lg-flex align-items-center gap-2">
+            <button onClick={toggleTheme} className="btn btn-link nav-link p-2">
+                {isDarkMode ? <Sun size={20} /> : <Moon size={20} />}
+            </button>
+            <div className="vr mx-2"></div>
+            <button className="btn btn-link nav-link p-2">
+                <Settings size={20} />
+            </button>
+        </div>
+
       </div>
-    </header>
+    </nav>
   );
 };
 

@@ -1,33 +1,46 @@
 /* frontend/src/index.css */
-
-
-/* 2. Import Fonts */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
-/* 1. Add these three lines at the very top */
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-
 :root {
-  /* --- Brand Variables (for compatibility) --- */
-  --brand-primary: #0F172A; 
+  --brand-primary: #0F172A;
   --brand-accent: #3B82F6;
-  --bg-page: #F8FAFC;
-  --text-main: #0F172A;
+  --brand-bg: #F8FAFC;
+  --brand-text: #0F172A;
+  --brand-text-muted: #64748B;
+  
+  /* Glass Variables */
+  --glass-bg: rgba(255, 255, 255, 0.85);
+  --glass-border: rgba(226, 232, 240, 0.8);
+  --glass-blur: 12px;
 }
 
-/* Native Dark Mode Support */
-html.dark body {
-  --bg-page: #020617;
-  --text-main: #F8FAFC;
+[data-bs-theme="dark"] {
+  --brand-primary: #F8FAFC;
+  --brand-bg: #020617;
+  --brand-text: #F8FAFC;
+  --brand-text-muted: #94A3B8;
+
+  --glass-bg: rgba(15, 23, 42, 0.85);
+  --glass-border: rgba(51, 65, 85, 0.5);
 }
 
 body {
-  background-color: var(--bg-page);
-  color: var(--text-main);
-  font-family: 'Inter', system-ui, sans-serif;
+  background-color: var(--brand-bg);
+  color: var(--brand-text);
+  font-family: 'Inter', sans-serif;
 }
 
-/* OPTIONAL: Keep your Bootstrap overrides below if you still use legacy components */
+/* The Glass Navbar Class */
+.navbar-glass {
+  background-color: var(--glass-bg) !important;
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border-bottom: 1px solid var(--glass-border);
+}
+
+/* Card Polish */
+.card {
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
