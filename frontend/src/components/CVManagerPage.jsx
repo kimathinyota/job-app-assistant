@@ -4,7 +4,7 @@ import {
     deleteBaseCV,
     fetchCVDetails,
     updateBaseCV,
-    createBaseCV, // Added for the Create Modal
+    createBaseCV, 
     // Complex Managers
     addExperienceComplex,
     updateExperienceComplex,
@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 
 import CVSelector from './cv/CVList';
+import { getCVDisplayName } from '../utils/cvHelpers'; // <--- IMPORT HELPER
 
 // --- Managers ---
 import ExperienceManager from './cv/ExperienceManager';
@@ -43,7 +44,7 @@ import ProjectManager from './cv/ProjectManager';
 import SkillsetManager from './cv/SkillsetManager';
 import AchievementHub from './cv/AchievementHub';
 
-// --- NEW: Professional Section Card ---
+// --- Professional Section Card ---
 const SectionCard = ({ title, count, icon: Icon, colorClass, onClick }) => (
     <div onClick={onClick} className="col-md-4 mb-3">
         <div className="card border-0 shadow-sm h-100 hover-lift cursor-pointer transition-all">
@@ -60,7 +61,7 @@ const SectionCard = ({ title, count, icon: Icon, colorClass, onClick }) => (
     </div>
 );
 
-// --- CVSectionDashboard (Updated with Icons) ---
+// --- CVSectionDashboard ---
 const CVSectionDashboard = ({ cv, onSelectSection }) => (
     <div className="row g-3 py-2">
         <SectionCard 
@@ -109,21 +110,20 @@ const CVSectionDashboard = ({ cv, onSelectSection }) => (
 );
 
 const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
-    // --- STATE DECLARATIONS ---
     const [selectedCVId, setSelectedCVId] = useState(cvs[0]?.id || null);
     const [detailedCV, setDetailedCV] = useState(null);
     const [loadingDetails, setLoadingDetails] = useState(false);
     const [activeSection, setActiveSection] = useState(null);
     
-    // Header Edit State
+    // Edit Header State (Added Title)
     const [isEditingHeader, setIsEditingHeader] = useState(false);
-    const [editFormData, setEditFormData] = useState({ name: '', summary: '' });
+    const [editFormData, setEditFormData] = useState({ name: '', first_name: '', last_name: '', title: '', summary: '' });
 
-    // Create Modal State
+    // Create Modal State (Added Title)
     const [showCreateModal, setShowCreateModal] = useState(false);
-    const [createFormData, setCreateFormData] = useState({ name: '', summary: '' });
+    const [createFormData, setCreateFormData] = useState({ name: '', first_name: '', last_name: '', title: '', summary: '' });
 
-    // --- Data Fetching ---
+    // --- EFFECTS ---
      const fetchAndSetDetails = async (id) => {
         setLoadingDetails(true); 
         try {
@@ -137,11 +137,8 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
         }
     };
 
-    // --- Effects ---
      useEffect(() => {
         setIsEditingHeader(false);
-
-        // Deep Linking: Navigate to section if prop is passed
         if (initialSection) {
             setActiveSection(initialSection);
         } else {
@@ -158,10 +155,13 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
     }, [selectedCVId, cvs.length, initialSection]);
 
 
-    // --- Header Edit Handlers ---
+    // --- HANDLERS: Header Edit ---
      const handleStartEditHeader = () => {
         setEditFormData({
             name: detailedCV.name,
+            first_name: detailedCV.first_name || '',
+            last_name: detailedCV.last_name || '',
+            title: detailedCV.title || '', // <--- Load title
             summary: detailedCV.summary || ''
         });
         setIsEditingHeader(true);
@@ -169,7 +169,7 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
 
      const handleUpdateCVHeader = async (e) => {
         e.preventDefault();
-        if (!editFormData.name.trim()) return alert('CV Name is required.');
+        if (!editFormData.name.trim()) return alert('CV Internal Name is required.');
         try {
             const updatedCV = await updateBaseCV(detailedCV.id, editFormData);
             setDetailedCV(updatedCV);
@@ -181,28 +181,34 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
         }
     };
 
-    // --- Create CV Handler ---
+    // --- HANDLERS: Create CV ---
     const handleCreateCV = async (e) => {
         e.preventDefault();
-        if (!createFormData.name.trim()) return alert("Name is required");
+        if (!createFormData.name.trim()) return alert("Internal Name is required");
         
         try {
-            const newCV = await createBaseCV(createFormData.name, createFormData.summary);
-            await reloadData(); // Refresh list in App
-            setSelectedCVId(newCV.id); // Switch to new CV
+            const newCV = await createBaseCV(
+                createFormData.name, 
+                createFormData.first_name, 
+                createFormData.last_name, 
+                createFormData.title, // <--- Pass title
+                createFormData.summary
+            );
+            await reloadData(); 
+            setSelectedCVId(newCV.id); 
             setShowCreateModal(false);
-            setCreateFormData({ name: '', summary: '' });
+            setCreateFormData({ name: '', first_name: '', last_name: '', title: '', summary: '' });
         } catch (err) {
             console.error(err);
             alert("Failed to create CV");
         }
     };
 
-    // --- Unified Item Handler (Complex & Simple) ---
+    // --- Unified Item Handler (No changes here) ---
     const handleAddOrUpdateNestedItem = async (cvId, data, itemType) => {
+        // ... (Same as before) ...
         const isUpdating = Boolean(data.id);
         const itemId = data.id;
-
         const apiFunctions = {
             'Experience': { add: addExperienceComplex, update: updateExperienceComplex },
             'Education': { add: addEducationComplex, update: updateEducationComplex },
@@ -210,18 +216,13 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
             'Project': { add: addProjectComplex, update: updateProjectComplex },
             'Skill': { add: addSkill, update: addSkill }, 
         };
-        
         try {
             let apiFn;
             if (isUpdating) {
                 apiFn = apiFunctions[itemType]?.update;
                 if (!apiFn) throw new Error(`Update API function not configured for ${itemType}`);
-                
-                if (itemType === 'Skill') {
-                    await apiFn(cvId, data); // Simple update
-                } else {
-                    await apiFn(cvId, itemId, data); // Complex update
-                }
+                if (itemType === 'Skill') await apiFn(cvId, data);
+                else await apiFn(cvId, itemId, data);
                 alert(`${itemType} updated successfully!`);
             } else {
                 apiFn = apiFunctions[itemType]?.add;
@@ -229,17 +230,15 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
                 await apiFn(cvId, data);
                 alert(`${itemType} added successfully!`);
             }
-            
             await reloadData(); 
             await fetchAndSetDetails(cvId); 
-
         } catch (error) {
             alert(`Failed to ${isUpdating ? 'update' : 'add'} ${itemType}. Check console.`);
             console.error(error);
         }
     };
 
-    // --- Delete Handlers ---
+    // --- Delete Handlers (No changes here) ---
     const handleDeleteCV = async (cvIdToDelete) => {
         if (window.confirm("Delete this master CV? This action cannot be undone.")) {
             try {
@@ -255,7 +254,7 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
     };
 
      const handleDeleteNested = async (cvIdToDeleteFrom, itemId, listName) => {
-        if (window.confirm(`Permanently delete this ${listName} item?`)) {
+        if (window.confirm(`Permanently delete this item?`)) {
             try {
                 await deleteNestedItem(cvIdToDeleteFrom, itemId, listName);
                 fetchAndSetDetails(cvIdToDeleteFrom); 
@@ -265,7 +264,6 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
         }
     };
 
-    // --- Render Helpers ---
     const masterSkills = detailedCV?.skills || [];
     const masterAchievements = detailedCV?.achievements || [];
     const masterExperiences = detailedCV?.experiences || [];
@@ -275,7 +273,6 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
 
     const renderSectionDetail = () => {
          if (!activeSection) return null;
-
         const commonProps = {
             cvId: detailedCV.id,
             allSkills: masterSkills,
@@ -284,7 +281,6 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
             onDelete: handleDeleteNested,
             onBack: () => setActiveSection(null)
         };
-
         const sections = {
             'Experiences': <ExperienceManager {...commonProps} experiences={masterExperiences} />,
             'Education': <EducationManager {...commonProps} education={masterEducation} />,
@@ -293,7 +289,6 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
             'Skills': <SkillsetManager {...commonProps} allExperiences={masterExperiences} allEducation={masterEducation} allProjects={masterProjects} allHobbies={masterHobbies} />,
             'Achievements': <AchievementHub {...commonProps} allExperiences={masterExperiences} allEducation={masterEducation} allProjects={masterProjects} allHobbies={masterHobbies} />
         };
-
         return sections[activeSection] || <p>Section not found.</p>; 
     };
 
@@ -308,18 +303,16 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
                 `}
             </style>
 
-            {/* 1. Top Navigation */}
             <div className="mb-4">
                 <h2 className="fw-bold text-dark mb-3">CV Library</h2>
                 <CVSelector 
                     cvs={cvs} 
                     onSelect={setSelectedCVId} 
                     selectedCVId={selectedCVId} 
-                    onCreate={() => setShowCreateModal(true)} // Pass create handler
+                    onCreate={() => setShowCreateModal(true)} 
                 />
             </div>
             
-            {/* 2. Main Content Area */}
             <div className="mt-3">
                 {loadingDetails ? (
                     <div className="text-center py-5 text-muted">Loading CV details...</div>
@@ -332,9 +325,16 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
                                 <div className="d-flex justify-content-between align-items-start">
                                     <div>
                                         <div className="d-flex align-items-center gap-2 mb-1">
-                                            <h3 className="h4 fw-bold text-primary mb-0">{detailedCV.name}</h3>
+                                            {/* Use Display Name */}
+                                            <h3 className="h4 fw-bold text-primary mb-0">
+                                                {getCVDisplayName(detailedCV)}
+                                            </h3>
                                             <span className="badge bg-light text-muted border">Master Version</span>
                                         </div>
+                                        {/* Show Internal Name if different from display name */}
+                                        <p className="text-muted small mb-1">
+                                            Internal ID: <span className="fw-medium text-dark">{detailedCV.name}</span>
+                                        </p>
                                         <p className="text-muted mb-0" style={{whiteSpace: 'pre-wrap'}}>
                                             {detailedCV.summary || <span className="fst-italic opacity-50">No summary provided. Click edit to add one.</span>}
                                         </p>
@@ -348,34 +348,64 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
                                 </div>
                             ) : (
                                 <form onSubmit={handleUpdateCVHeader} className="bg-light p-3 rounded">
-                                    <div className="mb-2">
-                                        <label className="form-label fw-bold small">CV Name</label>
-                                        <input 
-                                            type="text" 
-                                            value={editFormData.name} 
-                                            onChange={(e) => setEditFormData({...editFormData, name: e.target.value})} 
-                                            required 
-                                            className="form-control"
-                                        />
-                                    </div>
-                                    <div className="mb-3">
-                                        <label className="form-label fw-bold small">Summary</label>
-                                        <textarea 
-                                            value={editFormData.summary} 
-                                            onChange={(e) => setEditFormData({...editFormData, summary: e.target.value})} 
-                                            className="form-control"
-                                            rows="3"
-                                        />
+                                    <div className="row g-3 mb-3">
+                                        <div className="col-md-12">
+                                            <label className="form-label fw-bold small text-uppercase">Internal Name (Private)</label>
+                                            <input 
+                                                type="text" 
+                                                className="form-control" 
+                                                value={editFormData.name} 
+                                                onChange={e => setEditFormData({...editFormData, name: e.target.value})} 
+                                                required 
+                                            />
+                                        </div>
+                                        <div className="col-md-2">
+                                            <label className="form-label fw-bold small text-uppercase">Title</label>
+                                            <input 
+                                                type="text" 
+                                                className="form-control" 
+                                                placeholder="Dr. / Senior"
+                                                value={editFormData.title} 
+                                                onChange={e => setEditFormData({...editFormData, title: e.target.value})} 
+                                            />
+                                        </div>
+                                        <div className="col-md-5">
+                                            <label className="form-label fw-bold small text-uppercase">First Name</label>
+                                            <input 
+                                                type="text" 
+                                                className="form-control" 
+                                                value={editFormData.first_name} 
+                                                onChange={e => setEditFormData({...editFormData, first_name: e.target.value})} 
+                                            />
+                                        </div>
+                                        <div className="col-md-5">
+                                            <label className="form-label fw-bold small text-uppercase">Last Name</label>
+                                            <input 
+                                                type="text" 
+                                                className="form-control" 
+                                                value={editFormData.last_name} 
+                                                onChange={e => setEditFormData({...editFormData, last_name: e.target.value})} 
+                                            />
+                                        </div>
+                                        <div className="col-12">
+                                            <label className="form-label fw-bold small text-uppercase">Summary / Bio</label>
+                                            <textarea 
+                                                className="form-control" 
+                                                rows="3" 
+                                                value={editFormData.summary} 
+                                                onChange={e => setEditFormData({...editFormData, summary: e.target.value})} 
+                                            />
+                                        </div>
                                     </div>
                                     <div className="d-flex gap-2">
-                                        <button type="submit" className="btn btn-primary btn-sm">Save</button> 
+                                        <button type="submit" className="btn btn-primary btn-sm">Save Changes</button> 
                                         <button type="button" className="btn btn-light btn-sm border" onClick={() => setIsEditingHeader(false)}>Cancel</button>
                                     </div>
                                 </form>
                             )}
                         </div>
 
-                        {/* Dashboard or Section Detail */}
+                        {/* Content */}
                         {activeSection === null ? (
                             <>
                                 <CVSectionDashboard cv={detailedCV} onSelectSection={setActiveSection} />
@@ -387,8 +417,11 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
                             </>
                         ) : (
                             <div className="bg-white rounded-xl border shadow-sm p-4">
-                                <div className="mb-3">
-                                    <button onClick={() => setActiveSection(null)} className="btn btn-link text-decoration-none p-0 d-flex align-items-center gap-1 text-muted mb-2">
+                                <div className="mb-3 d-flex justify-content-end"> 
+                                    <button 
+                                        onClick={() => setActiveSection(null)} 
+                                        className="btn btn-link text-decoration-none p-0 d-flex align-items-center gap-1 text-muted"
+                                    >
                                         <ChevronLeft size={16}/> Back to Dashboard
                                     </button>
                                 </div>
@@ -404,7 +437,7 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
                 )}
             </div>
 
-            {/* 3. Create CV Modal */}
+            {/* Create CV Modal */}
             {showCreateModal && (
                 <>
                     <div className="modal-backdrop fade show"></div>
@@ -418,7 +451,7 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
                                 <form onSubmit={handleCreateCV}>
                                     <div className="modal-body pt-4">
                                         <div className="mb-3">
-                                            <label className="form-label fw-bold small text-muted text-uppercase">CV Name</label>
+                                            <label className="form-label fw-bold small text-muted text-uppercase">Internal Name (Required)</label>
                                             <input 
                                                 type="text" 
                                                 className="form-control" 
@@ -428,6 +461,36 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
                                                 required 
                                                 autoFocus
                                             />
+                                        </div>
+                                        <div className="row mb-3">
+                                            <div className="col-2">
+                                                <label className="form-label fw-bold small text-muted text-uppercase">Title</label>
+                                                <input 
+                                                    type="text" 
+                                                    className="form-control" 
+                                                    placeholder="Dr."
+                                                    value={createFormData.title} 
+                                                    onChange={(e) => setCreateFormData({...createFormData, title: e.target.value})} 
+                                                />
+                                            </div>
+                                            <div className="col-5">
+                                                <label className="form-label fw-bold small text-muted text-uppercase">First Name</label>
+                                                <input 
+                                                    type="text" 
+                                                    className="form-control" 
+                                                    value={createFormData.first_name} 
+                                                    onChange={(e) => setCreateFormData({...createFormData, first_name: e.target.value})} 
+                                                />
+                                            </div>
+                                            <div className="col-5">
+                                                <label className="form-label fw-bold small text-muted text-uppercase">Last Name</label>
+                                                <input 
+                                                    type="text" 
+                                                    className="form-control" 
+                                                    value={createFormData.last_name} 
+                                                    onChange={(e) => setCreateFormData({...createFormData, last_name: e.target.value})} 
+                                                />
+                                            </div>
                                         </div>
                                         <div className="mb-3">
                                             <label className="form-label fw-bold small text-muted text-uppercase">Summary</label>

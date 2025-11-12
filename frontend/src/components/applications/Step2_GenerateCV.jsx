@@ -8,6 +8,7 @@ import {
 import PromptModal from './PromptModal'; // <-- FIX: Removed .jsx extension
 import CVItemDisplayCard from './CVItemDisplayCard'; // <-- FIX: Removed .jsx extension
 import PromoteItemModal from './PromoteItemModal'; // <-- FIX: Removed .jsx extension
+import { getCVDisplayName } from '../../utils/cvHelpers'; // <--- IMPORT
 
 // --- 3. NEW "AI GHOST" COMPONENT ---
 // This card is for unmapped items that HAVE an AI suggestion.
@@ -333,7 +334,7 @@ const Step2_GenerateCV = ({ job, cv, mapping, onPrev, onNext, onMappingChanged }
                 
                 {/* Header */}
                 <div className="text-center border-bottom pb-3 mb-3">
-                    <h3 className="h4 m-0">{cv.name}</h3>
+                    <h3 className="h4 m-0">{getCVDisplayName(cv)}</h3>
                     {cv.summary && (
                         <p className="m-0 mt-1 fst-italic text-muted" style={{whiteSpace: 'pre-wrap'}}>
                             {cv.summary}

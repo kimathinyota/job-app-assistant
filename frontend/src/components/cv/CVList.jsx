@@ -1,5 +1,6 @@
 import React from 'react';
 import { FileText, Plus, CheckCircle } from 'lucide-react';
+import { getCVDisplayName } from '../../utils/cvHelpers'; // <--- IMPORT
 
 const CVSelector = ({ cvs, onSelect, selectedCVId, onCreate }) => {
     return (
@@ -21,6 +22,7 @@ const CVSelector = ({ cvs, onSelect, selectedCVId, onCreate }) => {
                             style={{ whiteSpace: 'nowrap' }}
                         >
                             {isActive ? <CheckCircle size={16} /> : <FileText size={16} />}
+                            {/* USE HELPER HERE */}
                             <span className="fw-medium">{cv.name}</span>
                         </button>
                     );
