@@ -1,17 +1,15 @@
-// frontend/src/App.jsx
 import React, { useState, useEffect } from 'react';
-import { fetchAllCVs } from './api/cvClient'; // This is fine
+import { fetchAllCVs } from './api/cvClient';
 import './App.css'; 
 
-// --- Import Core Components ---
-import NavMenu from './components/NavMenu'; 
-import DashboardHome from './components/DashboardHome'; 
+// --- Layout & Components ---
+import Layout from './components/Layout';
+import DashboardHome from './components/DashboardHome';
 import CVManagerPage from './components/CVManagerPage';
-import AppTrackerPage from './components/AppTrackerPage'; // This is now the tab container
-import GoalTrackerPage from './components/GoalTrackerPage'; 
-import ApplicationWorkspace from './components/applications/ApplicationWorkspace'; // --- NEW IMPORT ---
+import AppTrackerPage from './components/AppTrackerPage';
+import GoalTrackerPage from './components/GoalTrackerPage';
+import ApplicationWorkspace from './components/applications/ApplicationWorkspace';
 
-// Define the available main views
 const views = {
     'Dashboard': DashboardHome,
     'CV_Manager': CVManagerPage,
@@ -21,13 +19,13 @@ const views = {
 
 function App() {
     const [activeView, setActiveView] = useState('Dashboard');
-    const [cvs, setCvs] = useState([]); 
+    const [cvs, setCvs] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
-    // --- NEW STATE for Workspace Navigation ---
-    const [activeWorkspaceId, setActiveWorkspaceId] = useState(null); // e.g., 'app_123'
-    const [defaultCvId, setDefaultCvId] = useState(null); // The CV to use for new apps
+    // Workspace State
+    const [activeWorkspaceId, setActiveWorkspaceId] = useState(null);
+    const [defaultCvId, setDefaultCvId] = useState(null);
 
     const loadCoreData = async () => {
         setLoading(true);
@@ -35,10 +33,7 @@ function App() {
         try {
             const data = await fetchAllCVs();
             setCvs(data);
-            // --- NEW: Set a default CV ---
-            if (data.length > 0) {
-                setDefaultCvId(data[0].id);
-            }
+            if (data.length > 0) setDefaultCvId(data[0].id);
         } catch (err) {
             setError('Failed to load core data. Ensure backend is running.');
             console.error(err);
@@ -53,53 +48,53 @@ function App() {
 
     const ActiveComponent = views[activeView];
 
-    // --- NEW: Handlers for navigation ---
     const handleNavigateToWorkspace = (applicationId) => {
         setActiveWorkspaceId(applicationId);
     };
 
     const handleExitWorkspace = () => {
         setActiveWorkspaceId(null);
-        setActiveView('Application_Tracker'); // Go back to the app list
-        // We could also reload data here
+        setActiveView('Application_Tracker');
     };
 
-    return (
-        <div style={{ padding: '20px', maxWidth: '1400px', margin: '0 auto', textAlign: 'center', backgroundColor: '#f9f9f9', minHeight: '100vh' }}>
-            <h1 style={{ fontSize: '2.5em', borderBottom: '1px solid #ddd', paddingBottom: '10px', color: '#333' }}>
-                Job Application Assistant
-            </h1>
-            
-            {/* Hide main nav when in workspace */}
-            {!activeWorkspaceId && (
-                <NavMenu activeView={activeView} setActiveView={setActiveView} />
-            )}
+    // --- View Rendering ---
+    
+    // 1. Workspace View (Full Screen / Focus Mode)
+    if (activeWorkspaceId) {
+        return (
+            <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
+                <ApplicationWorkspace
+                    key={activeWorkspaceId}
+                    applicationId={activeWorkspaceId}
+                    onExitWorkspace={handleExitWorkspace}
+                />
+            </div>
+        );
+    }
 
-            <main>
-                {loading ? (
-                    <p style={{ fontSize: '1.5em', color: '#007bff' }}>Loading initial data...</p>
-                ) : error ? (
-                    <p style={{ color: 'red', fontWeight: 'bold' }}>Error: {error}</p>
-                ) : activeWorkspaceId ? (
-                    // --- NEW: Render Workspace ---
-                    <ApplicationWorkspace
-                        key={activeWorkspaceId} // Re-mounts component on ID change
-                        applicationId={activeWorkspaceId}
-                        onExitWorkspace={handleExitWorkspace}
-                    />
-                ) : (
-                    // --- Original View Logic ---
-                    <ActiveComponent 
-                        cvs={cvs} 
-                        setActiveView={setActiveView} 
-                        reloadData={loadCoreData} 
-                        // --- NEW PROPS ---
-                        defaultCvId={defaultCvId}
-                        onNavigateToWorkspace={handleNavigateToWorkspace}
-                    />
-                )}
-            </main>
-        </div>
+    // 2. Standard Application View (Wrapped in Layout)
+    return (
+        <Layout activeView={activeView} setActiveView={setActiveView}>
+            {loading ? (
+                <div className="flex flex-col items-center justify-center min-h-[60vh]">
+                    <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-4"></div>
+                    <p className="text-slate-500 font-medium">Initializing RoleCraft...</p>
+                </div>
+            ) : error ? (
+                <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-300">
+                    <p className="font-semibold">Connection Error</p>
+                    <p>{error}</p>
+                </div>
+            ) : (
+                <ActiveComponent
+                    cvs={cvs}
+                    setActiveView={setActiveView}
+                    reloadData={loadCoreData}
+                    defaultCvId={defaultCvId}
+                    onNavigateToWorkspace={handleNavigateToWorkspace}
+                />
+            )}
+        </Layout>
     );
 }
 
