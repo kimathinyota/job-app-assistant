@@ -62,7 +62,7 @@ const CVSectionDashboard = ({ cv, onSelectSection }) => (
 );
 
 
-const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
+const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
     // --- STATE DECLARATIONS ---
     const [selectedCVId, setSelectedCVId] = useState(cvs[0]?.id || null);
     const [detailedCV, setDetailedCV] = useState(null);
@@ -90,9 +90,15 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
 
     // --- useEffect Hook ---
      useEffect(() => {
-        setActiveSection(null);
         setIsEditingHeader(false);
         // setEditingItem(null); // No longer needed
+
+        // --- CHANGED: Handle initialSection for Deep Linking ---
+        if (initialSection) {
+            setActiveSection(initialSection);
+        } else {
+            setActiveSection(null);
+        }
 
         if (selectedCVId) {
             fetchAndSetDetails(selectedCVId);
@@ -101,7 +107,7 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData }) => {
         } else {
              setDetailedCV(null);
         }
-    }, [selectedCVId, cvs.length]);
+    }, [selectedCVId, cvs.length, initialSection]);
 
 
     // --- CRUD Handlers ---

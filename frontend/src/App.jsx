@@ -30,6 +30,9 @@ function App() {
     const [activeWorkspaceId, setActiveWorkspaceId] = useState(null);
     const [defaultCvId, setDefaultCvId] = useState(null);
 
+    // Navigation State for Deep Linking
+    const [targetCVSection, setTargetCVSection] = useState(null);
+
     const loadCoreData = async () => {
         setLoading(true);
         setError(null);
@@ -53,12 +56,17 @@ function App() {
 
     const handleNavigateToWorkspace = (appId) => {
         setActiveWorkspaceId(appId);
-        // We don't need to change activeView here, the render logic below handles it
     };
 
     const handleExitWorkspace = () => {
         setActiveWorkspaceId(null);
         setActiveView('Application_Tracker');
+    };
+
+    // --- NEW: Deep Link Handler ---
+    const handleNavigateToCVSection = (sectionName) => {
+        setTargetCVSection(sectionName);
+        setActiveView('CV_Manager');
     };
 
     return (
@@ -74,7 +82,6 @@ function App() {
                     {error}
                 </div>
             ) : activeWorkspaceId ? (
-                // --- CHANGE: Render Workspace INSIDE Layout ---
                 <ApplicationWorkspace
                     key={activeWorkspaceId}
                     applicationId={activeWorkspaceId}
@@ -87,6 +94,10 @@ function App() {
                     reloadData={loadCoreData}
                     defaultCvId={defaultCvId}
                     onNavigateToWorkspace={handleNavigateToWorkspace}
+                    
+                    // Pass deep linking props
+                    initialSection={targetCVSection} 
+                    onNavigateToCVSection={handleNavigateToCVSection}
                 />
             )}
         </Layout>
