@@ -137,6 +137,10 @@ class Hobby(BaseEntity, SkillLinkMixin):
 class CV(BaseEntity):
     """Base CV containing all content."""
     name: str
+    # --- NEW FIELDS ---
+    first_name: Optional[str] = None # Actual first name for the document
+    last_name: Optional[str] = None  # Actual last name for the document
+    # --- END NEW FIELDS ---
     summary: Optional[str] = None
     contact_info: Dict[str, str] = Field(default_factory=dict)
     experiences: List[Experience] = Field(default_factory=list)
@@ -211,6 +215,8 @@ class DerivedCV(CV):
 
         return cls.create(
             name=f"{base_cv.name} — tailored for {job_id}",
+            first_name=base_cv.first_name, # Pass explicit name
+            last_name=base_cv.last_name, # Pass explicit name
             base_cv_id=base_cv.id,
             job_id=job_id,
             mapping_id=mapping.id,
@@ -587,6 +593,10 @@ class ProjectComplexPayload(BaseModel):
 class CVUpdate(BaseModel):
     name: Optional[str] = None
     summary: Optional[str] = None
+    # --- NEW FIELDS ---
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    # --- END NEW FIELDS ---
     contact_info: Optional[Dict[str, str]] = None
     # Nested lists like experiences or skills require dedicated sub-routes/registry methods to manage properly, 
     # so we don't include List[T] here for partial updates.

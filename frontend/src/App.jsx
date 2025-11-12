@@ -52,6 +52,13 @@ function App() {
         loadCoreData();
     }, []);
 
+    // --- FIX: Reset Deep Links when navigating away ---
+    useEffect(() => {
+        if (activeView !== 'CV_Manager') {
+            setTargetCVSection(null);
+        }
+    }, [activeView]);
+
     const ActiveComponent = views[activeView];
 
     const handleNavigateToWorkspace = (appId) => {
@@ -63,7 +70,7 @@ function App() {
         setActiveView('Application_Tracker');
     };
 
-    // --- NEW: Deep Link Handler ---
+    // --- Deep Link Handler ---
     const handleNavigateToCVSection = (sectionName) => {
         setTargetCVSection(sectionName);
         setActiveView('CV_Manager');

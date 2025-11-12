@@ -24,8 +24,14 @@ export const fetchCVDetails = async (cvId) => {
 };
 
 
-export const createBaseCV = async (name, summary) => {
-    const params = new URLSearchParams({ name, summary: summary || '' });
+
+
+export const createBaseCV = async (name, firstName, lastName, summary) => {
+    const params = new URLSearchParams({ name });
+    if (firstName) params.append('first_name', firstName);
+    if (lastName) params.append('last_name', lastName);
+    if (summary) params.append('summary', summary);
+    
     const response = await apiClient.post(`/cv/?${params.toString()}`);
     return response.data;
 };

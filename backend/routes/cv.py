@@ -12,11 +12,13 @@ router = APIRouter()
 
 # ... (Existing top-level CRUD endpoints: create_cv, list_cvs, etc. No changes needed here) ...
 
+
 @router.post("/")
-def create_cv(name: str, request: Request, summary: Optional[str] = None):
+def create_cv(name: str, request: Request, first_name: Optional[str] = None, last_name: Optional[str] = None, summary: Optional[str] = None):
     """Create a new base CV."""
     registry = request.app.state.registry
-    return registry.create_cv(name, summary)
+    return registry.create_cv(name=name, first_name=first_name, last_name=last_name, summary=summary)
+
 
 @router.get("/")
 def list_cvs(request: Request):

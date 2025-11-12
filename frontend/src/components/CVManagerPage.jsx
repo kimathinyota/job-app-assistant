@@ -4,6 +4,7 @@ import {
     deleteBaseCV,
     fetchCVDetails,
     updateBaseCV,
+    createBaseCV, // Added for the Create Modal
     // Complex Managers
     addExperienceComplex,
     updateExperienceComplex,
@@ -16,51 +17,96 @@ import {
     
     // Simple Managers
     addSkill,
-    // addAchievement, // No longer adding/editing achievements
-    
     deleteNestedItem
 } from '../api/cvClient';
 
-// --- Component Imports ---
-import CVSelector from './cv/CVList';
-// import NestedList from './cv//NestedList'; // No longer needed for Achievements
+// --- Icons & UI ---
+import { 
+    Briefcase, 
+    BookOpen, 
+    Cpu, 
+    Layers, 
+    Award, 
+    Smile, 
+    ChevronLeft, 
+    Trash2, 
+    Edit2 
+} from 'lucide-react';
 
-// Managers
+import CVSelector from './cv/CVList';
+
+// --- Managers ---
 import ExperienceManager from './cv/ExperienceManager';
 import EducationManager from './cv/EducationManager';
 import HobbyManager from './cv/HobbyManager';
 import ProjectManager from './cv/ProjectManager';
 import SkillsetManager from './cv/SkillsetManager';
-import AchievementHub from './cv/AchievementHub'; // <-- NEW
+import AchievementHub from './cv/AchievementHub';
 
-// Simple Forms
-// import AchievementForm from './cv/AchievementForm'; // <-- REMOVED
-
-
-// --- SectionButton (Bootstrap Version) ---
-const SectionButton = ({ title, count, onClick }) => (
-    <button
-        onClick={onClick}
-        className="btn btn-light text-start p-3 shadow-sm"
-        style={{ flex: '1 1 250px', minHeight: '100px' }}
-    >
-        <span className="fs-5 fw-bold text-primary d-block">{title}</span>
-        <span className="text-muted">({count} items)</span>
-    </button>
-);
-
-// --- CVSectionDashboard (Bootstrap Version) ---
-const CVSectionDashboard = ({ cv, onSelectSection }) => (
-    <div className="d-flex flex-wrap gap-3 justify-content-center py-3">
-        <SectionButton title="Experiences" count={cv.experiences?.length || 0} onClick={() => onSelectSection('Experiences')} />
-        <SectionButton title="Education" count={cv.education?.length || 0} onClick={() => onSelectSection('Education')} />
-        <SectionButton title="Projects" count={cv.projects?.length || 0} onClick={() => onSelectSection('Projects')} />
-        <SectionButton title="Master Skills" count={cv.skills?.length || 0} onClick={() => onSelectSection('Skills')} />
-        <SectionButton title="Master Achievements" count={cv.achievements?.length || 0} onClick={() => onSelectSection('Achievements')} />
-        <SectionButton title="Hobbies" count={cv.hobbies?.length || 0} onClick={() => onSelectSection('Hobbies')} />
+// --- NEW: Professional Section Card ---
+const SectionCard = ({ title, count, icon: Icon, colorClass, onClick }) => (
+    <div onClick={onClick} className="col-md-4 mb-3">
+        <div className="card border-0 shadow-sm h-100 hover-lift cursor-pointer transition-all">
+            <div className="card-body d-flex align-items-center gap-3 p-4">
+                <div className={`p-3 rounded-circle bg-opacity-10 ${colorClass.replace('text-', 'bg-')}`}>
+                    <Icon size={24} className={colorClass} />
+                </div>
+                <div>
+                    <h5 className="fw-bold text-dark mb-0">{title}</h5>
+                    <span className="text-muted small">{count} items</span>
+                </div>
+            </div>
+        </div>
     </div>
 );
 
+// --- CVSectionDashboard (Updated with Icons) ---
+const CVSectionDashboard = ({ cv, onSelectSection }) => (
+    <div className="row g-3 py-2">
+        <SectionCard 
+            title="Experience" 
+            count={cv.experiences?.length || 0} 
+            icon={Briefcase} 
+            colorClass="text-blue-600"
+            onClick={() => onSelectSection('Experiences')} 
+        />
+        <SectionCard 
+            title="Education" 
+            count={cv.education?.length || 0} 
+            icon={BookOpen} 
+            colorClass="text-indigo-600"
+            onClick={() => onSelectSection('Education')} 
+        />
+        <SectionCard 
+            title="Projects" 
+            count={cv.projects?.length || 0} 
+            icon={Cpu} 
+            colorClass="text-purple-600"
+            onClick={() => onSelectSection('Projects')} 
+        />
+        <SectionCard 
+            title="Master Skills" 
+            count={cv.skills?.length || 0} 
+            icon={Layers} 
+            colorClass="text-emerald-600"
+            onClick={() => onSelectSection('Skills')} 
+        />
+        <SectionCard 
+            title="Achievements" 
+            count={cv.achievements?.length || 0} 
+            icon={Award} 
+            colorClass="text-amber-500"
+            onClick={() => onSelectSection('Achievements')} 
+        />
+        <SectionCard 
+            title="Hobbies" 
+            count={cv.hobbies?.length || 0} 
+            icon={Smile} 
+            colorClass="text-pink-500"
+            onClick={() => onSelectSection('Hobbies')} 
+        />
+    </div>
+);
 
 const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
     // --- STATE DECLARATIONS ---
@@ -68,13 +114,16 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
     const [detailedCV, setDetailedCV] = useState(null);
     const [loadingDetails, setLoadingDetails] = useState(false);
     const [activeSection, setActiveSection] = useState(null);
+    
+    // Header Edit State
     const [isEditingHeader, setIsEditingHeader] = useState(false);
     const [editFormData, setEditFormData] = useState({ name: '', summary: '' });
-    
-    // This state is no longer used
-    // const [editingItem, setEditingItem] = useState(null); 
 
-    // --- Data Fetching Logic ---
+    // Create Modal State
+    const [showCreateModal, setShowCreateModal] = useState(false);
+    const [createFormData, setCreateFormData] = useState({ name: '', summary: '' });
+
+    // --- Data Fetching ---
      const fetchAndSetDetails = async (id) => {
         setLoadingDetails(true); 
         try {
@@ -88,12 +137,11 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
         }
     };
 
-    // --- useEffect Hook ---
+    // --- Effects ---
      useEffect(() => {
         setIsEditingHeader(false);
-        // setEditingItem(null); // No longer needed
 
-        // --- CHANGED: Handle initialSection for Deep Linking ---
+        // Deep Linking: Navigate to section if prop is passed
         if (initialSection) {
             setActiveSection(initialSection);
         } else {
@@ -110,7 +158,7 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
     }, [selectedCVId, cvs.length, initialSection]);
 
 
-    // --- CRUD Handlers ---
+    // --- Header Edit Handlers ---
      const handleStartEditHeader = () => {
         setEditFormData({
             name: detailedCV.name,
@@ -118,8 +166,6 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
         });
         setIsEditingHeader(true);
     };
-
-    const handleCancelEditHeader = () => setIsEditingHeader(false);
 
      const handleUpdateCVHeader = async (e) => {
         e.preventDefault();
@@ -135,31 +181,36 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
         }
     };
 
-    // This handler is no longer needed for Achievements
-    // const handleStartEditItem = (item, sectionName) => { ... };
-
-    const handleCancelEdit = () => {
-        // This clears state for ALL sections
-        // setEditingItem(null); // No longer needed
-        setActiveSection(null); // Go back to dashboard on cancel
+    // --- Create CV Handler ---
+    const handleCreateCV = async (e) => {
+        e.preventDefault();
+        if (!createFormData.name.trim()) return alert("Name is required");
+        
+        try {
+            const newCV = await createBaseCV(createFormData.name, createFormData.summary);
+            await reloadData(); // Refresh list in App
+            setSelectedCVId(newCV.id); // Switch to new CV
+            setShowCreateModal(false);
+            setCreateFormData({ name: '', summary: '' });
+        } catch (err) {
+            console.error(err);
+            alert("Failed to create CV");
+        }
     };
 
-    // --- This handler now manages all complex types AND simple types ---
+    // --- Unified Item Handler (Complex & Simple) ---
     const handleAddOrUpdateNestedItem = async (cvId, data, itemType) => {
         const isUpdating = Boolean(data.id);
         const itemId = data.id;
 
-        // --- UPDATED: 'Achievement' is removed ---
         const apiFunctions = {
             'Experience': { add: addExperienceComplex, update: updateExperienceComplex },
             'Education': { add: addEducationComplex, update: updateEducationComplex },
             'Hobby': { add: addHobbyComplex, update: updateHobbyComplex },
             'Project': { add: addProjectComplex, update: updateProjectComplex },
-            'Skill': { add: addSkill, update: addSkill }, // Skill still uses simple add/upsert
+            'Skill': { add: addSkill, update: addSkill }, 
         };
         
-        console.log(`[CVManager] Starting ${isUpdating ? 'update' : 'create'} for ${itemType}.`, "Sending data to backend:", data);
-
         try {
             let apiFn;
             if (isUpdating) {
@@ -167,36 +218,30 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
                 if (!apiFn) throw new Error(`Update API function not configured for ${itemType}`);
                 
                 if (itemType === 'Skill') {
-                    console.log(`[CVManager] Calling simple update API (via POST) for ${itemType} (${itemId})...`);
-                    await apiFn(cvId, data); // Calls addSkill(cvId, data)
+                    await apiFn(cvId, data); // Simple update
                 } else {
-                    console.log(`[CVManager] Calling complex update API (via PATCH) for ${itemType} (${itemId})...`);
-                    await apiFn(cvId, itemId, data); // Calls update...Complex(cvId, itemId, data)
+                    await apiFn(cvId, itemId, data); // Complex update
                 }
                 alert(`${itemType} updated successfully!`);
-                // setEditingItem(null); // No longer needed
             } else {
                 apiFn = apiFunctions[itemType]?.add;
                 if (!apiFn) throw new Error(`Create API function not configured for ${itemType}`);
-
-                console.log(`[CVManager] Calling create API for ${itemType}...`);
                 await apiFn(cvId, data);
                 alert(`${itemType} added successfully!`);
             }
             
-            console.log("[CVManager] Process complete. Refetching details and reloading core data.");
             await reloadData(); 
-            await fetchAndSetDetails(cvId); // Final refetch
+            await fetchAndSetDetails(cvId); 
 
         } catch (error) {
             alert(`Failed to ${isUpdating ? 'update' : 'add'} ${itemType}. Check console.`);
-            console.error(`[CVManager] API call FAILED:`, error);
+            console.error(error);
         }
     };
-    // --- *** END OF MODIFIED FUNCTION *** ---
 
+    // --- Delete Handlers ---
     const handleDeleteCV = async (cvIdToDelete) => {
-        if (window.confirm("Delete this master CV?")) {
+        if (window.confirm("Delete this master CV? This action cannot be undone.")) {
             try {
                 await deleteBaseCV(cvIdToDelete);
                 alert("CV deleted!");
@@ -210,18 +255,17 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
     };
 
      const handleDeleteNested = async (cvIdToDeleteFrom, itemId, listName) => {
-        // We can ask for confirmation again here
-        if (window.confirm(`Are you sure you want to permanently delete this ${listName} item?`)) {
+        if (window.confirm(`Permanently delete this ${listName} item?`)) {
             try {
                 await deleteNestedItem(cvIdToDeleteFrom, itemId, listName);
-                fetchAndSetDetails(cvIdToDeleteFrom); // Refetch details
+                fetchAndSetDetails(cvIdToDeleteFrom); 
             } catch (error) {
                 alert(`Error deleting item.`); console.error(error);
             }
         }
     };
 
-    // --- RENDER LOGIC ---
+    // --- Render Helpers ---
     const masterSkills = detailedCV?.skills || [];
     const masterAchievements = detailedCV?.achievements || [];
     const masterExperiences = detailedCV?.experiences || [];
@@ -229,156 +273,84 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
     const masterProjects = detailedCV?.projects || [];
     const masterHobbies = detailedCV?.hobbies || [];
 
-
-    if (cvs.length === 0) {
-        return (
-             <div className="text-center p-5 border border-primary-subtle rounded bg-primary-light-subtle">
-                <h3 className="text-primary">No CVs Found</h3>
-                <p>Please use the form on the Dashboard Home to create your first base CV.</p>
-                <button className="btn btn-primary" onClick={() => setActiveView('Dashboard')}>Go to Dashboard</button>
-            </div>
-        );
-    }
-
     const renderSectionDetail = () => {
          if (!activeSection) return null;
 
-        // --- Manager Components ---
-        if (activeSection === 'Experiences') {
-            return (
-                <ExperienceManager
-                    cvId={detailedCV.id}
-                    experiences={masterExperiences}
-                    allSkills={masterSkills}
-                    allAchievements={masterAchievements}
-                    onSubmit={handleAddOrUpdateNestedItem}
-                    onDelete={handleDeleteNested}
-                    onBack={handleCancelEdit}
-                />
-            );
-        }
-        if (activeSection === 'Education') {
-            return (
-                <EducationManager
-                    cvId={detailedCV.id}
-                    education={masterEducation}
-                    allSkills={masterSkills}
-                    allAchievements={masterAchievements}
-                    onSubmit={handleAddOrUpdateNestedItem}
-                    onDelete={handleDeleteNested}
-                    onBack={handleCancelEdit}
-                />
-            );
-        }
-        if (activeSection === 'Hobbies') {
-            return (
-                <HobbyManager
-                    cvId={detailedCV.id}
-                    hobbies={masterHobbies}
-                    allSkills={masterSkills}
-                    allAchievements={masterAchievements}
-                    onSubmit={handleAddOrUpdateNestedItem}
-                    onDelete={handleDeleteNested}
-                    onBack={handleCancelEdit}
-                />
-            );
-        }
-        if (activeSection === 'Projects') {
-            return (
-                <ProjectManager
-                    cvId={detailedCV.id}
-                    projects={masterProjects}
-                    allExperiences={masterExperiences}
-                    allEducation={masterEducation}
-                    allSkills={masterSkills}
-                    allAchievements={masterAchievements}
-                    onSubmit={handleAddOrUpdateNestedItem}
-                    onDelete={handleDeleteNested}
-                    onBack={handleCancelEdit}
-                />
-            );
-        }
-        
-        if (activeSection === 'Skills') {
-            return (
-                <SkillsetManager
-                    cvId={detailedCV.id}
-                    // Pass ALL CV data to build the map
-                    allSkills={masterSkills}
-                    allAchievements={masterAchievements}
-                    allExperiences={masterExperiences}
-                    allEducation={masterEducation}
-                    allProjects={masterProjects}
-                    allHobbies={masterHobbies}
-                    onSubmit={handleAddOrUpdateNestedItem}
-                    onDelete={handleDeleteNested}
-                    onBack={handleCancelEdit}
-                />
-            );
-        }
-        
-        // --- *** NEW: Special Case for Achievements *** ---
-        if (activeSection === 'Achievements') {
-            return (
-                <AchievementHub
-                    cvId={detailedCV.id}
-                    // Pass ALL CV data to build the map
-                    allSkills={masterSkills}
-                    allAchievements={masterAchievements}
-                    allExperiences={masterExperiences}
-                    allEducation={masterEducation}
-                    allProjects={masterProjects}
-                    allHobbies={masterHobbies}
-                    onDelete={handleDeleteNested}
-                    onBack={handleCancelEdit}
-                />
-            );
-        }
-        // --- *** END NEW CASE *** ---
+        const commonProps = {
+            cvId: detailedCV.id,
+            allSkills: masterSkills,
+            allAchievements: masterAchievements,
+            onSubmit: handleAddOrUpdateNestedItem,
+            onDelete: handleDeleteNested,
+            onBack: () => setActiveSection(null)
+        };
 
-        // This section is now empty, as all sections are handled by managers.
-        const sectionMap = {};
-        const current = sectionMap[activeSection];
-        if (!current) return <p>Section not found.</p>; 
+        const sections = {
+            'Experiences': <ExperienceManager {...commonProps} experiences={masterExperiences} />,
+            'Education': <EducationManager {...commonProps} education={masterEducation} />,
+            'Hobbies': <HobbyManager {...commonProps} hobbies={masterHobbies} />,
+            'Projects': <ProjectManager {...commonProps} projects={masterProjects} allExperiences={masterExperiences} allEducation={masterEducation} />,
+            'Skills': <SkillsetManager {...commonProps} allExperiences={masterExperiences} allEducation={masterEducation} allProjects={masterProjects} allHobbies={masterHobbies} />,
+            'Achievements': <AchievementHub {...commonProps} allExperiences={masterExperiences} allEducation={masterEducation} allProjects={masterProjects} allHobbies={masterHobbies} />
+        };
 
-        // ... (Old split-screen logic is no longer needed) ...
+        return sections[activeSection] || <p>Section not found.</p>; 
     };
 
-
-    // --- Final Return Block (unchanged) ---
+    // --- Main Render ---
     return (
-        <div className="text-start">
-            <h2>CV Manager & Editor</h2>
-            <CVSelector cvs={cvs} onSelect={setSelectedCVId} selectedCVId={selectedCVId} />
+        <div className="text-start pb-5">
+            <style>
+                {`
+                .hover-lift { transition: transform 0.2s ease, box-shadow 0.2s ease; }
+                .hover-lift:hover { transform: translateY(-4px); box-shadow: 0 10px 20px rgba(0,0,0,0.1) !important; }
+                .cursor-pointer { cursor: pointer; }
+                `}
+            </style>
+
+            {/* 1. Top Navigation */}
+            <div className="mb-4">
+                <h2 className="fw-bold text-dark mb-3">CV Library</h2>
+                <CVSelector 
+                    cvs={cvs} 
+                    onSelect={setSelectedCVId} 
+                    selectedCVId={selectedCVId} 
+                    onCreate={() => setShowCreateModal(true)} // Pass create handler
+                />
+            </div>
             
-            {/* Main content card */}
-            <div className="card shadow-sm mt-3">
-                <div className="card-body p-4">
-                    {loadingDetails ? (
-                        <p className="text-center text-primary">Loading CV details...</p>
-                    ) : detailedCV ? (
-                        <>
-                            {/* CV Header */}
+            {/* 2. Main Content Area */}
+            <div className="mt-3">
+                {loadingDetails ? (
+                    <div className="text-center py-5 text-muted">Loading CV details...</div>
+                ) : detailedCV ? (
+                    <div className="animate-fade-in">
+                        
+                        {/* CV Header Card */}
+                        <div className="bg-white rounded-xl border shadow-sm p-4 mb-4">
                             {!isEditingHeader ? (
-                                <div className="mb-4 pb-4 border-bottom border-primary-subtle position-relative">
-                                    <h3 className="h4 m-0 text-primary">{detailedCV.name}</h3>
-                                    <p className="m-0 mt-1 fst-italic text-muted" style={{whiteSpace: 'pre-wrap'}}>
-                                        {detailedCV.summary || "No summary."}
-                                    </p>
+                                <div className="d-flex justify-content-between align-items-start">
+                                    <div>
+                                        <div className="d-flex align-items-center gap-2 mb-1">
+                                            <h3 className="h4 fw-bold text-primary mb-0">{detailedCV.name}</h3>
+                                            <span className="badge bg-light text-muted border">Master Version</span>
+                                        </div>
+                                        <p className="text-muted mb-0" style={{whiteSpace: 'pre-wrap'}}>
+                                            {detailedCV.summary || <span className="fst-italic opacity-50">No summary provided. Click edit to add one.</span>}
+                                        </p>
+                                    </div>
                                     <button 
                                         onClick={handleStartEditHeader} 
-                                        className="btn btn-outline-secondary btn-sm position-absolute"
-                                        style={{ top: '0', right: '0' }}
+                                        className="btn btn-outline-secondary btn-sm d-flex align-items-center gap-2"
                                     >
-                                        Edit Details
+                                        <Edit2 size={14}/> Edit Header
                                     </button>
                                 </div>
                             ) : (
-                                <form onSubmit={handleUpdateCVHeader} className="mb-4 p-3 border border-primary-subtle rounded bg-light-subtle">
+                                <form onSubmit={handleUpdateCVHeader} className="bg-light p-3 rounded">
                                     <div className="mb-2">
-                                        <label htmlFor="cvName" className="form-label fw-bold">Name:</label>
+                                        <label className="form-label fw-bold small">CV Name</label>
                                         <input 
-                                            id="cvName"
                                             type="text" 
                                             value={editFormData.name} 
                                             onChange={(e) => setEditFormData({...editFormData, name: e.target.value})} 
@@ -387,39 +359,97 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
                                         />
                                     </div>
                                     <div className="mb-3">
-                                        <label htmlFor="cvSummary" className="form-label fw-bold">Summary:</label>
+                                        <label className="form-label fw-bold small">Summary</label>
                                         <textarea 
-                                            id="cvSummary"
                                             value={editFormData.summary} 
                                             onChange={(e) => setEditFormData({...editFormData, summary: e.target.value})} 
                                             className="form-control"
                                             rows="3"
                                         />
                                     </div>
-                                    <button type="submit" className="btn btn-primary me-2">Save</button> 
-                                    <button type="button" className="btn btn-secondary" onClick={handleCancelEditHeader}>Cancel</button>
+                                    <div className="d-flex gap-2">
+                                        <button type="submit" className="btn btn-primary btn-sm">Save</button> 
+                                        <button type="button" className="btn btn-light btn-sm border" onClick={() => setIsEditingHeader(false)}>Cancel</button>
+                                    </div>
                                 </form>
                             )}
+                        </div>
 
-                            {/* CV Body */}
-                            {activeSection === null ? (
+                        {/* Dashboard or Section Detail */}
+                        {activeSection === null ? (
+                            <>
                                 <CVSectionDashboard cv={detailedCV} onSelectSection={setActiveSection} />
-                            ) : (
-                                renderSectionDetail()
-                            )}
-
-                            {/* Footer */}
-                            <div className="border-top mt-4 pt-4 text-end">
-                                <button onClick={() => handleDeleteCV(detailedCV.id)} className="btn btn-danger">
-                                    Delete This Entire CV
-                                </button>
+                                <div className="mt-4 pt-3 border-top text-end">
+                                    <button onClick={() => handleDeleteCV(detailedCV.id)} className="btn btn-outline-danger btn-sm d-flex align-items-center gap-2 ms-auto">
+                                        <Trash2 size={14} /> Delete CV
+                                    </button>
+                                </div>
+                            </>
+                        ) : (
+                            <div className="bg-white rounded-xl border shadow-sm p-4">
+                                <div className="mb-3">
+                                    <button onClick={() => setActiveSection(null)} className="btn btn-link text-decoration-none p-0 d-flex align-items-center gap-1 text-muted mb-2">
+                                        <ChevronLeft size={16}/> Back to Dashboard
+                                    </button>
+                                </div>
+                                {renderSectionDetail()}
                             </div>
-                        </>
-                    ) : (
-                        selectedCVId ? <p>Loading CV details...</p> : <p className="text-center text-muted">Select a CV to manage.</p>
-                    )}
-                </div>
+                        )}
+                    </div>
+                ) : (
+                    <div className="text-center py-5 border rounded-xl border-dashed bg-light">
+                        <p className="text-muted mb-3">No CV Selected.</p>
+                        <button onClick={() => setShowCreateModal(true)} className="btn btn-primary">Create your first CV</button>
+                    </div>
+                )}
             </div>
+
+            {/* 3. Create CV Modal */}
+            {showCreateModal && (
+                <>
+                    <div className="modal-backdrop fade show"></div>
+                    <div className="modal fade show d-block" tabIndex="-1">
+                        <div className="modal-dialog modal-dialog-centered">
+                            <div className="modal-content shadow-lg border-0">
+                                <div className="modal-header border-bottom-0 pb-0">
+                                    <h5 className="modal-title fw-bold">Create New Master CV</h5>
+                                    <button type="button" className="btn-close" onClick={() => setShowCreateModal(false)}></button>
+                                </div>
+                                <form onSubmit={handleCreateCV}>
+                                    <div className="modal-body pt-4">
+                                        <div className="mb-3">
+                                            <label className="form-label fw-bold small text-muted text-uppercase">CV Name</label>
+                                            <input 
+                                                type="text" 
+                                                className="form-control" 
+                                                placeholder="e.g. Full Stack 2025" 
+                                                value={createFormData.name} 
+                                                onChange={(e) => setCreateFormData({...createFormData, name: e.target.value})} 
+                                                required 
+                                                autoFocus
+                                            />
+                                        </div>
+                                        <div className="mb-3">
+                                            <label className="form-label fw-bold small text-muted text-uppercase">Summary</label>
+                                            <textarea 
+                                                className="form-control" 
+                                                rows="3" 
+                                                placeholder="Professional summary..."
+                                                value={createFormData.summary} 
+                                                onChange={(e) => setCreateFormData({...createFormData, summary: e.target.value})} 
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="modal-footer border-top-0">
+                                        <button type="button" className="btn btn-light" onClick={() => setShowCreateModal(false)}>Cancel</button>
+                                        <button type="submit" className="btn btn-primary px-4">Create CV</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </>
+            )}
         </div>
     );
 };
