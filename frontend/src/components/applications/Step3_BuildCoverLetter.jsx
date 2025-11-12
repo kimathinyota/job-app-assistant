@@ -451,6 +451,8 @@ const Step3_BuildCoverLetter = ({
     const [error, setError] = useState(null);
     const [activeDragId, setActiveDragId] = useState(null);
     const [pairFilterId, setPairFilterId] = useState('all');
+    // --- NEW STATE for Custom Idea ---
+    const [newIdeaTitle, setNewIdeaTitle] = useState('');
     const [newParaPurpose, setNewParaPurpose] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [clPromptJson, setClPromptJson] = useState('');
@@ -639,6 +641,24 @@ const Step3_BuildCoverLetter = ({
             await reloadCoverLetter();
         } catch (err) { alert("Failed to delete idea."); }
         finally { setIsSubmitting(false); }
+    };
+
+// --- NEW HANDLER: Create Custom Idea (FIXED) ---
+    const handleCreateCustomIdea = async (e) => {
+        e.preventDefault();
+        if (!newIdeaTitle.trim()) return;
+        setIsSubmitting(true);
+        try {
+            // FIX: Pass title directly as string, NOT object
+            await addCoverLetterIdea(coverLetter.id, newIdeaTitle, []); 
+            await reloadCoverLetter();
+            setNewIdeaTitle('');
+        } catch (err) { 
+            alert("Failed to create argument."); 
+            console.error(err);
+        } finally { 
+            setIsSubmitting(false); 
+        }
     };
 
     const handleCreateParagraph = async (e) => {
@@ -856,13 +876,44 @@ const Step3_BuildCoverLetter = ({
                             <h6 className="h5 mb-0 text-primary"><i className="bi bi-lightbulb-fill me-2"></i> 2. Arguments (Idea Bank)</h6>
                             <small className="text-muted">Your talking points. Drag them to the Outline.</small>
                         </div>
-                        {/* --- END OF FIX --- */}
+
+                        <div className="d-grid gap-2 mb-3">
+                            <button 
+                                className="btn btn-primary btn-sm"
+                                onClick={() => setIsSuggestionModalOpen(true)}
+                                disabled={isSubmitting}
+                            >
+                                <i className="bi bi-magic me-2"></i>
+                                Open CL Assistant
+                            </button>
+                        </div>
+
+                       {/* --- NEW: Custom Argument Form --- */}
+                        <form onSubmit={handleCreateCustomIdea} className="d-flex gap-2 mb-3">
+                            <input
+                                type="text"
+                                className="form-control form-control-sm"
+                                value={newIdeaTitle}
+                                onChange={(e) => setNewIdeaTitle(e.target.value)}
+                                placeholder="Add Custom Argument..."
+                            />
+                            <button 
+                                type="submit" 
+                                className="btn btn-secondary btn-sm" 
+                                disabled={!newIdeaTitle.trim() || isSubmitting}
+                                title="Add Argument"
+                            >
+                                +
+                            </button>
+                        </form>
                         
                         <DroppableColumnBody
                             id="idea-pool"
                             items={availableIdeas.map(i => `pool-idea-${i.id}`)}
                         >
-                            {/* ... (empty state text is unchanged) ... */}
+                            {availableIdeas.length === 0 && (
+                                <p className="small text-muted fst-italic">No ideas in the bank. Use the Assistant or add one manually.</p>
+                            )}
                             
                             {/* --- MODIFIED: Pass new props to IdeaCard --- */}
                             {availableIdeas.map(idea => {
