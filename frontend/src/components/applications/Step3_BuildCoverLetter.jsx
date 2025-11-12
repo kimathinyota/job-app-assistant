@@ -38,7 +38,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
-// --- STYLES (Unchanged) ---
+// --- UPDATED STYLES: Uses Dynamic Variables for Dark Mode ---
 const DND_STYLES = `
 .cl-builder-container {
     display: flex;
@@ -63,7 +63,9 @@ const DND_STYLES = `
 .cl-column-body {
     flex-grow: 1;
     overflow-y: auto;
-    background-color: var(--bs-light);
+    /* CHANGED: Uses body-bg (changes in dark mode) instead of static light */
+    background-color: var(--bs-body-bg); 
+    border: 1px solid var(--bs-border-color);
     border-radius: 0.375rem;
     padding: 0.75rem;
 }
@@ -74,7 +76,8 @@ const DND_STYLES = `
 .pair-chip {
     cursor: grab;
     touch-action: none;
-    background-color: var(--bs-white);
+    /* CHANGED: Uses card-bg (Dark in Dark Mode, White in Light Mode) */
+    background-color: var(--bs-card-bg);
     border: 1px solid var(--bs-border-color);
     border-radius: 0.375rem;
     padding: 0.5rem 0.75rem;
@@ -94,7 +97,8 @@ const DND_STYLES = `
     box-shadow: var(--bs-box-shadow-lg);
 }
 .idea-card {
-    background-color: var(--bs-white);
+    /* CHANGED: Uses card-bg */
+    background-color: var(--bs-card-bg);
     border: 1px solid var(--bs-border-color);
     border-radius: 0.375rem;
     margin-bottom: 1rem;
@@ -111,7 +115,8 @@ const DND_STYLES = `
 .idea-card-body {
     padding: 1rem;
     min-height: 80px;
-    background-color: var(--bs-white);
+    /* CHANGED: Uses card-bg */
+    background-color: var(--bs-card-bg);
 }
 .idea-card-body.over {
     background-color: var(--bs-success-bg-subtle);
@@ -121,7 +126,8 @@ const DND_STYLES = `
     box-shadow: var(--bs-box-shadow-lg);
 }
 .paragraph-card {
-    background-color: var(--bs-body-bg);
+    /* CHANGED: Uses tertiary-bg for slight contrast against main background */
+    background-color: var(--bs-tertiary-bg);
     border: 1px solid var(--bs-border-color);
     border-radius: 0.375rem;
     margin-bottom: 1rem;
@@ -133,7 +139,8 @@ const DND_STYLES = `
     display: flex;
     justify-content: space-between;
     align-items: center;
-    background-color: var(--bs-white);
+    /* CHANGED: Uses card-bg */
+    background-color: var(--bs-card-bg);
 }
 .paragraph-card-body {
     padding: 1rem;

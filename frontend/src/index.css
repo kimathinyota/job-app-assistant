@@ -1,46 +1,120 @@
 /* frontend/src/index.css */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
+/* 1. Define the Brand Palette (RoleCraft) */
 :root {
-  --brand-primary: #0F172A;
-  --brand-accent: #3B82F6;
-  --brand-bg: #F8FAFC;
+  --brand-primary: #0F172A;   /* Deep Navy */
+  --brand-accent: #3B82F6;    /* Electric Blue */
+  --brand-bg: #F8FAFC;        /* Ice White */
+  --brand-surface: #FFFFFF;
   --brand-text: #0F172A;
-  --brand-text-muted: #64748B;
-  
-  /* Glass Variables */
-  --glass-bg: rgba(255, 255, 255, 0.85);
-  --glass-border: rgba(226, 232, 240, 0.8);
-  --glass-blur: 12px;
+  --brand-border: #E2E8F0;
+
+  /* Bootstrap Variable Overrides (Light Mode) */
+  --bs-body-font-family: 'Inter', system-ui, sans-serif;
+  --bs-primary: var(--brand-accent);
+  --bs-body-bg: var(--brand-bg);
+  --bs-body-color: var(--brand-text);
 }
 
+/* 2. The "Executive" Dark Mode Overrides */
 [data-bs-theme="dark"] {
+  /* Re-map Brand Colors for Dark Mode */
   --brand-primary: #F8FAFC;
-  --brand-bg: #020617;
-  --brand-text: #F8FAFC;
-  --brand-text-muted: #94A3B8;
+  --brand-accent: #60A5FA;    /* Softer Blue for Dark Mode */
+  --brand-bg: #020617;        /* Void Navy */
+  --brand-surface: #0F172A;   /* Slate 900 */
+  --brand-text: #F1F5F9;      /* Slate 100 */
+  --brand-border: #1E293B;    /* Slate 800 */
 
-  --glass-bg: rgba(15, 23, 42, 0.85);
-  --glass-border: rgba(51, 65, 85, 0.5);
+  /* --- THE FIX: Overriding Bootstrap's "Light" Colors --- */
+  /* This forces 'bg-light' components (like your tabs/footer) to be Dark Grey */
+  --bs-light: #1E293B;        
+  --bs-light-rgb: 30, 41, 59;
+  
+  /* Fix Text Colors */
+  --bs-body-color: #F1F5F9;
+  --bs-heading-color: #FFFFFF;
+  --bs-primary-rgb: 96, 165, 250; /* Matches lighter blue accent */
+  
+  /* Fix Cards */
+  --bs-card-bg: #0F172A;
+  --bs-card-border-color: #1E293B;
 }
 
+/* 3. Global Component Fixes */
 body {
-  background-color: var(--brand-bg);
+  background-color: var(--brand-bg); /* Uses the variable we switched above */
   color: var(--brand-text);
-  font-family: 'Inter', sans-serif;
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
-/* The Glass Navbar Class */
+/* Fix for Buttons in Dark Mode (The "Invisible Text" Fix) */
+[data-bs-theme="dark"] .btn-light {
+  background-color: #1E293B;
+  border-color: #334155;
+  color: #F1F5F9;
+}
+[data-bs-theme="dark"] .btn-light:hover {
+  background-color: #334155;
+  color: #FFFFFF;
+}
+
+/* Fix for "Text-Primary" disappearing on dark backgrounds */
+[data-bs-theme="dark"] .text-primary {
+  color: #60A5FA !important; /* Light Blue */
+}
+
+/* Fix for Footer Borders */
+[data-bs-theme="dark"] .border-top {
+  border-color: #1E293B !important;
+}
+
+/* Fix for Card Shadows (Make them subtle in dark mode) */
+[data-bs-theme="dark"] .shadow-sm {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5) !important;
+}
+
+/* Navbar Glass Effect Fix */
 .navbar-glass {
-  background-color: var(--glass-bg) !important;
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  border-bottom: 1px solid var(--glass-border);
+  background-color: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--brand-border);
 }
 
-/* Card Polish */
-.card {
-  border: 1px solid var(--glass-border);
-  border-radius: 12px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+[data-bs-theme="dark"] .navbar-glass {
+  background-color: rgba(15, 23, 42, 0.85) !important; /* Dark Navy Glass */
+  border-bottom: 1px solid #1E293B;
+}
+
+/* --- NEWLY ADDED COMPONENT FIXES --- */
+
+/* 1. Fix "Blinding White" Headers */
+/* Forces elements using .bg-white (like JobCard header) to turn Dark Navy in dark mode */
+[data-bs-theme="dark"] .bg-white {
+  background-color: var(--bs-card-bg) !important;
+  color: var(--bs-body-color) !important;
+}
+
+/* 2. Fix Info Tags & Counts (Dark Text on Dark BG) */
+/* Forces badges with .text-dark to turn Light in dark mode */
+[data-bs-theme="dark"] .badge.text-dark,
+[data-bs-theme="dark"] .text-dark {
+  color: var(--bs-body-color) !important; /* Switches to Light Text */
+}
+
+/* 3. Fix "Light" Badges to be readable */
+/* Makes bg-light elements (like Salary/Location tags) semi-transparent instead of solid dark grey */
+[data-bs-theme="dark"] .badge.bg-light {
+  background-color: rgba(255, 255, 255, 0.1) !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+}
+
+/* 4. Fix Dropdown Menus in Job Card */
+[data-bs-theme="dark"] .dropdown-menu {
+  background-color: var(--bs-card-bg);
+  border-color: var(--bs-border-color);
+}
+[data-bs-theme="dark"] .dropdown-item:hover {
+  background-color: rgba(255, 255, 255, 0.1);
 }
