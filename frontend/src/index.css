@@ -1,68 +1,131 @@
+/* frontend/src/index.css */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
 :root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
+  /* --- Brand Identity: "Executive Tech" --- */
+  
+  /* Primary Brand (The "Role"): Deep Navy */
+  --brand-primary: #0F172A; 
+  
+  /* Accent (The "Craft"): Electric Blue */
+  --brand-accent: #3B82F6;
+  --brand-accent-hover: #2563EB; /* Blue 600 */
 
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
+  /* Backgrounds */
+  --bg-page: #F8FAFC; /* Ice White */
+  --bg-card: #FFFFFF; /* White */
+  
+  /* Typography */
+  --text-main: #0F172A;  /* Slate 900 */
+  --text-muted: #64748B; /* Slate 500 */
+  
+  /* Borders */
+  --border-subtle: #E2E8F0; /* Slate 200 */
 
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  /* --- Bootstrap 5 Overrides --- */
+  --bs-primary: var(--brand-accent);
+  --bs-body-bg: var(--bg-page);
+  --bs-body-color: var(--text-main);
+  --bs-card-bg: var(--bg-card);
+  --bs-border-color: var(--border-subtle);
+  
+  /* Font Family */
+  --bs-body-font-family: 'Inter', system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-a:hover {
-  color: #535bf2;
+/* --- Native Dark Mode Support --- */
+html.dark body {
+  /* Backgrounds */
+  --bg-page: #020617; /* Void Navy */
+  --bg-card: #0F172A; /* Deep Navy (Surface) */
+  
+  /* Typography */
+  --text-main: #F8FAFC;  /* Slate 50 */
+  --text-muted: #94A3B8; /* Slate 400 */
+  
+  /* Borders */
+  --border-subtle: #1E293B; /* Slate 800 */
+
+  /* Bootstrap Overrides for Dark Mode */
+  --bs-body-bg: var(--bg-page);
+  --bs-body-color: var(--text-main);
+  --bs-card-bg: var(--bg-card);
+  --bs-border-color: var(--border-subtle);
 }
 
+/* --- Global Resets & Typography --- */
 body {
+  background-color: var(--bg-page);
+  color: var(--text-main);
+  font-family: var(--bs-body-font-family);
+  -webkit-font-smoothing: antialiased;
   margin: 0;
-  display: flex;
-  place-items: center;
-  min-width: 320px;
-  min-height: 100vh;
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
+h1, h2, h3, h4, h5, h6 {
+  color: var(--text-main);
+  font-weight: 600;
+  letter-spacing: -0.02em; /* "Executive" tight tracking */
 }
 
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
+/* --- Component Re-Skinning --- */
+
+/* Buttons: Electric Blue or Deep Navy */
+.btn-primary {
+  background-color: var(--brand-accent);
+  border-color: var(--brand-accent);
   font-weight: 500;
-  font-family: inherit;
-  background-color: #1a1a1a;
-  cursor: pointer;
-  transition: border-color 0.25s;
-}
-button:hover {
-  border-color: #646cff;
-}
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
+  padding: 0.5rem 1.25rem; /* More comfortable click area */
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
-  }
-  a:hover {
-    color: #747bff;
-  }
-  button {
-    background-color: #f9f9f9;
-  }
+.btn-primary:hover, .btn-primary:focus {
+  background-color: var(--brand-accent-hover);
+  border-color: var(--brand-accent-hover);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+/* Remove generic gray default button styles if present, enforce outline-secondary as standard secondary */
+.btn-secondary {
+  background-color: #fff;
+  color: var(--text-main);
+  border-color: var(--border-subtle);
+}
+.btn-secondary:hover {
+  background-color: var(--bg-page);
+  color: var(--text-main);
+  border-color: #cbd5e1;
+}
+
+html.dark .btn-secondary {
+  background-color: #1e293b;
+  color: #f8fafc;
+  border-color: #334155;
+}
+html.dark .btn-secondary:hover {
+  background-color: #334155;
+}
+
+/* Cards: Executive Surface */
+.card {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.75rem; /* Modern, softer corners */
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.06); /* Tailwind shadow-sm */
+}
+
+/* --- Navbar: Glassmorphism --- */
+.navbar-glass {
+  position: sticky;
+  top: 0;
+  z-index: 1030;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 1rem 0;
+}
+
+html.dark .navbar-glass {
+  background: rgba(2, 6, 23, 0.85); /* Dark mode glass */
 }
