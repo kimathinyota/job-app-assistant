@@ -31,14 +31,13 @@ const SuggestionCard = ({ suggestion, onAccept, isAccepting }) => {
             <h6 className="h6 card-title mb-1">{suggestion.title}</h6>
             <p className="small text-muted">{suggestion.description}</p>
 
-            {/* --- MODIFIED: Render textarea for 'company' OR 'conclusion_cta' --- */}
-            {(suggestion.type === 'company' || suggestion.type === 'conclusion_cta') && (
+            {/* --- MODIFIED: Render textarea for 'company', 'conclusion_cta', OR 'intro_hook' --- */}
+            {(suggestion.type === 'company' || suggestion.type === 'conclusion_cta' || suggestion.type === 'intro_hook') && (
                 <div className="my-2">
                     <label htmlFor={`custom-text-${suggestion.id}`} className="form-label small">
-                        {suggestion.type === 'company' 
-                            ? "How do you align with their mission? (Optional)"
-                            : "Add your call to action text (Optional)"
-                        }
+                        {suggestion.type === 'company' && "How do you align with their mission? (Optional)"}
+                        {suggestion.type === 'conclusion_cta' && "Add your call to action text (Optional)"}
+                        {suggestion.type === 'intro_hook' && "Draft your opening hook (Optional)"}
                     </label>
                     <textarea
                         id={`custom-text-${suggestion.id}`}
@@ -47,7 +46,9 @@ const SuggestionCard = ({ suggestion, onAccept, isAccepting }) => {
                         placeholder={
                             suggestion.type === 'company'
                                 ? "e.g., 'Their focus on renewable energy aligns...'"
-                                : "e.g., 'I am available for an interview at your earliest convenience...'"
+                                : suggestion.type === 'intro_hook'
+                                    ? "e.g., 'As a lifelong fan of [Company], I was thrilled to see...'"
+                                    : "e.g., 'I am available for an interview at your earliest convenience...'"
                         }
                         value={customText}
                         onChange={(e) => setCustomText(e.target.value)}
@@ -139,7 +140,23 @@ const CL_SuggestionModal = ({
 
         const suggestionsList = [];
 
-        // 1. Check for "Why You" (Company Research)
+        // 1. Check for "Opening Hook" in Introduction
+        const introPara = allParagraphs.find(p => p.purpose.toLowerCase().includes('introduction'));
+        if (introPara) {
+            const hasHookIdea = allIdeas.some(i => i.title === "Opening Hook");
+            // Suggest if the intro para is empty AND a Hook idea doesn't already exist
+            if (introPara.idea_ids.length === 0 && !hasHookIdea) {
+                suggestionsList.push({
+                    id: 'sugg_intro_hook',
+                    type: 'intro_hook',
+                    title: "Add an Opening Hook",
+                    description: "Your 'Introduction' paragraph is empty. Start strong with a hook that grabs the reader's attention.",
+                    actionText: "Add Hook",
+                });
+            }
+        }
+
+        // 2. Check for "Why You" (Company Research)
         const hasCompanyArg = allIdeas.some(idea => idea.title === "Company Mission & Values");
         if (!hasCompanyArg) {
             suggestionsList.push({
@@ -151,7 +168,7 @@ const CL_SuggestionModal = ({
             });
         }
 
-        // 2. Check for "Why Me" (Job Requirements)
+        // 3. Check for "Why Me" (Job Requirements)
         const usedPairIds = new Set(allIdeas.flatMap(idea => idea.mapping_pair_ids || []));
         for (const feature of allFeatures) {
             const argTitle = `Regarding: ${feature.description}`;
@@ -187,7 +204,7 @@ const CL_SuggestionModal = ({
             }
         }
         
-        // 3. Check for "Call to Action" in Conclusion
+        // 4. Check for "Call to Action" in Conclusion
         const conclusionPara = allParagraphs.find(p => p.purpose.toLowerCase().includes('conclusion'));
         if (conclusionPara) {
             const hasCtaIdea = allIdeas.some(i => i.title === "Call to Action");
@@ -216,7 +233,14 @@ const CL_SuggestionModal = ({
             let newIdea = null; // Store the newly created idea
             let targetParagraph = null; // Store the paragraph to add it to
 
-            if (suggestion.type === 'company') {
+            if (suggestion.type === 'intro_hook') {
+                const defaultAnnotation = "I am writing to express my enthusiastic interest in the [Job Title] position at [Company].";
+                const annotation = customText.trim() || defaultAnnotation;
+                const res = await addCoverLetterIdea(clId, "Opening Hook", [], annotation);
+                newIdea = res.data;
+                targetParagraph = coverLetter.paragraphs.find(p => p.purpose.toLowerCase().includes('introduction'));
+
+            } else if (suggestion.type === 'company') {
                 const annotation = customText.trim() || "Researched company mission and values.";
                 const res = await addCoverLetterIdea(clId, "Company Mission & Values", [], annotation);
                 newIdea = res.data;
@@ -311,38 +335,9 @@ const CL_SuggestionModal = ({
                                 overflowY: 'auto' 
                             }}
                         >
-                            {/* Blank Idea Form */}
-                            <div className="card card-body mb-3">
-                                <form onSubmit={handleCreateBlankIdea}>
-                                    <label htmlFor="new-idea-title" className="form-label small fw-medium">
-                                        Create a Custom Argument
-                                    </label>
-                                    <div className="d-flex gap-2">
-                                        <input
-                                            type="text"
-                                            id="new-idea-title"
-                                            className="form-control form-control-sm"
-                                            value={newIdeaTitle}
-                                            onChange={(e) => setNewIdeaTitle(e.target.value)}
-                                            placeholder="e.g., 'My Passion for This Industry'"
-                                            disabled={isSubmitting}
-                                        />
-                                        <button 
-                                            type="submit" 
-                                            className="btn btn-sm btn-outline-primary"
-                                            disabled={!newIdeaTitle.trim() || isSubmitting}
-                                        >
-                                            {isCreatingBlank ? (
-                                                <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-                                            ) : (
-                                                'Create'
-                                            )}
-                                        </button>
-                                    </div>
-                                </form>
-                            </div>
+                          
                             
-                            <hr />
+                            {/* <hr /> */}
                         
                             {isSubmitting && !isCreatingBlank && (
                                 <div className="text-center">
