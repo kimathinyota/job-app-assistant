@@ -227,8 +227,8 @@ class Registry:
 
     # ---- CVs ----
 
-    def create_cv(self, name: str, first_name: Optional[str] = None, last_name: Optional[str] = None, summary: Optional[str] = None):
-        cv = CV.create(name=name, first_name=first_name, last_name=last_name, summary=summary)
+    def create_cv(self, name: str, first_name: Optional[str] = None, last_name: Optional[str] = None, title: Optional[str] = None, summary: Optional[str] = None):
+        cv = CV.create(name=name, first_name=first_name, last_name=last_name, title=title, summary=summary)
         return self._insert("cvs", cv)
     
 
