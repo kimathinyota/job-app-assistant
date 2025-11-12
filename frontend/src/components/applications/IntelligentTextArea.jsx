@@ -1,5 +1,5 @@
 // frontend/src/components/applications/IntelligentTextArea.jsx
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, forwardRef, useImperativeHandle } from 'react';
 
 // --- CSS for the component ---
 const STYLES = `
@@ -8,11 +8,10 @@ const STYLES = `
     width: 100%;
 }
 
-/* --- NEW: Style for the plus button --- */
-.intelligent-textarea-plus-btn {
+/* --- Base button style --- */
+.intelligent-textarea-btn {
     position: absolute;
     top: 0px;
-    right: 0px;
     z-index: 5;
     border: none;
     background: var(--bs-light);
@@ -25,10 +24,16 @@ const STYLES = `
     opacity: 0.6;
     transition: opacity 0.15s ease-in-out;
 }
-.intelligent-textarea-plus-btn:hover {
+.intelligent-textarea-btn:hover {
     opacity: 1;
 }
-/* --- END NEW --- */
+
+/* --- Maximize button is now the only one --- */
+.intelligent-textarea-max-btn {
+    right: 0px; /* Sits at the far right */
+    font-size: 0.9rem; /* Smaller icon */
+}
+/* --- END MODIFIED --- */
 
 
 .intelligent-editor {
@@ -45,7 +50,7 @@ const STYLES = `
     transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
     overflow-y: auto;
     white-space: pre-wrap;
-    /* --- NEW: Add padding to top-right to avoid button --- */
+    /* --- MODIFIED: Padding for one button --- */
     padding-right: 35px;
 }
 .intelligent-editor:focus {
@@ -108,27 +113,31 @@ const STYLES = `
 // Regex to find our custom references
 const REFERENCE_REGEX = /\[(.*?)]<:(.*?)><(.*?)>/g;
 
-const IntelligentTextArea = ({ initialValue, onSave, cv, onShowPreview }) => {
+const IntelligentTextArea = forwardRef(({ 
+    initialValue, 
+    onSave, 
+    cv, 
+    onShowPreview,
+    onMaximize,
+    manageSaveExternally = false,
+    onLocalTextChange = () => {}
+}, ref) => {
     const editorRef = useRef(null);
-    // This state is ONLY for setting the initial value and placeholder
     const [rawText, setRawText] = useState(initialValue || '');
     const [isFocused, setIsFocused] = useState(false);
     
-    // This ref tracks the *start* of the @ query
     const suggestionQueryRef = useRef(null);
     
-    // --- Suggestion State ---
     const [suggestions, setSuggestions] = useState({
         open: false,
         query: '',
-        type: null, // 'category' or 'item'
-        categoryType: null, // 'experiences', 'skills', etc.
+        type: null,
+        categoryType: null,
         items: [],
         position: { top: 0, left: 0 },
         activeIndex: 0,
     });
 
-    // --- Flatten CV data into a searchable structure ---
     const cvCategories = useMemo(() => {
         if (!cv) return [];
         return [
@@ -138,9 +147,39 @@ const IntelligentTextArea = ({ initialValue, onSave, cv, onShowPreview }) => {
             { type: 'education', name: 'Education', items: cv.education || [] },
             { type: 'achievements', name: 'Achievements', items: cv.achievements || [] },
             { type: 'hobbies', name: 'Hobbies', items: cv.hobbies || [] },
-        ].filter(cat => cat.items.length > 0);
+        ];
     }, [cv]);
 
+    // --- Helper Functions ---
+    const getItemName = (item, type) => {
+        switch(type) {
+            case 'experiences': 
+                return item.title;
+            case 'projects': 
+                return item.title || item.name;
+            case 'skills': 
+                return item.name;
+            case 'education': 
+                return item.degree;
+            case 'achievements': 
+                return item.text;
+            case 'hobbies': 
+                return item.name;
+            default: 
+                return 'Unknown';
+        }
+    }
+
+    const getItemSubtitle = (item, type) => {
+        switch(type) {
+            case 'experiences': return item.company;
+            case 'education': return item.institution;
+            case 'projects': return null;
+            case 'achievements': return item.context;
+            default: return null;
+        }
+    }
+    
     // --- Convert raw text to display HTML ---
     const parseRawToHtml = (text) => {
         if (!text) return '';
@@ -158,6 +197,7 @@ const IntelligentTextArea = ({ initialValue, onSave, cv, onShowPreview }) => {
     // --- Convert display HTML back to raw text ---
     const parseHtmlToRaw = (element) => {
         let raw = '';
+        if (!element) return '';
         element.childNodes.forEach(node => {
             if (node.nodeType === Node.TEXT_NODE) {
                 raw += node.textContent;
@@ -188,12 +228,11 @@ const IntelligentTextArea = ({ initialValue, onSave, cv, onShowPreview }) => {
             editorRef.current.innerHTML = parseRawToHtml(newRawText);
             editorRef.current.dataset.placeholder = !newRawText;
         }
-    }, [initialValue]);
+    }, [initialValue, isFocused]);
 
     // --- Handle editor blur (save) ---
     const handleBlur = () => {
         setIsFocused(false);
-        // Delay closing suggestions so a click on a suggestion can register
         setTimeout(() => {
              if (!isFocused) {
                 setSuggestions(prev => ({ ...prev, open: false, type: null }));
@@ -201,9 +240,11 @@ const IntelligentTextArea = ({ initialValue, onSave, cv, onShowPreview }) => {
         }, 150);
         
         const currentRawText = parseHtmlToRaw(editorRef.current);
-        setRawText(currentRawText); // Sync state
+        setRawText(currentRawText);
 
-        if (currentRawText !== initialValue) {
+        if (manageSaveExternally) {
+            onLocalTextChange(currentRawText);
+        } else if (currentRawText !== initialValue) {
             onSave(currentRawText);
         }
         
@@ -237,7 +278,7 @@ const IntelligentTextArea = ({ initialValue, onSave, cv, onShowPreview }) => {
             if (top === 0 && left === 0) {
                 return { top: editorRect.top + window.scrollY, left: editorRect.left + window.scrollX };
             }
-            // Position relative to the wrapper
+            // --- FIX 2: This was `editorRect.top`, now it's `editorRect.left` ---
             return { top: rect.bottom - editorRect.top, left: rect.left - editorRect.left };
         }
         return { top: 0, left: 0 };
@@ -258,9 +299,8 @@ const IntelligentTextArea = ({ initialValue, onSave, cv, onShowPreview }) => {
         }
     };
 
-    // --- Main input handler (THE FIX) ---
+    // --- Main input handler ---
     const handleInput = () => {
-        // We do NOT call setRawText here.
         const selection = window.getSelection();
         if (!selection.rangeCount) return;
         
@@ -270,7 +310,6 @@ const IntelligentTextArea = ({ initialValue, onSave, cv, onShowPreview }) => {
         const node = range.startContainer;
         const offset = range.startOffset;
 
-        // Update placeholder state
         if (editorRef.current) {
             const hasText = editorRef.current.textContent.trim().length > 0;
             editorRef.current.dataset.placeholder = !hasText;
@@ -283,16 +322,25 @@ const IntelligentTextArea = ({ initialValue, onSave, cv, onShowPreview }) => {
 
         const text = node.textContent.substring(0, offset);
         
-        // Check if we are *inside* a query
         if (suggestions.type) {
+            // --- We are *inside* a query (e.g., searching for items) ---
             const queryStartOffset = suggestionQueryRef.current?.offset || 0;
-            const queryText = text.substring(queryStartOffset);
+
+            // --- FIX 1: Add 1 to queryStartOffset to search *after* the @ ---
+            const safeQueryStart = Math.min(queryStartOffset + 1, text.length);
+            const queryText = text.substring(safeQueryStart).toLowerCase();
             
             const category = cvCategories.find(c => c.type === suggestions.categoryType);
-            const items = category.items.filter(item => 
-                (item.name || item.title || item.degree || item.company)
-                    .toLowerCase().includes(queryText.toLowerCase())
-            );
+            
+            if (!category) {
+                setSuggestions(prev => ({ ...prev, open: false, type: null }));
+                return;
+            }
+
+            const items = category.items.filter(item => {
+                const nameToSearch = getItemName(item, suggestions.categoryType);
+                return nameToSearch.toLowerCase().includes(queryText);
+            });
             
             setSuggestions(prev => ({
                 ...prev,
@@ -304,22 +352,24 @@ const IntelligentTextArea = ({ initialValue, onSave, cv, onShowPreview }) => {
             }));
 
         } else {
-            // Check if we are *starting* a new query
+            // --- Check if we are *starting* a new query ---
             const atMatch = text.match(/@([\w\s]*)$/);
             if (atMatch) {
                 const query = atMatch[1].toLowerCase();
-                const items = cvCategories.filter(cat => cat.name.toLowerCase().includes(query));
+
+                const items = cvCategories.filter(cat => 
+                    cat.items.length > 0 && cat.name.toLowerCase().includes(query)
+                );
                 
-                // Store the start of the query
                 suggestionQueryRef.current = {
                     node: node,
-                    offset: offset - query.length - 1 // -1 for '@'
+                    offset: offset - query.length - 1 // This offset points AT the @
                 };
                 
                 setSuggestions({
                     open: true,
                     query: query,
-                    type: 'category', // Stage 1: searching categories
+                    type: 'category',
                     categoryType: null,
                     items: items,
                     position: getCaretCoordinates(),
@@ -336,16 +386,25 @@ const IntelligentTextArea = ({ initialValue, onSave, cv, onShowPreview }) => {
         const selection = window.getSelection();
         if (!selection.rangeCount) return;
         
+        if (!selection.focusNode) {
+            console.error("Editor lost focus. Cannot insert reference.");
+            return; 
+        }
+
         const range = selection.getRangeAt(0);
+        
+        // --- FIX 1 (continued): This offset correctly points AT the @ ---
         const { node, offset } = suggestionQueryRef.current;
         
-        // Delete the entire query text ("@category query" or "@item query")
-        range.setStart(node, offset);
+        // This will now delete the entire query, *including* the @
+        range.setStart(node, offset); 
         range.setEnd(selection.focusNode, selection.focusOffset);
         range.deleteContents();
 
         const link = document.createElement('a');
-        const itemName = item.name || item.title || item.degree || item.company;
+        
+        const itemName = getItemName(item, type);
+
         link.href = "#";
         link.dataset.type = type;
         link.dataset.id = item.id;
@@ -367,26 +426,44 @@ const IntelligentTextArea = ({ initialValue, onSave, cv, onShowPreview }) => {
 
         setSuggestions({ open: false, items: [], query: '', type: null, position: {}, activeIndex: 0 });
         editorRef.current.focus();
-        handleInput(); // Trigger placeholder update
+        handleInput();
     };
 
     // --- Handle suggestion selection ---
     const selectSuggestion = (item) => {
         const selection = window.getSelection();
         if (!selection.rangeCount) return;
+
+        if (!selection.focusNode || !suggestionQueryRef.current) {
+            return;
+        }
+
         const range = selection.getRangeAt(0);
 
         if (suggestions.type === 'category') {
             // Stage 1: Category selected
             const category = cvCategories.find(c => c.type === item.type);
-            
-            // --- Replace "@Category" with "@" ---
             const { node, offset } = suggestionQueryRef.current;
-            range.setStart(node, offset + 1); // After the "@"
-            range.setEnd(selection.focusNode, selection.focusOffset);
-            range.deleteContents();
+
+            // This deletes only the category query (e.g., "exp")
+            const queryStartOffset = offset + 1;
+            const queryEndOffset = queryStartOffset + suggestions.query.length;
+
+            if (queryEndOffset <= node.textContent.length) {
+                range.setStart(node, queryStartOffset);
+                range.setEnd(node, queryEndOffset);
+                range.deleteContents();
+            } else {
+                range.setStart(node, queryStartOffset);
+                range.setEnd(selection.focusNode, selection.focusOffset);
+                range.deleteContents();
+            }
             
-            // Update suggestion state for Stage 2
+            // --- FIX 1 (continued): We NO LONGER update the offset ---
+            // const newQueryRefOffset = offset + 1; // <-- REMOVED
+            // suggestionQueryRef.current.offset = newQueryRefOffset; // <-- REMOVED
+            // The offset will *stay* pointing at the @, which is what we want.
+
             setSuggestions(prev => ({
                 ...prev,
                 type: 'item',
@@ -394,6 +471,7 @@ const IntelligentTextArea = ({ initialValue, onSave, cv, onShowPreview }) => {
                 query: '',
                 items: category.items,
                 activeIndex: 0,
+                position: getCaretCoordinates(), // Get new position after deletion
             }));
             
         } else {
@@ -424,7 +502,7 @@ const IntelligentTextArea = ({ initialValue, onSave, cv, onShowPreview }) => {
             selectSuggestion(suggestions.items[suggestions.activeIndex]);
         } else if (e.key === 'Backspace' && suggestions.query === '' && suggestions.type === 'item') {
              e.preventDefault();
-             // Go back to category selection
+             // --- FIX 1 (continued): No offset math needed here either ---
              setSuggestions(prev => ({
                 ...prev,
                 type: 'category',
@@ -433,68 +511,73 @@ const IntelligentTextArea = ({ initialValue, onSave, cv, onShowPreview }) => {
                 items: cvCategories,
                 activeIndex: 0,
              }));
-             suggestionQueryRef.current.offset = suggestionQueryRef.current.offset + 1; // Adjust ref
+             // suggestionQueryRef.current.offset = suggestionQueryRef.current.offset - 1; // <-- REMOVED
         } else if (e.key === 'Escape') {
             e.preventDefault();
             setSuggestions(prev => ({ ...prev, open: false, type: null }));
         }
     };
     
-    // --- NEW: Handler for the plus button ---
-    const handlePlusClick = () => {
-        editorRef.current.focus();
-        // Manually open the suggestions to Stage 1
-        setSuggestions({
-            open: true,
-            query: '',
-            type: 'category',
-            categoryType: null,
-            items: cvCategories,
-            position: { top: 30, right: 5 }, // Position relative to wrapper
-            activeIndex: 0,
-        });
-        // Set a dummy query ref
-        suggestionQueryRef.current = { node: null, offset: -1 };
-    };
+    // --- REMOVED: handlePlusClick function ---
 
+    // --- Expose functions to parent (for the modal) ---
+    useImperativeHandle(ref, () => ({
+        triggerCategorySearch: (categoryItem) => {
+            editorRef.current.focus();
+            
+            const selection = window.getSelection();
+            const range = document.createRange();
+            range.selectNodeContents(editorRef.current);
+            range.collapse(false);
+            selection.removeAllRanges();
+            selection.addRange(range);
 
-    // --- Helper Functions (Unchanged) ---
-    const getItemName = (item, type) => {
-        switch(type) {
-            case 'experiences': return item.title;
-            case 'projects': return item.name;
-            case 'skills': return item.name;
-            case 'education': return item.degree;
-            case 'achievements': return item.name;
-            case 'hobbies': return item.name;
-            default: return 'Unknown';
+            const atNode = document.createTextNode('@');
+            range.insertNode(atNode);
+            
+            // This offset points AT the @
+            suggestionQueryRef.current = {
+                node: atNode,
+                offset: 0
+            };
+            
+            const category = cvCategories.find(c => c.type === categoryItem.type);
+            
+            setSuggestions({
+                open: true,
+                type: 'item',
+                categoryType: categoryItem.type,
+                query: '',
+                items: category?.items || [],
+                position: getCaretCoordinates(),
+                activeIndex: 0,
+            });
+
+            range.setStartAfter(atNode);
+            range.setEndAfter(atNode);
+            selection.removeAllRanges();
+            selection.addRange(range);
         }
-    }
-    const getItemSubtitle = (item, type) => {
-        switch(type) {
-            case 'experiences': return item.company;
-            case 'education': return item.institution;
-            default: return null;
-        }
-    }
+    }));
 
+    // --- Render ---
     return (
         <div className="intelligent-textarea-wrapper">
             <style>{STYLES}</style>
             
-            {/* --- NEW: Plus Button --- */}
-            <button
-                type="button"
-                className="intelligent-textarea-plus-btn"
-                title="Reference your CV"
-                onMouseDown={(e) => {
-                    // Use onMouseDown to prevent the editor from blurring
-                    e.preventDefault(); 
-                    handlePlusClick();
-                }}
-            >
-                <i className="bi bi-plus-lg"></i>
-            </button>
+            {!manageSaveExternally && (
+                <>
+                    {/* --- REMOVED: Plus Button --- */}
+                    <button
+                        type="button"
+                        className="intelligent-textarea-btn intelligent-textarea-max-btn"
+                        title="Maximize Editor"
+                        onMouseDown={(e) => { e.preventDefault(); onMaximize(); }}
+                    >
+                        <i className="bi bi-arrows-fullscreen"></i>
+                    </button>
+                </>
+            )}
             
             <div
                 ref={editorRef}
@@ -506,7 +589,6 @@ const IntelligentTextArea = ({ initialValue, onSave, cv, onShowPreview }) => {
                 onKeyDown={handleKeyDown}
                 onClick={handleClick}
                 data-placeholder={!rawText && !isFocused}
-                // We only set innerHTML on initial load via useEffect
             />
             {suggestions.open && (
                 <div
@@ -529,7 +611,6 @@ const IntelligentTextArea = ({ initialValue, onSave, cv, onShowPreview }) => {
                                 key={item.id || item.type}
                                 type="button"
                                 className={`suggestion-item ${index === suggestions.activeIndex ? 'active' : ''}`}
-                                // Use onMouseDown to select *before* blur fires
                                 onMouseDown={(e) => {
                                     e.preventDefault();
                                     selectSuggestion(item);
@@ -544,6 +625,6 @@ const IntelligentTextArea = ({ initialValue, onSave, cv, onShowPreview }) => {
             )}
         </div>
     );
-};
+});
 
 export default IntelligentTextArea;

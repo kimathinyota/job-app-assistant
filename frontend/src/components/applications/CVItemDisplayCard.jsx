@@ -37,16 +37,20 @@ const CVItemDisplayCard = ({
             .filter(Boolean);
     };
 
-    const linkedAchievements = getAchievements(item.achievement_ids);
+    // --- MODIFIED: Handle achievements differently if the item *is* an achievement ---
+    const linkedAchievements = (itemType === 'achievement' || itemType === 'achievements') 
+        ? [] // Don't show achievements *of* an achievement
+        : getAchievements(item.achievement_ids);
 
     // --- Helper to get all skills (direct + from achievements) ---
     const allIds = new Set(item.skill_ids || []);
+    // This loop is now safe because linkedAchievements will be empty for achievements
     linkedAchievements.forEach(ach => {
         (ach.skill_ids || []).forEach(id => allIds.add(id));
     });
     const aggregatedSkillIds = Array.from(allIds);
 
-    // --- Render Header based on itemType ---
+    // --- Render Header based on itemType (NOW WITH SKILLS/ACHIEVEMENTS) ---
     const renderHeader = () => {
         switch(itemType) {
             case 'experiences':
@@ -92,6 +96,29 @@ const CVItemDisplayCard = ({
                         <strong className="fs-5 d-block">{item.name || 'Untitled Hobby'}</strong>
                     </div>
                 );
+            
+            // --- NEW: Case for Skills ---
+            case 'skills':
+            case 'skill':
+                return (
+                    <div className="mb-2">
+                        <strong className="fs-5 d-block">{item.name || 'Untitled Skill'}</strong>
+                        {item.category && <span className="badge bg-primary me-2 text-uppercase">{item.category}</span>}
+                        {item.level && <span className="text-muted fw-medium">Level: {item.level}</span>}
+                    </div>
+                );
+
+            // --- NEW: Case for Achievements ---
+            case 'achievements':
+            case 'achievement':
+                return (
+                    <div className="mb-2">
+                        {/* Use 'p' tag for text to allow wrapping */}
+                        <p className="fs-5 fw-medium mb-1">{item.text || 'Untitled Achievement'}</p>
+                        {item.context && <span className="badge bg-secondary">Context: {item.context}</span>}
+                    </div>
+                );
+            
             default:
                 return <strong className="fs-5 d-block">Preview</strong>;
         }
@@ -102,13 +129,15 @@ const CVItemDisplayCard = ({
             <div className="card-body">
                 {renderHeader()}
 
+                {/* Description (Mainly for Experiences, Projects, Hobbies, Skills) */}
                 {item.description && (
                     <p className="mb-2 mt-2" style={{ whiteSpace: 'pre-wrap' }}>
                         {item.description}
                     </p>
                 )}
 
-                {linkedAchievements.length > 0 && (
+                {/* --- MODIFIED: Hide if item is an Achievement --- */}
+                {linkedAchievements.length > 0 && itemType !== 'achievement' && itemType !== 'achievements' && (
                     <div className="mb-3">
                         <h6 className="small fw-bold mb-0">Key Achievements:</h6>
                         <AchievementDisplayGrid
@@ -119,7 +148,8 @@ const CVItemDisplayCard = ({
                     </div>
                 )}
 
-                {aggregatedSkillIds.length > 0 && (
+                {/* --- MODIFIED: Hide if item is a Skill --- */}
+                {aggregatedSkillIds.length > 0 && itemType !== 'skill' && itemType !== 'skills' && (
                     <div className="mt-2 pt-2 border-top">
                         <strong className="form-label d-block mb-2">Related Skills:</strong>
                         <SelectedSkillsDisplay
