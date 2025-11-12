@@ -1,23 +1,21 @@
 // frontend/src/components/cv/EducationManager.jsx
 import React, { useState } from 'react';
+import { Plus, Edit2, Trash2, BookOpen } from 'lucide-react';
 import EducationForm from './EducationForm';
 import AchievementDisplayGrid from './AchievementDisplayGrid';
 import SelectedSkillsDisplay from './SelectedSkillsDisplay';
 
-// This is the new component that encapsulates all logic for Education
 const EducationManager = ({
   cvId,
-  education = [], // Changed from experiences
+  education = [],
   allSkills = [],
   allAchievements = [],
-  onSubmit, // This will be `handleAddOrUpdateNestedItem` from the parent
-  onDelete, // This will be `handleDeleteNested` from the parent
-  onBack    // This will be `() => setActiveSection(null)`
+  onSubmit,
+  onDelete,
 }) => {
   const [isCreating, setIsCreating] = useState(false);
   const [editingId, setEditingId] = useState(null);
 
-  // Helper to find achievements for the display card
   const getAchievements = (achievementIds = []) => {
     if (!achievementIds || achievementIds.length === 0) return [];
     return achievementIds
@@ -25,169 +23,141 @@ const EducationManager = ({
       .filter(Boolean);
   };
 
-  // --- Handlers to manage local state ---
-  const handleAddNewClick = () => {
-    setIsCreating(true);
-    setEditingId(null);
-  };
+  const handleAddNewClick = () => { setIsCreating(true); setEditingId(null); };
+  const handleEditClick = (itemId) => { setEditingId(itemId); setIsCreating(false); };
+  const handleCancel = () => { setIsCreating(false); setEditingId(null); };
 
-  const handleEditClick = (itemId) => {
-    setEditingId(itemId);
-    setIsCreating(false);
-  };
-
-  const handleCancel = () => {
-    setIsCreating(false);
-    setEditingId(null);
-  };
-
-  // --- Wrapper handlers to submit and then reset local state ---
   const handleSubmitCreate = async (cvId, data, itemType) => {
-    await onSubmit(cvId, data, itemType); // Call parent handler
-    handleCancel(); // Reset local state
+    await onSubmit(cvId, data, itemType);
+    handleCancel();
   };
 
   const handleSubmitUpdate = async (cvId, data, itemType) => {
-    await onSubmit(cvId, data, itemType); // Call parent handler
-    handleCancel(); // Reset local state
+    await onSubmit(cvId, data, itemType);
+    handleCancel();
   };
 
   const handleDeleteClick = (itemId) => {
-    // We pass the full identifiers to the parent delete handler
-    onDelete(cvId, itemId, 'education'); // Changed from 'experiences'
+    onDelete(cvId, itemId, 'education');
   };
 
   return (
-    <div>
-      {/* <button onClick={onBack} className="btn btn-secondary mb-3">
-        &larr; Back to CV Dashboard
-      </button> */}
+    <div className="animate-fade-in">
+      {/* Header Section */}
+      <div className="d-flex justify-content-between align-items-center mb-4 pb-2 border-bottom">
+        <h4 className="fw-bold text-dark mb-0 d-flex align-items-center gap-2">
+            <BookOpen className="text-indigo-600" size={20} />
+            Education History
+        </h4>
+        {!isCreating && !editingId && (
+          <button className="btn btn-primary btn-sm d-flex align-items-center gap-2" onClick={handleAddNewClick}>
+            <Plus size={16} /> Add Education
+          </button>
+        )}
+      </div>
 
-      <h3 className="h4 border-bottom pb-2 text-capitalize">
-        Education
-      </h3>
-
-      {/* "Add New" Button */}
-      {!isCreating && !editingId && (
-        <button
-          className="btn btn-primary my-3"
-          onClick={handleAddNewClick}
-        >
-          + Add New Education
-        </button>
-      )}
-
-      {/* "Create New" Form (appears at top) */}
+      {/* Create Form */}
       {isCreating && (
-        <EducationForm
-          key="new-education-form"
-          onSubmit={handleSubmitCreate} // Use wrapper handler
-          cvId={cvId}
-          allSkills={allSkills}
-          allAchievements={allAchievements}
-          initialData={null} // 'create' mode
-          onCancelEdit={handleCancel} // Use local handler
-        />
-      )}
-
-      {/* List of Education (Display or Edit) */}
-      <ul className="list-group list-group-flush mt-3">
-        {education.map(item => { // Changed from experiences
-          if (item.id === editingId) {
-            // --- RENDER EDIT FORM (in-place) ---
-            return (
-              <EducationForm
-                key={item.id}
-                onSubmit={handleSubmitUpdate} // Use wrapper handler
+        <div className="mb-4 p-4 bg-light rounded-xl border">
+            <EducationForm
+                key="new-education-form"
+                onSubmit={handleSubmitCreate}
                 cvId={cvId}
                 allSkills={allSkills}
                 allAchievements={allAchievements}
-                initialData={item} // 'edit' mode
-                onCancelEdit={handleCancel} // Use local handler
-              />
+                initialData={null}
+                onCancelEdit={handleCancel}
+            />
+        </div>
+      )}
+
+      {/* Education List */}
+      <div className="d-flex flex-column gap-3">
+        {education.length === 0 && !isCreating && (
+            <div className="text-center py-5 text-muted bg-light rounded-xl border border-dashed">
+                No education added yet. Click "Add Education" to start.
+            </div>
+        )}
+
+        {education.map(item => {
+          if (item.id === editingId) {
+            // --- EDIT MODE ---
+            return (
+              <div key={item.id} className="p-4 bg-light rounded-xl border shadow-sm">
+                  <EducationForm
+                    key={item.id}
+                    onSubmit={handleSubmitUpdate}
+                    cvId={cvId}
+                    allSkills={allSkills}
+                    allAchievements={allAchievements}
+                    initialData={item}
+                    onCancelEdit={handleCancel}
+                  />
+              </div>
             );
           } else {
-            // --- RENDER DISPLAY CARD ---
+            // --- DISPLAY MODE ---
             const linkedAchievements = getAchievements(item.achievement_ids);
             
-            // Calculate aggregated skills for this item
+            // Calculate aggregated skills
             const allIds = new Set(item.skill_ids || []);
-            linkedAchievements.forEach(ach => {
-                (ach.skill_ids || []).forEach(id => allIds.add(id));
-            });
+            linkedAchievements.forEach(ach => (ach.skill_ids || []).forEach(id => allIds.add(id)));
             const aggregatedSkillIds = Array.from(allIds);
 
             return (
-              <li
-                key={item.id}
-                className="list-group-item p-3 mb-3 border shadow-sm rounded"
-              >
-                {/* Header (Modified for Education) */}
-                <div className="mb-2">
-                  <strong className="fs-5 d-block">
-                    {item.degree || 'Untitled Education'}
-                  </strong>
-                  {item.institution && (
-                    <span className="fw-medium fs-6 text-muted">
-                      @{item.institution}
-                    </span>
-                  )}
-                   {item.field && (
-                       <span className="ms-2 small text-muted">
-                        ({item.field})
-                       </span>
-                    )}
-                  {(item.start_date || item.end_date) && (
-                    <span className="ms-2 small text-muted text-uppercase">
-                      ({item.start_date || '?'} – {item.end_date || 'Present'})
-                    </span>
-                  )}
-                </div>
-
-                {/* Achievements */}
-                {linkedAchievements.length > 0 && (
-                  <div className="mb-3">
-                    <h6 className="small fw-bold mb-0">Key Achievements:</h6>
-                    <AchievementDisplayGrid
-                      achievementsToDisplay={linkedAchievements}
-                      allSkills={allSkills}
-                      isDisplayOnly={true}
-                    />
-                  </div>
-                )}
-
-                {/* Skills */}
-                {aggregatedSkillIds.length > 0 && (
-                  <div className="mt-2 pt-2 border-top">
-                    <strong className="form-label d-block mb-2">Related Skills:</strong>
-                    <SelectedSkillsDisplay
-                      allSkills={allSkills}
-                      selectedSkillIds={aggregatedSkillIds}
-                      pendingSkills={[]}
-                    />
-                  </div>
-                )}
+              <div key={item.id} className="bg-white p-4 rounded-xl border shadow-sm hover-lift transition-all">
                 
-                {/* Action Buttons */}
-                <div className="mt-3 border-top pt-3 text-end">
-                  <button
-                    onClick={() => handleEditClick(item.id)}
-                    className="btn btn-warning btn-sm me-2"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    onClick={() => handleDeleteClick(item.id)}
-                    className="btn btn-danger btn-sm"
-                  >
-                    Delete
-                  </button>
+                {/* Card Header */}
+                <div className="d-flex justify-content-between align-items-start mb-3">
+                    <div>
+                        <h5 className="fw-bold text-dark mb-1">{item.degree || 'Untitled Education'}</h5>
+                        <div className="text-muted fw-medium">
+                            {item.institution && <span>@{item.institution}</span>}
+                            {item.field && <span className="ms-2 text-secondary">({item.field})</span>}
+                        </div>
+                        {(item.start_date || item.end_date) && (
+                            <div className="small text-muted mt-1">
+                                {item.start_date || '?'} – {item.end_date || 'Present'}
+                            </div>
+                        )}
+                    </div>
+                    <div className="d-flex gap-2">
+                        <button onClick={() => handleEditClick(item.id)} className="btn btn-light btn-sm text-primary" title="Edit">
+                            <Edit2 size={16} />
+                        </button>
+                        <button onClick={() => handleDeleteClick(item.id)} className="btn btn-light btn-sm text-danger" title="Delete">
+                            <Trash2 size={16} />
+                        </button>
+                    </div>
                 </div>
-              </li>
+
+                {/* Content Sections */}
+                <div className="d-flex flex-column gap-3">
+                    {linkedAchievements.length > 0 && (
+                        <div className="bg-light p-3 rounded-lg">
+                            <h6 className="small fw-bold text-uppercase text-muted mb-2">Key Achievements</h6>
+                            <AchievementDisplayGrid
+                                achievementsToDisplay={linkedAchievements}
+                                allSkills={allSkills}
+                                isDisplayOnly={true}
+                            />
+                        </div>
+                    )}
+                    {aggregatedSkillIds.length > 0 && (
+                        <div>
+                            <SelectedSkillsDisplay
+                                allSkills={allSkills}
+                                selectedSkillIds={aggregatedSkillIds}
+                                pendingSkills={[]}
+                            />
+                        </div>
+                    )}
+                </div>
+              </div>
             );
           }
         })}
-      </ul>
+      </div>
     </div>
   );
 };

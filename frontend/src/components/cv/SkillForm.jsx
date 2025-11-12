@@ -1,12 +1,12 @@
 // frontend/src/components/cv/SkillForm.jsx
 import React, { useState, useEffect } from 'react';
-import { addSkill } from '../../api/cvClient'; // Keep addSkill for potential non-manager use
+import { Layers } from 'lucide-react'; // Added Icon
 
 const SkillForm = ({ 
     onSubmit, 
     cvId, 
     initialData, 
-    onCancelEdit // <-- ADD THIS PROP
+    onCancelEdit 
 }) => {
     const [name, setName] = useState('');
     const [category, setCategory] = useState('technical');
@@ -24,7 +24,6 @@ const SkillForm = ({
             setImportance(initialData.importance || '');
             setDescription(initialData.description || '');
         } else {
-            // Reset for "create new"
             setName('');
             setCategory('technical');
             setLevel('');
@@ -49,10 +48,8 @@ const SkillForm = ({
             skillData.id = initialData.id;
         }
 
-        // Use the manager's onSubmit handler
         onSubmit(cvId, skillData, 'Skill');
         
-        // Clear form only if we are in "create" mode
         if (!isEditing) {
             setName('');
             setCategory('technical');
@@ -65,17 +62,20 @@ const SkillForm = ({
     return (
         <form 
             onSubmit={handleSubmit} 
-            className="card p-3" 
-            style={{ borderTop: `4px solid #0dcaf0` }} // Skill theme color
+            className="card border-0 shadow-sm p-4" // Modern Card
         >
-            <h4 className="mt-0 mb-3" style={{ color: '#0dcaf0' }}>
-                {isEditing ? 'Edit Master Skill' : 'Add New Master Skill'}
-            </h4>
+            {/* Header Title */}
+            <div className="d-flex align-items-center gap-2 mb-4 border-bottom pb-2">
+                <Layers className="text-emerald-600" size={20}/>
+                <h5 className="mb-0 fw-bold text-dark">
+                    {isEditing ? 'Edit Master Skill' : 'Add New Master Skill'}
+                </h5>
+            </div>
             
             {/* Form Row 1: Name and Category */}
-            <div className="row g-2 mb-3">
+            <div className="row g-3 mb-3">
                 <div className="col-md-6">
-                    <label htmlFor="skill-name" className="form-label fw-medium">Skill Name</label>
+                    <label htmlFor="skill-name" className="form-label fw-bold small text-uppercase text-muted">Skill Name</label>
                     <input
                         id="skill-name"
                         type="text"
@@ -87,7 +87,7 @@ const SkillForm = ({
                     />
                 </div>
                 <div className="col-md-6">
-                    <label htmlFor="skill-category" className="form-label fw-medium">Category</label>
+                    <label htmlFor="skill-category" className="form-label fw-bold small text-uppercase text-muted">Category</label>
                     <select
                         id="skill-category"
                         value={category}
@@ -103,9 +103,9 @@ const SkillForm = ({
             </div>
 
             {/* Form Row 2: Level and Importance */}
-            <div className="row g-2 mb-3">
+            <div className="row g-3 mb-3">
                 <div className="col-md-6">
-                    <label htmlFor="skill-level" className="form-label fw-medium">Level (Optional)</label>
+                    <label htmlFor="skill-level" className="form-label fw-bold small text-uppercase text-muted">Level (Optional)</label>
                     <input
                         id="skill-level"
                         type="text"
@@ -116,7 +116,7 @@ const SkillForm = ({
                     />
                 </div>
                 <div className="col-md-6">
-                    <label htmlFor="skill-importance" className="form-label fw-medium">Importance (1-5, Optional)</label>
+                    <label htmlFor="skill-importance" className="form-label fw-bold small text-uppercase text-muted">Importance (1-5)</label>
                     <input
                         id="skill-importance"
                         type="number"
@@ -124,6 +124,7 @@ const SkillForm = ({
                         onChange={(e) => setImportance(e.target.value)}
                         min="1"
                         max="5"
+                        placeholder="Rank 1-5"
                         className="form-control"
                     />
                 </div>
@@ -131,7 +132,7 @@ const SkillForm = ({
             
             {/* Form Row 3: Description */}
             <div className="mb-3">
-                <label htmlFor="skill-description" className="form-label fw-medium">Description (Optional)</label>
+                <label htmlFor="skill-description" className="form-label fw-bold small text-uppercase text-muted">Description (Optional)</label>
                 <textarea
                     id="skill-description"
                     value={description}
@@ -143,21 +144,19 @@ const SkillForm = ({
             </div>
             
             {/* Action Buttons */}
-            <div className="mt-3 border-top pt-3">
-                <button type="submit" className="btn btn-primary me-2">
-                    {isEditing ? 'Save Changes' : 'Add Master Skill'}
-                </button>
-                
-                {/* ADDED THIS CANCEL BUTTON */}
+            <div className="d-flex gap-2 justify-content-end mt-4 pt-3 border-top">
                 {onCancelEdit && (
                     <button 
                         type="button" 
                         onClick={onCancelEdit} 
-                        className="btn btn-outline-secondary"
+                        className="btn btn-light border"
                     >
                         Cancel
                     </button>
                 )}
+                <button type="submit" className="btn btn-primary px-4">
+                    {isEditing ? 'Save Changes' : 'Add Master Skill'}
+                </button>
             </div>
         </form>
     );

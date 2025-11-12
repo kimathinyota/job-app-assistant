@@ -1,5 +1,6 @@
 // frontend/src/components/cv/EducationForm.jsx
 import React, { useState, useEffect } from 'react';
+import { BookOpen, Layers, Award } from 'lucide-react'; // Added Icons
 import SkillManagerModal from './SkillManagerModal';
 import SelectedSkillsDisplay from './SelectedSkillsDisplay';
 import AchievementManagerModal from './AchievementManagerModal';
@@ -16,7 +17,7 @@ const EducationForm = ({
     // Form fields for Education
     const [institution, setInstitution] = useState('');
     const [degree, setDegree] = useState('');
-    const [field, setField] = useState(''); // New field for Education
+    const [field, setField] = useState(''); 
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
     
@@ -40,7 +41,7 @@ const EducationForm = ({
 
     const isEditing = Boolean(initialData);
 
-    // This effect populates the form on load
+    // Populate form on load
     useEffect(() => {
         if (isEditing) {
             setInstitution(initialData.institution || '');
@@ -59,7 +60,6 @@ const EducationForm = ({
             setLinkedExistingAchievements(initialAchievements);
             setPendingAchievements([]);
         } else {
-            // Reset form for "create new"
             setInstitution('');
             setDegree('');
             setField('');
@@ -73,7 +73,7 @@ const EducationForm = ({
     }, [initialData, isEditing, cvId, allAchievements]); 
 
     
-    // This effect calculates the aggregated lists (unchanged from ExperienceForm)
+    // Calculate aggregated lists
     useEffect(() => {
         const allIds = new Set(directSkillIds);
         const achIds = new Set(); 
@@ -108,7 +108,7 @@ const EducationForm = ({
     }, [directSkillIds, directPendingSkills, linkedExistingAchievements, pendingAchievements]);
     
     
-    // handleExistingAchievementSelection handler (unchanged)
+    // Handlers
     const handleExistingAchievementSelection = (newIdList) => {
         const newIds = newIdList.filter(id => !linkedExistingAchievements.some(a => a.id === id));
         const removedIds = linkedExistingAchievements.map(a => a.id).filter(id => !newIdList.includes(id));
@@ -123,7 +123,6 @@ const EducationForm = ({
         setLinkedExistingAchievements(newList);
     };
 
-    // handleSkillSelectionChange handler (unchanged)
     const handleSkillSelectionChange = (newAggregatedList) => {
         const oldAggregatedList = aggregatedSkillIds; 
 
@@ -169,7 +168,6 @@ const EducationForm = ({
         }
     };
 
-    // "Smart" handler for pending skills (unchanged)
     const smartSetAggregatedPendingSkills = (updaterFn) => {
         const currentAggregated = aggregatedPendingSkills;
         const newAggregated = updaterFn(currentAggregated);
@@ -200,7 +198,6 @@ const EducationForm = ({
         }
     };
 
-    // handleSubmit (Modified for Education)
     const handleSubmit = (e) => {
         e.preventDefault();
         if (!institution.trim() || !degree.trim()) return;
@@ -223,7 +220,6 @@ const EducationForm = ({
             dataToSend.id = initialData.id;
         }
 
-        // Submit as 'Education'
         onSubmit(cvId, dataToSend, 'Education');
 
         if (!isEditing) {
@@ -239,7 +235,6 @@ const EducationForm = ({
         }
     };
 
-    // --- (Unchanged) ---
     const handleStartDateChange = (e) => {
         const newStartDate = e.target.value;
         setStartDate(newStartDate);
@@ -248,98 +243,122 @@ const EducationForm = ({
         }
     };
 
-
     const allAchievementsToShow = [...linkedExistingAchievements, ...pendingAchievements];
-
 
     return (
         <form 
             key={initialData?.id || 'new'} 
             onSubmit={handleSubmit} 
-            className="card p-3"
-            style={{ borderTop: `4px solid #17a2b8` }} // Education theme color
+            className="card border-0 shadow-sm p-4" // Modern Card Style
         >
-            <h4 className="mt-0 mb-3" style={{ color: '#17a2b8' }}>
-                {isEditing ? 'Edit Education' : 'Add New Education'}
-            </h4>
-
-            {/* Form fields (Modified for Education) */}
-            <div className="mb-3">
-                <label htmlFor="edu-institution" className="form-label fw-medium">Institution</label>
-                <input id="edu-institution" type="text" value={institution} onChange={(e) => setInstitution(e.target.value)} placeholder="e.g., University of Example" required className="form-control" />
-            </div>
-             <div className="mb-3">
-                <label htmlFor="edu-degree" className="form-label fw-medium">Degree</label>
-                <input id="edu-degree" type="text" value={degree} onChange={(e) => setDegree(e.target.value)} placeholder="e.g., B.S. Computer Science" required className="form-control"/>
-            </div>
-             <div className="mb-3">
-                <label htmlFor="edu-field" className="form-label fw-medium">Field of Study (Optional)</label>
-                <input id="edu-field" type="text" value={field} onChange={(e) => setField(e.target.value)} placeholder="e.g., Software Engineering" className="form-control" />
+            {/* Header Title */}
+            <div className="d-flex align-items-center gap-2 mb-4 border-bottom pb-2">
+                <BookOpen className="text-indigo-600" size={20}/>
+                <h5 className="mb-0 fw-bold text-dark">
+                    {isEditing ? 'Edit Education' : 'Add New Education'}
+                </h5>
             </div>
 
-            {/* (Unchanged) */}
-            <div className="row g-2 mb-3">
+            {/* Fields */}
+            <div className="row g-3">
                 <div className="col-md-6">
-                    <label htmlFor="edu-start" className="form-label fw-medium">Start Date</label>
+                    <label htmlFor="edu-institution" className="form-label fw-bold small text-uppercase text-muted">Institution</label>
+                    <input id="edu-institution" type="text" value={institution} onChange={(e) => setInstitution(e.target.value)} placeholder="e.g., University of Example" required className="form-control" />
+                </div>
+                <div className="col-md-6">
+                    <label htmlFor="edu-degree" className="form-label fw-bold small text-uppercase text-muted">Degree</label>
+                    <input id="edu-degree" type="text" value={degree} onChange={(e) => setDegree(e.target.value)} placeholder="e.g., B.S. Computer Science" required className="form-control"/>
+                </div>
+                <div className="col-12">
+                    <label htmlFor="edu-field" className="form-label fw-bold small text-uppercase text-muted">Field of Study (Optional)</label>
+                    <input id="edu-field" type="text" value={field} onChange={(e) => setField(e.target.value)} placeholder="e.g., Software Engineering" className="form-control" />
+                </div>
+                <div className="col-md-6">
+                    <label htmlFor="edu-start" className="form-label fw-bold small text-uppercase text-muted">Start Date</label>
                     <input 
                         id="edu-start" 
                         type="date" 
                         value={startDate} 
-                        onChange={handleStartDateChange} // Use new handler
+                        onChange={handleStartDateChange} 
                         className="form-control"
                     />
                 </div>
                 <div className="col-md-6">
-                    <label htmlFor="edu-end" className="form-label fw-medium">End Date</label>
+                    <label htmlFor="edu-end" className="form-label fw-bold small text-uppercase text-muted">End Date</label>
                     <input 
                         id="edu-end" 
                         type="date" 
                         value={endDate} 
                         onChange={(e) => setEndDate(e.target.value)} 
-                        min={startDate} // Set min date based on start date
+                        min={startDate} 
                         className="form-control"
                     />
-                    <div className="form-text">
+                    <div className="form-text small">
                         Leave blank for 'Present' or ongoing.
                     </div>
                 </div>
             </div>
 
-            {/* --- SKILLS Section (unchanged) --- */}
-            <div className="mb-3">
-                <strong className="form-label">Skills:</strong>
-                <button 
-                    type="button" 
-                    onClick={() => setIsSkillModalOpen(true)} 
-                    className="btn btn-secondary btn-sm d-block mb-2"
-                >
-                    Manage Skills
-                </button>
-                <SelectedSkillsDisplay
-                    allSkills={allSkills}
-                    selectedSkillIds={aggregatedSkillIds}
-                    pendingSkills={aggregatedPendingSkills}
-                />
+            <hr className="my-4 opacity-10" />
+
+            {/* SKILLS Section */}
+            <div className="mb-4">
+                <div className="d-flex justify-content-between align-items-center mb-2">
+                    <label className="form-label fw-bold text-dark d-flex align-items-center gap-2 mb-0">
+                        <Layers size={16} className="text-emerald-600"/> Skills Used
+                    </label>
+                    <button 
+                        type="button" 
+                        onClick={() => setIsSkillModalOpen(true)} 
+                        className="btn btn-outline-secondary btn-sm py-0 px-2"
+                        style={{fontSize: '0.8rem'}}
+                    >
+                        + Manage
+                    </button>
+                </div>
+                <div className="bg-light p-3 rounded border">
+                    <SelectedSkillsDisplay
+                        allSkills={allSkills}
+                        selectedSkillIds={aggregatedSkillIds}
+                        pendingSkills={aggregatedPendingSkills}
+                    />
+                    {aggregatedSkillIds.length === 0 && aggregatedPendingSkills.length === 0 && (
+                        <span className="text-muted small fst-italic">No skills linked yet.</span>
+                    )}
+                </div>
             </div>
 
-            {/* --- ACHIEVEMENTS Section (unchanged) --- */}
-            <div className="mb-3">
-                 <strong className="form-label">Achievements:</strong>
-                 <button 
-                    type="button" 
-                    onClick={() => setIsAchievementModalOpen(true)} 
-                    className="btn btn-secondary btn-sm d-block mb-2"
-                 >
-                     Manage Achievements
-                 </button>
-                 <AchievementDisplayGrid
-                     achievementsToDisplay={allAchievementsToShow}
-                     allSkills={allSkills}
-                     isDisplayOnly={true}
-                 />
+            {/* ACHIEVEMENTS Section */}
+            <div className="mb-4">
+                 <div className="d-flex justify-content-between align-items-center mb-2">
+                     <label className="form-label fw-bold text-dark d-flex align-items-center gap-2 mb-0">
+                        <Award size={16} className="text-amber-500"/> Achievements
+                     </label>
+                     <button 
+                        type="button" 
+                        onClick={() => setIsAchievementModalOpen(true)} 
+                        className="btn btn-outline-secondary btn-sm py-0 px-2"
+                        style={{fontSize: '0.8rem'}}
+                     >
+                         + Manage
+                     </button>
+                 </div>
+                 {allAchievementsToShow.length > 0 ? (
+                     <div className="bg-light p-3 rounded border">
+                        <AchievementDisplayGrid
+                            achievementsToDisplay={allAchievementsToShow}
+                            allSkills={allSkills}
+                            isDisplayOnly={true}
+                        />
+                     </div>
+                 ) : (
+                     <div className="bg-light p-3 rounded border text-center">
+                        <span className="text-muted small fst-italic">No achievements added.</span>
+                     </div>
+                 )}
             </div>
 
-            {/* --- Modals (unchanged) --- */}
+            {/* Modals */}
             <SkillManagerModal
                 isOpen={isSkillModalOpen}
                 onClose={() => setIsSkillModalOpen(false)}
@@ -361,21 +380,20 @@ const EducationForm = ({
                  allSkills={allSkills}
              />
 
-            {/* --- ACTION BUTTONS (Modified) --- */}
-            <div className="mt-3 border-top pt-3">
-                <button type="submit" className="btn btn-primary me-2">
-                    {isEditing ? 'Save Changes' : 'Add Education'}
-                </button>
-                
+            {/* ACTION BUTTONS */}
+            <div className="d-flex gap-2 justify-content-end mt-4 pt-3 border-top">
                 {onCancelEdit && (
                     <button 
                         type="button" 
                         onClick={onCancelEdit} 
-                        className="btn btn-outline-secondary"
+                        className="btn btn-light border"
                     >
                         Cancel
                     </button>
                 )}
+                <button type="submit" className="btn btn-primary px-4">
+                    {isEditing ? 'Save Changes' : 'Add Education'}
+                </button>
             </div>
         </form>
     );

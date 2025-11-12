@@ -1,5 +1,6 @@
 // frontend/src/components/cv/ProjectForm.jsx
 import React, { useState, useEffect } from 'react';
+import { Cpu, Layers, Award, Link } from 'lucide-react'; // Added Icons
 import SkillManagerModal from './SkillManagerModal';
 import SelectedSkillsDisplay from './SelectedSkillsDisplay';
 import AchievementManagerModal from './AchievementManagerModal';
@@ -8,7 +9,6 @@ import AchievementDisplayGrid from './AchievementDisplayGrid';
 const ProjectForm = ({
     onSubmit,
     cvId,
-    // NEW: We need these for the dropdowns
     allExperiences = [],
     allEducation = [],
     allSkills,
@@ -16,11 +16,11 @@ const ProjectForm = ({
     initialData,
     onCancelEdit
 }) => {
-    // Form fields for Project
+    // Form fields
     const [title, setTitle] = useState('');
     const [description, setDescription] = useState('');
     
-    // NEW: State for the related item dropdowns
+    // Related item dropdowns
     const [relatedExperienceId, setRelatedExperienceId] = useState('');
     const [relatedEducationId, setRelatedEducationId] = useState('');
     
@@ -44,12 +44,11 @@ const ProjectForm = ({
 
     const isEditing = Boolean(initialData);
 
-    // This effect populates the form on load
+    // Populate form on load
     useEffect(() => {
         if (isEditing) {
             setTitle(initialData.title || '');
             setDescription(initialData.description || '');
-            // NEW
             setRelatedExperienceId(initialData.related_experience_id || '');
             setRelatedEducationId(initialData.related_education_id || '');
             
@@ -63,13 +62,10 @@ const ProjectForm = ({
             setLinkedExistingAchievements(initialAchievements);
             setPendingAchievements([]);
         } else {
-            // Reset form for "create new"
             setTitle('');
             setDescription('');
-            // NEW
             setRelatedExperienceId('');
             setRelatedEducationId('');
-            
             setDirectSkillIds([]); 
             setDirectPendingSkills([]); 
             setLinkedExistingAchievements([]);
@@ -78,7 +74,7 @@ const ProjectForm = ({
     }, [initialData, isEditing, cvId, allAchievements]); 
 
     
-    // This effect calculates the aggregated lists (unchanged)
+    // Calculate aggregated lists
     useEffect(() => {
         const allIds = new Set(directSkillIds);
         const achIds = new Set(); 
@@ -113,7 +109,7 @@ const ProjectForm = ({
     }, [directSkillIds, directPendingSkills, linkedExistingAchievements, pendingAchievements]);
     
     
-    // handleExistingAchievementSelection handler (unchanged)
+    // Handlers
     const handleExistingAchievementSelection = (newIdList) => {
         const newIds = newIdList.filter(id => !linkedExistingAchievements.some(a => a.id === id));
         const removedIds = linkedExistingAchievements.map(a => a.id).filter(id => !newIdList.includes(id));
@@ -128,7 +124,6 @@ const ProjectForm = ({
         setLinkedExistingAchievements(newList);
     };
 
-    // handleSkillSelectionChange handler (unchanged)
     const handleSkillSelectionChange = (newAggregatedList) => {
         const oldAggregatedList = aggregatedSkillIds; 
 
@@ -174,7 +169,6 @@ const ProjectForm = ({
         }
     };
 
-    // "Smart" handler for pending skills (unchanged)
     const smartSetAggregatedPendingSkills = (updaterFn) => {
         const currentAggregated = aggregatedPendingSkills;
         const newAggregated = updaterFn(currentAggregated);
@@ -205,7 +199,6 @@ const ProjectForm = ({
         }
     };
 
-    // handleSubmit (Modified for Project)
     const handleSubmit = (e) => {
         e.preventDefault();
         if (!title.trim()) return;
@@ -213,8 +206,6 @@ const ProjectForm = ({
         const dataToSend = {
             title,
             description: description || null,
-            
-            // NEW: Add the related IDs
             related_experience_id: relatedExperienceId || null,
             related_education_id: relatedEducationId || null,
             
@@ -229,7 +220,6 @@ const ProjectForm = ({
             dataToSend.id = initialData.id;
         }
 
-        // Submit as 'Project'
         onSubmit(cvId, dataToSend, 'Project');
 
         if (!isEditing) {
@@ -250,94 +240,129 @@ const ProjectForm = ({
         <form 
             key={initialData?.id || 'new'} 
             onSubmit={handleSubmit} 
-            className="card p-3"
-            style={{ borderTop: `4px solid #fd7e14` }} // Project theme color
+            className="card border-0 shadow-sm p-4" // Modern Card
         >
-            <h4 className="mt-0 mb-3" style={{ color: '#fd7e14' }}>
-                {isEditing ? 'Edit Project' : 'Add New Project'}
-            </h4>
+            {/* Header */}
+            <div className="d-flex align-items-center gap-2 mb-4 border-bottom pb-2">
+                <Cpu className="text-purple-600" size={20}/>
+                <h5 className="mb-0 fw-bold text-dark">
+                    {isEditing ? 'Edit Project' : 'Add New Project'}
+                </h5>
+            </div>
 
-            {/* Form fields (Modified for Project) */}
+            {/* Core Fields */}
             <div className="mb-3">
-                <label htmlFor="project-title" className="form-label fw-medium">Project Title</label>
+                <label htmlFor="project-title" className="form-label fw-bold small text-uppercase text-muted">Project Title</label>
                 <input id="project-title" type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g., My Portfolio Website" required className="form-control" />
             </div>
              <div className="mb-3">
-                <label htmlFor="project-desc" className="form-label fw-medium">Description (Optional)</label>
+                <label htmlFor="project-desc" className="form-label fw-bold small text-uppercase text-muted">Description (Optional)</label>
                 <textarea id="project-desc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="e.g., Built with React and FastAPI..." className="form-control" rows="3"/>
             </div>
             
-            {/* --- NEW: Related Item Linking --- */}
-            <div className="row g-2 mb-3">
+            <hr className="my-4 opacity-10" />
+
+            {/* Relationships Section */}
+            <div className="row g-2 mb-4">
+                <label className="form-label fw-bold small text-uppercase text-muted d-flex align-items-center gap-2">
+                    <Link size={14}/> Linked Context
+                </label>
                 <div className="col-md-6">
-                    <label htmlFor="project-rel-exp" className="form-label fw-medium">Related Experience (Optional)</label>
-                    <select
-                        id="project-rel-exp"
-                        className="form-select"
-                        value={relatedExperienceId}
-                        onChange={(e) => setRelatedExperienceId(e.target.value)}
-                    >
-                        <option value="">-- None --</option>
-                        {allExperiences.map(exp => (
-                            <option key={exp.id} value={exp.id}>
-                                {exp.title} @ {exp.company}
-                            </option>
-                        ))}
-                    </select>
+                    <div className="form-floating">
+                        <select
+                            id="project-rel-exp"
+                            className="form-select"
+                            value={relatedExperienceId}
+                            onChange={(e) => setRelatedExperienceId(e.target.value)}
+                        >
+                            <option value="">-- None --</option>
+                            {allExperiences.map(exp => (
+                                <option key={exp.id} value={exp.id}>
+                                    {exp.title} @ {exp.company}
+                                </option>
+                            ))}
+                        </select>
+                        <label htmlFor="project-rel-exp">Related Experience</label>
+                    </div>
                 </div>
                 <div className="col-md-6">
-                    <label htmlFor="project-rel-edu" className="form-label fw-medium">Related Education (Optional)</label>
-                    <select
-                        id="project-rel-edu"
-                        className="form-select"
-                        value={relatedEducationId}
-                        onChange={(e) => setRelatedEducationId(e.target.value)}
-                    >
-                        <option value="">-- None --</option>
-                        {allEducation.map(edu => (
-                            <option key={edu.id} value={edu.id}>
-                                {edu.degree} @ {edu.institution}
-                            </option>
-                        ))}
-                    </select>
+                    <div className="form-floating">
+                        <select
+                            id="project-rel-edu"
+                            className="form-select"
+                            value={relatedEducationId}
+                            onChange={(e) => setRelatedEducationId(e.target.value)}
+                        >
+                            <option value="">-- None --</option>
+                            {allEducation.map(edu => (
+                                <option key={edu.id} value={edu.id}>
+                                    {edu.degree} @ {edu.institution}
+                                </option>
+                            ))}
+                        </select>
+                        <label htmlFor="project-rel-edu">Related Education</label>
+                    </div>
                 </div>
             </div>
 
-            {/* --- SKILLS Section (unchanged) --- */}
-            <div className="mb-3">
-                <strong className="form-label">Skills:</strong>
-                <button 
-                    type="button" 
-                    onClick={() => setIsSkillModalOpen(true)} 
-                    className="btn btn-secondary btn-sm d-block mb-2"
-                >
-                    Manage Skills
-                </button>
-                <SelectedSkillsDisplay
-                    allSkills={allSkills}
-                    selectedSkillIds={aggregatedSkillIds}
-                    pendingSkills={aggregatedPendingSkills}
-                />
+            {/* SKILLS Section */}
+            <div className="mb-4">
+                <div className="d-flex justify-content-between align-items-center mb-2">
+                    <label className="form-label fw-bold text-dark d-flex align-items-center gap-2 mb-0">
+                        <Layers size={16} className="text-emerald-600"/> Skills Used
+                    </label>
+                    <button 
+                        type="button" 
+                        onClick={() => setIsSkillModalOpen(true)} 
+                        className="btn btn-outline-secondary btn-sm py-0 px-2"
+                        style={{fontSize: '0.8rem'}}
+                    >
+                        + Manage
+                    </button>
+                </div>
+                <div className="bg-light p-3 rounded border">
+                    <SelectedSkillsDisplay
+                        allSkills={allSkills}
+                        selectedSkillIds={aggregatedSkillIds}
+                        pendingSkills={aggregatedPendingSkills}
+                    />
+                    {aggregatedSkillIds.length === 0 && aggregatedPendingSkills.length === 0 && (
+                        <span className="text-muted small fst-italic">No skills linked yet.</span>
+                    )}
+                </div>
             </div>
 
-            {/* --- ACHIEVEMENTS Section (unchanged) --- */}
-            <div className="mb-3">
-                 <strong className="form-label">Achievements:</strong>
-                 <button 
-                    type="button" 
-                    onClick={() => setIsAchievementModalOpen(true)} 
-                    className="btn btn-secondary btn-sm d-block mb-2"
-                 >
-                     Manage Achievements
-                 </button>
-                 <AchievementDisplayGrid
-                     achievementsToDisplay={allAchievementsToShow}
-                     allSkills={allSkills}
-                     isDisplayOnly={true}
-                 />
+            {/* ACHIEVEMENTS Section */}
+            <div className="mb-4">
+                 <div className="d-flex justify-content-between align-items-center mb-2">
+                     <label className="form-label fw-bold text-dark d-flex align-items-center gap-2 mb-0">
+                        <Award size={16} className="text-amber-500"/> Achievements
+                     </label>
+                     <button 
+                        type="button" 
+                        onClick={() => setIsAchievementModalOpen(true)} 
+                        className="btn btn-outline-secondary btn-sm py-0 px-2"
+                        style={{fontSize: '0.8rem'}}
+                     >
+                         + Manage
+                     </button>
+                 </div>
+                 {allAchievementsToShow.length > 0 ? (
+                     <div className="bg-light p-3 rounded border">
+                        <AchievementDisplayGrid
+                            achievementsToDisplay={allAchievementsToShow}
+                            allSkills={allSkills}
+                            isDisplayOnly={true}
+                        />
+                     </div>
+                 ) : (
+                     <div className="bg-light p-3 rounded border text-center">
+                        <span className="text-muted small fst-italic">No achievements added.</span>
+                     </div>
+                 )}
             </div>
 
-            {/* --- Modals (unchanged) --- */}
+            {/* Modals */}
             <SkillManagerModal
                 isOpen={isSkillModalOpen}
                 onClose={() => setIsSkillModalOpen(false)}
@@ -359,21 +384,20 @@ const ProjectForm = ({
                  allSkills={allSkills}
              />
 
-            {/* --- ACTION BUTTONS (Modified) --- */}
-            <div className="mt-3 border-top pt-3">
-                <button type="submit" className="btn btn-primary me-2">
-                    {isEditing ? 'Save Changes' : 'Add Project'}
-                </button>
-                
+            {/* ACTION BUTTONS */}
+            <div className="d-flex gap-2 justify-content-end mt-4 pt-3 border-top">
                 {onCancelEdit && (
                     <button 
                         type="button" 
                         onClick={onCancelEdit} 
-                        className="btn btn-outline-secondary"
+                        className="btn btn-light border"
                     >
                         Cancel
                     </button>
                 )}
+                <button type="submit" className="btn btn-primary px-4">
+                    {isEditing ? 'Save Changes' : 'Add Project'}
+                </button>
             </div>
         </form>
     );

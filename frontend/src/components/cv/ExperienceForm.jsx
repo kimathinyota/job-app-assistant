@@ -1,6 +1,6 @@
 // frontend/src/components/cv/ExperienceForm.jsx
 import React, { useState, useEffect } from 'react';
-// fetchAggregatedSkills is no longer needed here, we do it all locally
+import { Briefcase, Layers, Award } from 'lucide-react'; // Added Icons
 import SkillManagerModal from './SkillManagerModal';
 import SelectedSkillsDisplay from './SelectedSkillsDisplay';
 import AchievementManagerModal from './AchievementManagerModal';
@@ -41,15 +41,11 @@ const ExperienceForm = ({
 
     const isEditing = Boolean(initialData);
 
-    // This effect populates the form on load
+    // Populate form on load
     useEffect(() => {
         if (isEditing) {
             setTitle(initialData.title || '');
             setCompany(initialData.company || '');
-            // The date input will only display YYYY-MM-DD.
-            // If the old data is "Jan 2020", it will appear blank,
-            // prompting the user to re-select it in the new format.
-            // This is a good self-correcting mechanism.
             setStartDate(initialData.start_date || '');
             setEndDate(initialData.end_date || '');
             setDescription(initialData.description || '');
@@ -64,7 +60,6 @@ const ExperienceForm = ({
             setLinkedExistingAchievements(initialAchievements);
             setPendingAchievements([]);
         } else {
-            // Reset form for "create new"
             setTitle('');
             setCompany('');
             setStartDate('');
@@ -78,7 +73,7 @@ const ExperienceForm = ({
     }, [initialData, isEditing, cvId, allAchievements]); 
 
     
-    // This effect calculates the aggregated lists (unchanged)
+    // Calculate aggregated lists
     useEffect(() => {
         const allIds = new Set(directSkillIds);
         const achIds = new Set(); 
@@ -113,7 +108,7 @@ const ExperienceForm = ({
     }, [directSkillIds, directPendingSkills, linkedExistingAchievements, pendingAchievements]);
     
     
-    // handleExistingAchievementSelection handler (unchanged)
+    // Handlers
     const handleExistingAchievementSelection = (newIdList) => {
         const newIds = newIdList.filter(id => !linkedExistingAchievements.some(a => a.id === id));
         const removedIds = linkedExistingAchievements.map(a => a.id).filter(id => !newIdList.includes(id));
@@ -128,7 +123,6 @@ const ExperienceForm = ({
         setLinkedExistingAchievements(newList);
     };
 
-    // handleSkillSelectionChange handler (unchanged)
     const handleSkillSelectionChange = (newAggregatedList) => {
         const oldAggregatedList = aggregatedSkillIds; 
 
@@ -174,7 +168,6 @@ const ExperienceForm = ({
         }
     };
 
-    // "Smart" handler for pending skills (unchanged from your version)
     const smartSetAggregatedPendingSkills = (updaterFn) => {
         const currentAggregated = aggregatedPendingSkills;
         const newAggregated = updaterFn(currentAggregated);
@@ -205,7 +198,6 @@ const ExperienceForm = ({
         }
     };
 
-    // handleSubmit (unchanged, already supports null dates)
     const handleSubmit = (e) => {
         e.preventDefault();
         if (!title.trim() || !company.trim()) return;
@@ -243,109 +235,130 @@ const ExperienceForm = ({
         }
     };
 
-    // --- (Unchanged) ---
     const handleStartDateChange = (e) => {
         const newStartDate = e.target.value;
         setStartDate(newStartDate);
-        // If a new start date is set and the end date is *before* it, clear the end date.
         if (endDate && newStartDate > endDate) {
             setEndDate('');
         }
     };
 
-
     const allAchievementsToShow = [...linkedExistingAchievements, ...pendingAchievements];
-
 
     return (
         <form 
             key={initialData?.id || 'new'} 
             onSubmit={handleSubmit} 
-            className="card p-3"
-            style={{ borderTop: `4px solid #007bff` }}
+            className="card border-0 shadow-sm p-4" // Modern Card
         >
-            <h4 className="text-primary mt-0 mb-3">
-                {isEditing ? 'Edit Experience' : 'Add New Experience'}
-            </h4>
-
-            {/* Form fields (unchanged) */}
-            <div className="mb-3">
-                <label htmlFor="exp-title" className="form-label fw-medium">Job Title</label>
-                <input id="exp-title" type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g., Senior Developer" required className="form-control" />
-            </div>
-             <div className="mb-3">
-                <label htmlFor="exp-company" className="form-label fw-medium">Company</label>
-                <input id="exp-company" type="text" value={company} onChange={(e) => setCompany(e.target.value)} placeholder="e.g., Acme Inc." required className="form-control"/>
+            {/* Header Title */}
+            <div className="d-flex align-items-center gap-2 mb-4 border-bottom pb-2">
+                <Briefcase className="text-primary" size={20}/>
+                <h5 className="mb-0 fw-bold text-dark">
+                    {isEditing ? 'Edit Experience' : 'Add New Experience'}
+                </h5>
             </div>
 
-            {/* (Unchanged) */}
-            <div className="row g-2 mb-3">
+            {/* Fields */}
+            <div className="row g-3">
                 <div className="col-md-6">
-                    <label htmlFor="exp-start" className="form-label fw-medium">Start Date</label>
+                    <label htmlFor="exp-title" className="form-label fw-bold small text-uppercase text-muted">Job Title</label>
+                    <input id="exp-title" type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g., Senior Developer" required className="form-control" />
+                </div>
+                <div className="col-md-6">
+                    <label htmlFor="exp-company" className="form-label fw-bold small text-uppercase text-muted">Company</label>
+                    <input id="exp-company" type="text" value={company} onChange={(e) => setCompany(e.target.value)} placeholder="e.g., Acme Inc." required className="form-control"/>
+                </div>
+                <div className="col-md-6">
+                    <label htmlFor="exp-start" className="form-label fw-bold small text-uppercase text-muted">Start Date</label>
                     <input 
                         id="exp-start" 
                         type="date" 
                         value={startDate} 
-                        onChange={handleStartDateChange} // Use new handler
+                        onChange={handleStartDateChange} 
                         className="form-control"
                     />
                 </div>
                 <div className="col-md-6">
-                    <label htmlFor="exp-end" className="form-label fw-medium">End Date</label>
+                    <label htmlFor="exp-end" className="form-label fw-bold small text-uppercase text-muted">End Date</label>
                     <input 
                         id="exp-end" 
                         type="date" 
                         value={endDate} 
                         onChange={(e) => setEndDate(e.target.value)} 
-                        min={startDate} // Set min date based on start date
+                        min={startDate} 
                         className="form-control"
                     />
-                    <div className="form-text">
+                    <div className="form-text small">
                         Leave blank for 'Present' or ongoing.
                     </div>
                 </div>
+                <div className="col-12">
+                    <label htmlFor="exp-desc" className="form-label fw-bold small text-uppercase text-muted">Description</label>
+                    <textarea id="exp-desc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Brief overview of responsibilities..." className="form-control" rows="3"/>
+                </div>
             </div>
 
-            <div className="mb-3">
-                <label htmlFor="exp-desc" className="form-label fw-medium">Description</label>
-                <textarea id="exp-desc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Brief overview of responsibilities..." className="form-control" rows="3"/>
+            <hr className="my-4 opacity-10" />
+
+            {/* SKILLS Section */}
+            <div className="mb-4">
+                <div className="d-flex justify-content-between align-items-center mb-2">
+                    <label className="form-label fw-bold text-dark d-flex align-items-center gap-2 mb-0">
+                        <Layers size={16} className="text-emerald-600"/> Skills Used
+                    </label>
+                    <button 
+                        type="button" 
+                        onClick={() => setIsSkillModalOpen(true)} 
+                        className="btn btn-outline-secondary btn-sm py-0 px-2"
+                        style={{fontSize: '0.8rem'}}
+                    >
+                        + Manage
+                    </button>
+                </div>
+                <div className="bg-light p-3 rounded border">
+                    <SelectedSkillsDisplay
+                        allSkills={allSkills}
+                        selectedSkillIds={aggregatedSkillIds}
+                        pendingSkills={aggregatedPendingSkills}
+                    />
+                    {aggregatedSkillIds.length === 0 && aggregatedPendingSkills.length === 0 && (
+                        <span className="text-muted small fst-italic">No skills linked yet.</span>
+                    )}
+                </div>
             </div>
 
-            {/* --- SKILLS Section (unchanged) --- */}
-            <div className="mb-3">
-                <strong className="form-label">Skills:</strong>
-                <button 
-                    type="button" 
-                    onClick={() => setIsSkillModalOpen(true)} 
-                    className="btn btn-secondary btn-sm d-block mb-2"
-                >
-                    Manage Skills
-                </button>
-                <SelectedSkillsDisplay
-                    allSkills={allSkills}
-                    selectedSkillIds={aggregatedSkillIds}
-                    pendingSkills={aggregatedPendingSkills}
-                />
+            {/* ACHIEVEMENTS Section */}
+            <div className="mb-4">
+                 <div className="d-flex justify-content-between align-items-center mb-2">
+                     <label className="form-label fw-bold text-dark d-flex align-items-center gap-2 mb-0">
+                        <Award size={16} className="text-amber-500"/> Achievements
+                     </label>
+                     <button 
+                        type="button" 
+                        onClick={() => setIsAchievementModalOpen(true)} 
+                        className="btn btn-outline-secondary btn-sm py-0 px-2"
+                        style={{fontSize: '0.8rem'}}
+                     >
+                         + Manage
+                     </button>
+                 </div>
+                 {allAchievementsToShow.length > 0 ? (
+                     <div className="bg-light p-3 rounded border">
+                        <AchievementDisplayGrid
+                            achievementsToDisplay={allAchievementsToShow}
+                            allSkills={allSkills}
+                            isDisplayOnly={true}
+                        />
+                     </div>
+                 ) : (
+                     <div className="bg-light p-3 rounded border text-center">
+                        <span className="text-muted small fst-italic">No achievements added.</span>
+                     </div>
+                 )}
             </div>
 
-            {/* --- ACHIEVEMENTS Section (unchanged) --- */}
-            <div className="mb-3">
-                 <strong className="form-label">Achievements:</strong>
-                 <button 
-                    type="button" 
-                    onClick={() => setIsAchievementModalOpen(true)} 
-                    className="btn btn-secondary btn-sm d-block mb-2"
-                 >
-                     Manage Achievements
-                 </button>
-                 <AchievementDisplayGrid
-                     achievementsToDisplay={allAchievementsToShow}
-                     allSkills={allSkills}
-                     isDisplayOnly={true}
-                 />
-            </div>
-
-            {/* --- Modals (unchanged) --- */}
+            {/* Modals */}
             <SkillManagerModal
                 isOpen={isSkillModalOpen}
                 onClose={() => setIsSkillModalOpen(false)}
@@ -367,25 +380,20 @@ const ExperienceForm = ({
                  allSkills={allSkills}
              />
 
-            {/* --- *** 1. MODIFIED ACTION BUTTONS *** --- */}
-            <div className="mt-3 border-top pt-3">
-                <button type="submit" className="btn btn-primary me-2">
-                    {isEditing ? 'Save Changes' : 'Add Experience'}
-                </button>
-                
-                {/* Show the "Cancel" button if the onCancelEdit prop is provided.
-                  In ExperienceManager, this prop is *always* provided for both
-                  "create" and "edit" modes, and it correctly resets the state.
-                */}
+            {/* ACTION BUTTONS */}
+            <div className="d-flex gap-2 justify-content-end mt-4 pt-3 border-top">
                 {onCancelEdit && (
                     <button 
                         type="button" 
                         onClick={onCancelEdit} 
-                        className="btn btn-outline-secondary"
+                        className="btn btn-light border"
                     >
                         Cancel
                     </button>
                 )}
+                <button type="submit" className="btn btn-primary px-4">
+                    {isEditing ? 'Save Changes' : 'Add Experience'}
+                </button>
             </div>
         </form>
     );
