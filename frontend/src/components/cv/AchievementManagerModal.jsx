@@ -1,9 +1,9 @@
 // frontend/src/components/cv/AchievementManagerModal.jsx
 import React, { useState } from 'react';
-import { Award, Plus, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Award, Plus, AlertCircle, CheckCircle2, Copy } from 'lucide-react';
 import AchievementForm from './AchievementForm';
 import AchievementLinker from './AchievementLinker';
-import AchievementDisplayGrid from './AchievementDisplayGrid'; // Using the Grid component
+import AchievementDisplayGrid from './AchievementDisplayGrid';
 
 const AchievementManagerModal = ({
   isOpen,
@@ -13,7 +13,8 @@ const AchievementManagerModal = ({
   setSelectedAchievementIds = () => {},
   pendingAchievements = [],
   setPendingAchievements = () => {},
-  allSkills = []
+  allSkills = [],
+  sessionSkills = [] // <--- NEW: Receive aggregated session skills
 }) => {
   const [editingItemId, setEditingItemId] = useState(null); 
   const [isCreatingNew, setIsCreatingNew] = useState(false); 
@@ -74,12 +75,10 @@ const AchievementManagerModal = ({
     if (isEditing) {
       const isPending = String(originalItemData.id).startsWith('pending-');
       if (isPending) {
-        // Update local pending item
         const updatedList = [...pendingAchievements];
         updatedList[originalItemData.index] = { ...updatedList[originalItemData.index], ...remappedData };
         setPendingAchievements(updatedList);
       } else {
-        // Fork Master -> Pending
         const newPendingItem = { 
           ...remappedData, 
           id: `pending-mod-${originalItemData.id}-${Date.now()}`,
@@ -90,7 +89,6 @@ const AchievementManagerModal = ({
       }
       setEditingItemId(null);
     } else {
-      // Create New
       const newPendingItem = { ...remappedData, id: `pending-${Date.now()}` };
       setPendingAchievements(prev => [...prev, newPendingItem]);
       setIsCreatingNew(false);
@@ -103,10 +101,8 @@ const AchievementManagerModal = ({
   }
   const disabledAchievementIds = Array.from(pendingOriginalIds);
 
-  // --- SPLIT LOGIC FOR EDITING ---
-  // We separate the item being edited from the list to display
+  // --- SPLIT LOGIC FOR DISPLAY ---
   const activeEditingItem = [...linkedAchievements, ...pendingItemsForGrid].find(i => i.id === editingItemId);
-  
   const displayedLinked = linkedAchievements.filter(i => i.id !== editingItemId);
   const displayedPending = pendingItemsForGrid.filter(i => i.id !== editingItemId);
 
@@ -121,6 +117,7 @@ const AchievementManagerModal = ({
         onClick={e => e.stopPropagation()}
       >
         <div className="modal-content border-0 shadow-lg rounded-xl overflow-hidden">
+          
           {/* HEADER */}
           <div className="modal-header bg-white border-bottom px-4 py-3">
             <h5 className="modal-title fw-bold d-flex align-items-center gap-2">
@@ -144,7 +141,7 @@ const AchievementManagerModal = ({
                     </h6>
                     <div className="alert alert-light border small text-muted mb-3">
                         <CheckCircle2 size={14} className="me-1 text-success" style={{marginTop: '-2px'}}/>
-                        Selecting adds to Linked list. Editing creates a local copy.
+                        Selecting an achievement links it. Editing a linked item creates a unique local copy for this entry.
                     </div>
                     <AchievementLinker
                         allAchievements={allAchievements}
@@ -157,18 +154,17 @@ const AchievementManagerModal = ({
                 {/* RIGHT: Workspace */}
                 <div className="col-lg-8 p-4 h-100 overflow-auto bg-slate-50">
                     
-                    {/* SECTION: Linked Master Items */}
+                    {/* LINKED ITEMS */}
                     <div className="mb-5">
                         <h6 className="fw-bold text-dark mb-3 pb-2 border-bottom d-flex align-items-center gap-2">
                             <span className="badge bg-light text-dark border rounded-circle" style={{width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center'}}>2</span>
                             Linked Master Achievements
                         </h6>
                         
-                        {/* If editing a linked item, show form here */}
                         {activeEditingItem && !activeEditingItem.isPending && (
                              <div className="bg-white p-4 rounded-xl shadow-sm border border-primary position-relative mb-3">
                                 <div className="d-flex align-items-center gap-2 mb-3 text-primary small fw-bold bg-blue-50 p-2 rounded border border-blue-100">
-                                    <AlertCircle size={14}/>
+                                    <Copy size={14}/>
                                     Editing this will detach it and create a local copy.
                                 </div>
                                 <AchievementForm
@@ -177,6 +173,7 @@ const AchievementManagerModal = ({
                                     allSkills={allSkills}
                                     initialData={activeEditingItem} 
                                     onCancelEdit={() => handleCancelEdit(activeEditingItem)}
+                                    sessionSkills={sessionSkills} // <--- PASS HERE
                                 />
                             </div>
                         )}
@@ -189,7 +186,7 @@ const AchievementManagerModal = ({
                         />
                     </div>
 
-                    {/* SECTION: Local / Modified Items */}
+                    {/* LOCAL ITEMS */}
                     <div>
                         <div className="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom">
                             <h6 className="fw-bold text-dark mb-0 d-flex align-items-center gap-2">
@@ -206,7 +203,6 @@ const AchievementManagerModal = ({
                             )}
                         </div>
 
-                        {/* Create New Form */}
                         {isCreatingNew && (
                             <div className="mb-4 p-4 bg-white rounded-xl shadow-sm border">
                                 <h6 className="small fw-bold text-primary mb-3 text-uppercase tracking-wide">Creating New Achievement</h6>
@@ -216,11 +212,11 @@ const AchievementManagerModal = ({
                                     allSkills={allSkills}
                                     initialData={null} 
                                     onCancelEdit={() => setIsCreatingNew(false)}
+                                    sessionSkills={sessionSkills} // <--- PASS HERE
                                 />
                             </div>
                         )}
 
-                        {/* Edit Pending Item Form */}
                         {activeEditingItem && activeEditingItem.isPending && (
                              <div className="bg-white p-4 rounded-xl shadow-sm border mb-3">
                                 <AchievementForm
@@ -229,6 +225,7 @@ const AchievementManagerModal = ({
                                     allSkills={allSkills}
                                     initialData={activeEditingItem} 
                                     onCancelEdit={() => handleCancelEdit(activeEditingItem)}
+                                    sessionSkills={sessionSkills} // <--- PASS HERE
                                 />
                             </div>
                         )}
@@ -239,6 +236,12 @@ const AchievementManagerModal = ({
                             onRemoveAchievement={handleRemove}
                             onEditAchievement={handleEdit}
                         />
+                        
+                        {displayedPending.length === 0 && !isCreatingNew && !activeEditingItem?.isPending && (
+                            <div className="text-center py-5 bg-white rounded-xl border border-dashed text-muted small">
+                                No local achievements created yet.
+                            </div>
+                        )}
                     </div>
 
                 </div>

@@ -325,6 +325,7 @@ const HobbyForm = ({
                  pendingAchievements={pendingAchievements}
                  setPendingAchievements={setPendingAchievements}
                  allSkills={allSkills}
+                 sessionSkills={aggregatedPendingSkills}
              />
 
             {/* ACTION BUTTONS */}

@@ -1,7 +1,7 @@
 // frontend/src/components/cv/AchievementForm.jsx
 import React, { useState, useEffect } from 'react';
 import { Award, Layers, ChevronDown, ChevronUp } from 'lucide-react';
-import SkillLinker from './SkillLinker'; // <--- IMPORT DIRECTLY
+import SkillLinker from './SkillLinker';
 import SelectedSkillsDisplay from './SelectedSkillsDisplay';
 
 const AchievementForm = ({ 
@@ -9,14 +9,14 @@ const AchievementForm = ({
   cvId, 
   allSkills, 
   initialData, 
-  onCancelEdit 
+  onCancelEdit,
+  sessionSkills = [] // <--- ACCEPT PROP
 }) => {
+  // ... (state definitions remain same) ...
   const [text, setText] = useState('');
   const [context, setContext] = useState(''); 
   const [selectedSkillIds, setSelectedSkillIds] = useState([]);
   const [pendingSkills, setPendingSkills] = useState([]);
-  
-  // Replaces the modal state with a simple toggle
   const [showSkillLinker, setShowSkillLinker] = useState(false);
 
   const isEditing = Boolean(initialData);
@@ -27,7 +27,6 @@ const AchievementForm = ({
       setContext(initialData.context || '');
       setSelectedSkillIds(initialData.skill_ids || initialData.existing_skill_ids || []);
       setPendingSkills(initialData.new_skills || []);
-      // Auto-open linker if editing a new item that has no text yet (optional UX tweak)
       if (!initialData.text) setShowSkillLinker(true);
     } else {
       setText('');
@@ -65,8 +64,8 @@ const AchievementForm = ({
 
   return (
     <div className="card border-0 shadow-sm p-4 bg-white">
+      {/* ... Header & Text/Context inputs (Unchanged) ... */}
       
-      {/* Header */}
       <div className="d-flex align-items-center gap-2 mb-4 border-bottom pb-2">
         <Award className="text-amber-500" size={20}/>
         <h5 className="mb-0 fw-bold text-dark">
@@ -74,7 +73,6 @@ const AchievementForm = ({
         </h5>
       </div>
 
-      {/* Core Fields */}
       <div className="mb-3">
         <label className="form-label fw-bold small text-uppercase text-muted">Achievement Details</label>
         <textarea
@@ -83,7 +81,7 @@ const AchievementForm = ({
             placeholder="e.g., Optimized database queries reducing load by 40%"
             className="form-control mb-3"
             rows="3"
-            autoFocus={!isEditing} // Focus text on new
+            autoFocus={!isEditing} 
         />
         <input
             type="text"
@@ -115,7 +113,6 @@ const AchievementForm = ({
             </button>
         </div>
 
-        {/* Logic: Show Linker when open, show Summary when closed */}
         {showSkillLinker ? (
             <div className="animate-fade-in mt-2">
                 <SkillLinker
@@ -124,6 +121,7 @@ const AchievementForm = ({
                     setSelectedSkillIds={setSelectedSkillIds}
                     pendingSkills={pendingSkills}
                     setPendingSkills={setPendingSkills}
+                    sessionSkills={sessionSkills} // <--- PASS PROP
                 />
             </div>
         ) : (

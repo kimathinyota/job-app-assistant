@@ -378,6 +378,7 @@ const ExperienceForm = ({
                  pendingAchievements={pendingAchievements}
                  setPendingAchievements={setPendingAchievements}
                  allSkills={allSkills}
+                 sessionSkills={aggregatedPendingSkills}
              />
 
             {/* ACTION BUTTONS */}
