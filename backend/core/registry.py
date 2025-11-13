@@ -618,6 +618,20 @@ class Registry:
         cv = self.get_cv(cv_id)
         if not cv:
             raise ValueError("CV not found")
+        
+
+        # --- SYNC LOGIC ---
+        final_exp_ids = set(payload.related_experience_ids)
+        if payload.related_experience_id:
+            final_exp_ids.add(payload.related_experience_id)
+
+        final_edu_ids = set(payload.related_education_ids)
+        if payload.related_education_id:
+            final_edu_ids.add(payload.related_education_id)
+            
+        final_hobby_ids = set(payload.related_hobby_ids)
+        # ------------------
+
 
         # Step 1: Create all new skills
         new_skill_id_map, direct_new_skill_ids = self._resolve_skills(
@@ -640,16 +654,24 @@ class Registry:
         project = cv.add_project(
             title=payload.title,
             description=payload.description,
-            related_experience_id=payload.related_experience_id,
-            related_education_id=payload.related_education_id,
+            
+            # Pass singulars (for backward compatibility in DB view)
+            # related_experience_id=payload.related_experience_id,
+            # related_education_id=payload.related_education_id,
+            
+            # Pass plurals
+            related_experience_ids=list(final_exp_ids),
+            related_education_ids=list(final_edu_ids),
+            related_hobby_ids=list(final_hobby_ids),
+            
             skill_ids=final_skill_ids,
             achievement_ids=final_achievement_ids
         )
-
         # Step 5: Save the entire updated CV
         self._update("cvs", cv)
         log.info(f"[Registry] Successfully created new Project {project.id}")
         return project
+
 
     def update_project_from_payload(self, cv_id: str, project_id: str, payload: ProjectComplexPayload) -> Project:
         log.info(f"[Registry] Starting complex update for Project {project_id} in CV {cv_id}")
@@ -677,13 +699,38 @@ class Registry:
             list(original_to_new_map.values())
         ))
 
+
+        # --- SYNC LOGIC ---
+        final_exp_ids = set(payload.related_experience_ids)
+        if payload.related_experience_id:
+            final_exp_ids.add(payload.related_experience_id)
+
+        final_edu_ids = set(payload.related_education_ids)
+        if payload.related_education_id:
+            final_edu_ids.add(payload.related_education_id)
+            
+        final_hobby_ids = set(payload.related_hobby_ids)
+
+
         # Step 4: Update the Project object directly
         project.title = payload.title
         project.description = payload.description
-        project.related_experience_id = payload.related_experience_id
-        project.related_education_id = payload.related_education_id
+        
+        # Pass singulars (for backward compatibility in DB view)
+        if payload.related_experience_id:
+            project.related_experience_id=payload.related_experience_id
+        if payload.related_education_id:
+            project.related_education_id=payload.related_education_id
+        
+        # Pass plurals
+        project.related_experience_ids=list(final_exp_ids)
+        project.related_education_ids=list(final_edu_ids)
+        project.related_hobby_ids=list(final_hobby_ids)
+
         project.skill_ids = final_skill_ids
         project.achievement_ids = final_achievement_ids
+
+        
         project.touch()
         
         # Step 5: Save
@@ -737,10 +784,26 @@ class Registry:
         if not cv:
             raise ValueError("CV not found")
         
-        # Pass all kwargs (like related_experience_id) to the creator
+        # --- SYNC LOGIC START ---
+        # Ensure lists exist in kwargs
+        exp_ids = set(kwargs.get('related_experience_ids', []))
+        edu_ids = set(kwargs.get('related_education_ids', []))
+        hobby_ids = set(kwargs.get('related_hobby_ids', []))
+
+        # If old singular fields are present, add them to the sets
+        if kwargs.get('related_experience_id'):
+            exp_ids.add(kwargs['related_experience_id'])
+        if kwargs.get('related_education_id'):
+            edu_ids.add(kwargs['related_education_id'])
+            
+        # Update kwargs with the consolidated lists
+        kwargs['related_experience_ids'] = list(exp_ids)
+        kwargs['related_education_ids'] = list(edu_ids)
+        kwargs['related_hobby_ids'] = list(hobby_ids)
+        # --- SYNC LOGIC END ---
+
         proj = cv.add_project(title=title, description=description, **kwargs)
         
-        # *** NEW: Set skill_ids if they were provided ***
         if skill_ids:
             proj.skill_ids = skill_ids
             
@@ -929,7 +992,10 @@ class Registry:
         return entity
 
     def link_skill_to_entity(self, cv_id: str, entity_id: str, skill_id: str, entity_list_name: str):
-        """Adds a skill ID to a specific nested entity's skill_ids list (Experience, Project, etc.) AND rolls the link up to parents."""
+        """
+        Adds a skill ID to a specific nested entity's skill_ids list (Experience, Project, etc.)
+        AND rolls the link up to parents (e.g. Achievement -> Project -> Experience).
+        """
         cv = self.get_cv(cv_id)
         if not cv:
             raise ValueError("CV not found")
@@ -945,45 +1011,90 @@ class Registry:
             entity.skill_ids.append(skill_id)
             cv.touch()
             
-        # 4. *** NEW: Handle Skill Roll-up ***
+        # 4. *** HANDLE SKILL ROLL-UP ***
         
-        # Case A: If entity is a Project with a related Experience
-        if entity_list_name == 'projects' and entity.related_experience_id:
+        # --- HELPER: Generic Roll-up Function ---
+        # We use this to avoid repeating the "find parent, check id, append" logic
+        def _roll_up_to_parent(parent_list_name, parent_id):
             try:
-                parent_exp = self._get_nested_entity(cv, 'experiences', entity.related_experience_id)
-                if skill_id not in parent_exp.skill_ids:
-                    parent_exp.skill_ids.append(skill_id)
+                parent = self._get_nested_entity(cv, parent_list_name, parent_id)
+                if skill_id not in parent.skill_ids:
+                    parent.skill_ids.append(skill_id)
                     cv.touch()
             except ValueError:
-                pass # Parent experience not found, skip roll-up
+                pass # Parent not found, skip
 
-        # Case B: If entity is an Achievement, find all contexts linking to it
+        # Case A: The entity IS a Project (Roll up to its Contexts)
+        if entity_list_name == 'projects':
+            # 1. Roll up to Experiences
+            # (Support old singular ID for backward compatibility + new list)
+            if getattr(entity, 'related_experience_id', None):
+                _roll_up_to_parent('experiences', entity.related_experience_id)
+            for exp_id in getattr(entity, 'related_experience_ids', []):
+                _roll_up_to_parent('experiences', exp_id)
+
+            # 2. Roll up to Education
+            if getattr(entity, 'related_education_id', None):
+                _roll_up_to_parent('education', entity.related_education_id)
+            for edu_id in getattr(entity, 'related_education_ids', []):
+                _roll_up_to_parent('education', edu_id)
+
+            # 3. Roll up to Hobbies
+            for hobby_id in getattr(entity, 'related_hobby_ids', []):
+                _roll_up_to_parent('hobbies', hobby_id)
+
+
+        # Case B: The entity IS an Achievement (Find who owns it, then roll up)
         if entity_list_name == 'achievements':
-            # Check Experiences
+            
+            # 1. Check Experiences
             for exp in cv.experiences:
                 if entity_id in exp.achievement_ids and skill_id not in exp.skill_ids:
                     exp.skill_ids.append(skill_id)
                     cv.touch()
-            # Check Projects
-            for proj in cv.projects:
-                if entity_id in proj.achievement_ids and skill_id not in proj.skill_ids:
-                    proj.skill_ids.append(skill_id)
+
+            # 2. Check Education (*** ADDED ***)
+            for edu in cv.education:
+                if entity_id in edu.achievement_ids and skill_id not in edu.skill_ids:
+                    edu.skill_ids.append(skill_id)
                     cv.touch()
-                    # Roll-up one level further from Project to its Experience
-                    if proj.related_experience_id:
-                         try:
-                             parent_exp = self._get_nested_entity(cv, 'experiences', proj.related_experience_id)
-                             if skill_id not in parent_exp.skill_ids:
-                                 parent_exp.skill_ids.append(skill_id)
-                                 cv.touch()
-                         except ValueError:
-                             pass # Parent exp not found
-            # (Add loops for Education, Hobbies if they also link achievements and skills)
+            
+            # 3. Check Hobbies (*** ADDED ***)
+            for hobby in cv.hobbies:
+                if entity_id in hobby.achievement_ids and skill_id not in hobby.skill_ids:
+                    hobby.skill_ids.append(skill_id)
+                    cv.touch()
+
+            # 4. Check Projects (And trigger recursive roll-up)
+            for proj in cv.projects:
+                if entity_id in proj.achievement_ids:
+                    # A. Add to Project
+                    if skill_id not in proj.skill_ids:
+                        proj.skill_ids.append(skill_id)
+                        cv.touch()
+                    
+                    # B. RECURSIVE: Roll up from Project to ITS parents
+                    # (Experiences)
+                    if getattr(proj, 'related_experience_id', None):
+                        _roll_up_to_parent('experiences', proj.related_experience_id)
+                    for pid in getattr(proj, 'related_experience_ids', []):
+                        _roll_up_to_parent('experiences', pid)
+                    
+                    # (Education)
+                    if getattr(proj, 'related_education_id', None):
+                        _roll_up_to_parent('education', proj.related_education_id)
+                    for pid in getattr(proj, 'related_education_ids', []):
+                        _roll_up_to_parent('education', pid)
+
+                    # (Hobbies)
+                    for pid in getattr(proj, 'related_hobby_ids', []):
+                        _roll_up_to_parent('hobbies', pid)
 
         # 5. Save all changes
         self._update("cvs", cv)
         
         return entity
+
 
     def unlink_skill_from_entity(self, cv_id: str, entity_id: str, skill_id: str, entity_list_name: str):
         """Removes a skill ID from a specific nested entity's skill_ids list."""

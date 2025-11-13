@@ -107,8 +107,16 @@ class Education(BaseEntity, SkillLinkMixin):
 class Project(BaseEntity, SkillLinkMixin):
     title: str
     description: str
+
+    # DEPECREATED FIELDS: kept only for backward compatibility
     related_experience_id: Optional[str] = None
     related_education_id: Optional[str] = None
+
+    # --- ADD THESE NEW FIELDS ---
+    related_experience_ids: List[str] = Field(default_factory=list)
+    related_education_ids: List[str] = Field(default_factory=list)
+    related_hobby_ids: List[str] = Field(default_factory=list)  # <--- Added Hobbies support
+
     achievement_ids: List[str] = Field(default_factory=list)
 
     def add_achievement(self, achievement: Achievement):
@@ -574,16 +582,26 @@ class ProjectComplexPayload(BaseModel):
     # Core Project fields
     title: str
     description: Optional[str] = None
+
+    # DEPECREATED FIELDS: kept only for backward compatibility
     related_experience_id: Optional[str] = None
     related_education_id: Optional[str] = None
+
+    # Add plurals (Optional for now so old frontend calls don't fail validation)
+    related_experience_ids: List[str] = Field(default_factory=list)
+    related_education_ids: List[str] = Field(default_factory=list)
+    related_hobby_ids: List[str] = Field(default_factory=list)
     
     # Direct Skills
     existing_skill_ids: List[str] = Field(default_factory=list)
     new_skills: List[PendingSkillInput] = Field(default_factory=list)
     
+    
     # Achievements
     existing_achievement_ids: List[str] = Field(default_factory=list)
     new_achievements: List[PendingAchievementInput] = Field(default_factory=list)
+
+
 
 # --- *** END NEW MODEL *** ---
 # --- *** END NEW MODEL *** ---
