@@ -1,7 +1,7 @@
 // frontend/src/components/cv/HobbyForm.jsx
 import React, { useState, useEffect } from 'react';
-import { Smile, Layers, Award } from 'lucide-react'; // Added Icons
-import SkillManagerModal from './SkillManagerModal';
+import { Smile, Layers, Award, ChevronDown, ChevronUp } from 'lucide-react';
+import SkillLinker from './SkillLinker';
 import SelectedSkillsDisplay from './SelectedSkillsDisplay';
 import AchievementManagerModal from './AchievementManagerModal';
 import AchievementDisplayGrid from './AchievementDisplayGrid';
@@ -26,15 +26,13 @@ const HobbyForm = ({
     const [linkedExistingAchievements, setLinkedExistingAchievements] = useState([]);
     const [pendingAchievements, setPendingAchievements] = useState([]);
     
-    // Modal state
-    const [isSkillModalOpen, setIsSkillModalOpen] = useState(false);
+    // Toggles
+    const [showSkillLinker, setShowSkillLinker] = useState(false); // Replaces Modal
     const [isAchievementModalOpen, setIsAchievementModalOpen] = useState(false);
 
     // State for "rolled-up" display
     const [aggregatedSkillIds, setAggregatedSkillIds] = useState([]);
     const [aggregatedPendingSkills, setAggregatedPendingSkills] = useState([]);
-
-    const [disabledSkillsForModal, setDisabledSkillsForModal] = useState([]);
 
     const isEditing = Boolean(initialData);
 
@@ -60,6 +58,7 @@ const HobbyForm = ({
             setDirectPendingSkills([]); 
             setLinkedExistingAchievements([]);
             setPendingAchievements([]);
+            setShowSkillLinker(false);
         }
     }, [initialData, isEditing, cvId, allAchievements]); 
 
@@ -79,10 +78,6 @@ const HobbyForm = ({
         achIds.forEach(id => allIds.add(id));
         setAggregatedSkillIds(Array.from(allIds));
 
-        const directSet = new Set(directSkillIds);
-        const disabledIds = Array.from(achIds).filter(id => !directSet.has(id));
-        setDisabledSkillsForModal(disabledIds);
-
         const allPending = [...directPendingSkills];
         const pendingNames = new Set(directPendingSkills.map(s => s.name));
         
@@ -99,7 +94,7 @@ const HobbyForm = ({
     }, [directSkillIds, directPendingSkills, linkedExistingAchievements, pendingAchievements]);
     
     
-    // Handlers
+    // Handler: Achievement Selection
     const handleExistingAchievementSelection = (newIdList) => {
         const newIds = newIdList.filter(id => !linkedExistingAchievements.some(a => a.id === id));
         const removedIds = linkedExistingAchievements.map(a => a.id).filter(id => !newIdList.includes(id));
@@ -114,6 +109,7 @@ const HobbyForm = ({
         setLinkedExistingAchievements(newList);
     };
 
+    // --- CORE LOGIC RESTORED ---
     const handleSkillSelectionChange = (newAggregatedList) => {
         const oldAggregatedList = aggregatedSkillIds; 
 
@@ -159,9 +155,11 @@ const HobbyForm = ({
         }
     };
 
+    // Handler: Smart Pending Skills (Unchanged)
     const smartSetAggregatedPendingSkills = (updaterFn) => {
         const currentAggregated = aggregatedPendingSkills;
-        const newAggregated = updaterFn(currentAggregated);
+        const newAggregated = typeof updaterFn === 'function' ? updaterFn(currentAggregated) : updaterFn;
+        
         const currentNames = new Set(currentAggregated.map(s => s.name));
         const newNames = new Set(newAggregated.map(s => s.name));
         const addedSkills = newAggregated.filter(s => !currentNames.has(s.name));
@@ -189,6 +187,7 @@ const HobbyForm = ({
         }
     };
 
+    // Handler: Submit (Unchanged)
     const handleSubmit = (e) => {
         e.preventDefault();
         if (!name.trim()) return;
@@ -217,6 +216,7 @@ const HobbyForm = ({
             setDirectPendingSkills([]);
             setLinkedExistingAchievements([]); 
             setPendingAchievements([]);
+            setShowSkillLinker(false);
         }
     };
 
@@ -226,7 +226,7 @@ const HobbyForm = ({
         <form 
             key={initialData?.id || 'new'} 
             onSubmit={handleSubmit} 
-            className="card border-0 shadow-sm p-4" // Modern Card
+            className="card border-0 shadow-sm p-4 bg-white"
         >
             {/* Header */}
             <div className="d-flex align-items-center gap-2 mb-4 border-bottom pb-2">
@@ -238,55 +238,71 @@ const HobbyForm = ({
 
             {/* Fields */}
             <div className="mb-3">
-                <label htmlFor="hobby-name" className="form-label fw-bold small text-uppercase text-muted">Hobby Name</label>
-                <input id="hobby-name" type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g., Hiking, Chess" required className="form-control" />
+                <label className="form-label fw-bold small text-uppercase text-muted">Hobby Name</label>
+                <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g., Hiking, Chess" required className="form-control" />
             </div>
              <div className="mb-3">
-                <label htmlFor="hobby-desc" className="form-label fw-bold small text-uppercase text-muted">Description (Optional)</label>
-                <textarea id="hobby-desc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="e.g., Competitive chess player, weekly hiking..." className="form-control" rows="3"/>
+                <label className="form-label fw-bold small text-uppercase text-muted">Description (Optional)</label>
+                <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="e.g., Competitive chess player..." className="form-control" rows="3"/>
             </div>
 
             <hr className="my-4 opacity-10" />
 
-            {/* SKILLS Section */}
+            {/* --- SKILLS Section (Integrated Linker) --- */}
             <div className="mb-4">
-                <div className="d-flex justify-content-between align-items-center mb-2">
-                    <label className="form-label fw-bold text-dark d-flex align-items-center gap-2 mb-0">
-                        <Layers size={16} className="text-emerald-600"/> Skills Used
+                <div 
+                    className="d-flex justify-content-between align-items-center mb-2 cursor-pointer"
+                    onClick={() => setShowSkillLinker(!showSkillLinker)}
+                >
+                    <label className="form-label fw-bold text-dark d-flex align-items-center gap-2 mb-0 cursor-pointer">
+                        <Layers size={16} className="text-emerald-600"/> 
+                        Skills Used
+                        <span className="text-muted fw-normal small">
+                            ({aggregatedSkillIds.length + aggregatedPendingSkills.length})
+                        </span>
                     </label>
-                    <button 
-                        type="button" 
-                        onClick={() => setIsSkillModalOpen(true)} 
-                        className="btn btn-outline-secondary btn-sm py-0 px-2"
-                        style={{fontSize: '0.8rem'}}
-                    >
-                        + Manage
+                    <button type="button" className="btn btn-light btn-sm text-secondary">
+                        {showSkillLinker ? <ChevronUp size={16}/> : <ChevronDown size={16}/>}
                     </button>
                 </div>
-                <div className="bg-light p-3 rounded border">
-                    <SelectedSkillsDisplay
-                        allSkills={allSkills}
-                        selectedSkillIds={aggregatedSkillIds}
-                        pendingSkills={aggregatedPendingSkills}
-                    />
-                    {aggregatedSkillIds.length === 0 && aggregatedPendingSkills.length === 0 && (
-                        <span className="text-muted small fst-italic">No skills linked yet.</span>
-                    )}
-                </div>
+
+                {showSkillLinker ? (
+                    <div className="animate-fade-in mt-2 p-3 bg-light rounded border">
+                        <SkillLinker
+                            allSkills={allSkills}
+                            // Bind to AGGREGATED lists to support the complex logic
+                            selectedSkillIds={aggregatedSkillIds}
+                            setSelectedSkillIds={handleSkillSelectionChange}
+                            pendingSkills={aggregatedPendingSkills}
+                            setPendingSkills={smartSetAggregatedPendingSkills}
+                            // Pass aggregated session skills
+                            sessionSkills={aggregatedPendingSkills}
+                        />
+                    </div>
+                ) : (
+                    (aggregatedSkillIds.length > 0 || aggregatedPendingSkills.length > 0) ? (
+                        <div className="bg-light p-3 rounded border cursor-pointer hover:bg-slate-100 transition-all" onClick={() => setShowSkillLinker(true)}>
+                            <SelectedSkillsDisplay
+                                allSkills={allSkills}
+                                selectedSkillIds={aggregatedSkillIds}
+                                pendingSkills={aggregatedPendingSkills}
+                            />
+                        </div>
+                    ) : (
+                        <div className="text-muted small fst-italic border border-dashed rounded p-2 text-center cursor-pointer hover:bg-light" onClick={() => setShowSkillLinker(true)}>
+                            Click to link skills...
+                        </div>
+                    )
+                )}
             </div>
 
-            {/* ACHIEVEMENTS Section */}
+            {/* --- ACHIEVEMENTS Section --- */}
             <div className="mb-4">
                  <div className="d-flex justify-content-between align-items-center mb-2">
                      <label className="form-label fw-bold text-dark d-flex align-items-center gap-2 mb-0">
                         <Award size={16} className="text-amber-500"/> Achievements
                      </label>
-                     <button 
-                        type="button" 
-                        onClick={() => setIsAchievementModalOpen(true)} 
-                        className="btn btn-outline-secondary btn-sm py-0 px-2"
-                        style={{fontSize: '0.8rem'}}
-                     >
+                     <button type="button" onClick={() => setIsAchievementModalOpen(true)} className="btn btn-outline-secondary btn-sm py-0 px-2" style={{fontSize: '0.8rem'}}>
                          + Manage
                      </button>
                  </div>
@@ -305,17 +321,7 @@ const HobbyForm = ({
                  )}
             </div>
 
-            {/* Modals */}
-            <SkillManagerModal
-                isOpen={isSkillModalOpen}
-                onClose={() => setIsSkillModalOpen(false)}
-                allSkills={allSkills}
-                selectedSkillIds={aggregatedSkillIds}
-                setSelectedSkillIds={handleSkillSelectionChange}
-                pendingSkills={aggregatedPendingSkills}
-                setPendingSkills={smartSetAggregatedPendingSkills}
-                disabledSkillIds={disabledSkillsForModal}
-            />
+            {/* Achievement Modal */}
              <AchievementManagerModal
                  isOpen={isAchievementModalOpen}
                  onClose={() => setIsAchievementModalOpen(false)}

@@ -1,10 +1,11 @@
 // frontend/src/components/cv/ProjectForm.jsx
 import React, { useState, useEffect } from 'react';
-import { Cpu, Layers, Award, Link } from 'lucide-react'; // Added Icons
-import SkillManagerModal from './SkillManagerModal';
+import { Cpu, Layers, Award, Link, ChevronDown, ChevronUp } from 'lucide-react';
+import SkillLinker from './SkillLinker'; // <-- Import new linker
 import SelectedSkillsDisplay from './SelectedSkillsDisplay';
 import AchievementManagerModal from './AchievementManagerModal';
 import AchievementDisplayGrid from './AchievementDisplayGrid';
+// import SkillManagerModal from './SkillManagerModal'; // <-- Removed modal
 
 const ProjectForm = ({
     onSubmit,
@@ -32,15 +33,17 @@ const ProjectForm = ({
     const [linkedExistingAchievements, setLinkedExistingAchievements] = useState([]);
     const [pendingAchievements, setPendingAchievements] = useState([]);
     
-    // Modal state
-    const [isSkillModalOpen, setIsSkillModalOpen] = useState(false);
+    // State
+    const [showSkillLinker, setShowSkillLinker] = useState(false); // <-- ADDED
+    // const [isSkillModalOpen, setIsSkillModalOpen] = useState(false); // <-- REMOVED
     const [isAchievementModalOpen, setIsAchievementModalOpen] = useState(false);
 
     // State for "rolled-up" display
     const [aggregatedSkillIds, setAggregatedSkillIds] = useState([]);
     const [aggregatedPendingSkills, setAggregatedPendingSkills] = useState([]);
 
-    const [disabledSkillsForModal, setDisabledSkillsForModal] = useState([]);
+    // This state is no longer needed by the new SkillLinker
+    // const [disabledSkillsForModal, setDisabledSkillsForModal] = useState([]);
 
     const isEditing = Boolean(initialData);
 
@@ -70,6 +73,7 @@ const ProjectForm = ({
             setDirectPendingSkills([]); 
             setLinkedExistingAchievements([]);
             setPendingAchievements([]);
+            setShowSkillLinker(false); // Reset toggle
         }
     }, [initialData, isEditing, cvId, allAchievements]); 
 
@@ -89,9 +93,10 @@ const ProjectForm = ({
         achIds.forEach(id => allIds.add(id));
         setAggregatedSkillIds(Array.from(allIds));
 
-        const directSet = new Set(directSkillIds);
-        const disabledIds = Array.from(achIds).filter(id => !directSet.has(id));
-        setDisabledSkillsForModal(disabledIds);
+        // This is no longer needed by SkillLinker
+        // const directSet = new Set(directSkillIds);
+        // const disabledIds = Array.from(achIds).filter(id => !directSet.has(id));
+        // setDisabledSkillsForModal(disabledIds);
 
         const allPending = [...directPendingSkills];
         const pendingNames = new Set(directPendingSkills.map(s => s.name));
@@ -124,6 +129,7 @@ const ProjectForm = ({
         setLinkedExistingAchievements(newList);
     };
 
+    // --- LOGIC PRESERVED ---
     const handleSkillSelectionChange = (newAggregatedList) => {
         const oldAggregatedList = aggregatedSkillIds; 
 
@@ -169,9 +175,11 @@ const ProjectForm = ({
         }
     };
 
+    // --- LOGIC PRESERVED ---
     const smartSetAggregatedPendingSkills = (updaterFn) => {
         const currentAggregated = aggregatedPendingSkills;
-        const newAggregated = updaterFn(currentAggregated);
+        const newAggregated = typeof updaterFn === 'function' ? updaterFn(currentAggregated) : updaterFn;
+        
         const currentNames = new Set(currentAggregated.map(s => s.name));
         const newNames = new Set(newAggregated.map(s => s.name));
         const addedSkills = newAggregated.filter(s => !currentNames.has(s.name));
@@ -199,6 +207,7 @@ const ProjectForm = ({
         }
     };
 
+    // --- LOGIC PRESERVED ---
     const handleSubmit = (e) => {
         e.preventDefault();
         if (!title.trim()) return;
@@ -231,6 +240,7 @@ const ProjectForm = ({
             setDirectPendingSkills([]);
             setLinkedExistingAchievements([]); 
             setPendingAchievements([]);
+            setShowSkillLinker(false);
         }
     };
 
@@ -240,7 +250,7 @@ const ProjectForm = ({
         <form 
             key={initialData?.id || 'new'} 
             onSubmit={handleSubmit} 
-            className="card border-0 shadow-sm p-4" // Modern Card
+            className="card border-0 shadow-sm p-4 bg-white"
         >
             {/* Header */}
             <div className="d-flex align-items-center gap-2 mb-4 border-bottom pb-2">
@@ -256,7 +266,7 @@ const ProjectForm = ({
                 <input id="project-title" type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g., My Portfolio Website" required className="form-control" />
             </div>
              <div className="mb-3">
-                <label htmlFor="project-desc" className="form-label fw-bold small text-uppercase text-muted">Description (Optional)</label>
+                <label htmlFor="project-desc" className="form-label fw-bold small text-uppercase text-muted">Description</label>
                 <textarea id="project-desc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="e.g., Built with React and FastAPI..." className="form-control" rows="3"/>
             </div>
             
@@ -265,7 +275,7 @@ const ProjectForm = ({
             {/* Relationships Section */}
             <div className="row g-2 mb-4">
                 <label className="form-label fw-bold small text-uppercase text-muted d-flex align-items-center gap-2">
-                    <Link size={14}/> Linked Context
+                    <Link size={14}/> Linked Context (Optional)
                 </label>
                 <div className="col-md-6">
                     <div className="form-floating">
@@ -305,34 +315,64 @@ const ProjectForm = ({
                 </div>
             </div>
 
-            {/* SKILLS Section */}
+            {/* --- SKILLS Section (Integrated Linker) --- */}
             <div className="mb-4">
-                <div className="d-flex justify-content-between align-items-center mb-2">
-                    <label className="form-label fw-bold text-dark d-flex align-items-center gap-2 mb-0">
-                        <Layers size={16} className="text-emerald-600"/> Skills Used
+                <div 
+                    className="d-flex justify-content-between align-items-center mb-2 cursor-pointer"
+                    onClick={() => setShowSkillLinker(!showSkillLinker)}
+                >
+                    <label className="form-label fw-bold text-dark d-flex align-items-center gap-2 mb-0 cursor-pointer">
+                        <Layers size={16} className="text-emerald-600"/> 
+                        Skills Used
+                        <span className="text-muted fw-normal small">
+                            ({aggregatedSkillIds.length + aggregatedPendingSkills.length})
+                        </span>
                     </label>
                     <button 
                         type="button" 
-                        onClick={() => setIsSkillModalOpen(true)} 
-                        className="btn btn-outline-secondary btn-sm py-0 px-2"
-                        style={{fontSize: '0.8rem'}}
+                        className="btn btn-light btn-sm text-secondary"
                     >
-                        + Manage
+                        {showSkillLinker ? <ChevronUp size={16}/> : <ChevronDown size={16}/>}
                     </button>
                 </div>
-                <div className="bg-light p-3 rounded border">
-                    <SelectedSkillsDisplay
-                        allSkills={allSkills}
-                        selectedSkillIds={aggregatedSkillIds}
-                        pendingSkills={aggregatedPendingSkills}
-                    />
-                    {aggregatedSkillIds.length === 0 && aggregatedPendingSkills.length === 0 && (
-                        <span className="text-muted small fst-italic">No skills linked yet.</span>
-                    )}
-                </div>
+
+                {showSkillLinker ? (
+                    <div className="animate-fade-in mt-2 p-3 bg-light rounded border">
+                        <SkillLinker
+                            allSkills={allSkills}
+                            // --- BIND TO THE CORE LOGIC ---
+                            selectedSkillIds={aggregatedSkillIds}
+                            setSelectedSkillIds={handleSkillSelectionChange}
+                            pendingSkills={aggregatedPendingSkills}
+                            setPendingSkills={smartSetAggregatedPendingSkills}
+                            // ---
+                            sessionSkills={aggregatedPendingSkills} 
+                        />
+                    </div>
+                ) : (
+                    (aggregatedSkillIds.length > 0 || aggregatedPendingSkills.length > 0) ? (
+                        <div 
+                            className="bg-light p-3 rounded border cursor-pointer hover:bg-slate-100 transition-all"
+                            onClick={() => setShowSkillLinker(true)}
+                        >
+                            <SelectedSkillsDisplay
+                                allSkills={allSkills}
+                                selectedSkillIds={aggregatedSkillIds}
+                                pendingSkills={aggregatedPendingSkills}
+                            />
+                        </div>
+                    ) : (
+                        <div 
+                            className="text-muted small fst-italic border border-dashed rounded p-2 text-center cursor-pointer hover:bg-light"
+                            onClick={() => setShowSkillLinker(true)}
+                        >
+                            Click to link skills...
+                        </div>
+                    )
+                )}
             </div>
 
-            {/* ACHIEVEMENTS Section */}
+            {/* --- ACHIEVEMENTS Section --- */}
             <div className="mb-4">
                  <div className="d-flex justify-content-between align-items-center mb-2">
                      <label className="form-label fw-bold text-dark d-flex align-items-center gap-2 mb-0">
@@ -362,17 +402,7 @@ const ProjectForm = ({
                  )}
             </div>
 
-            {/* Modals */}
-            <SkillManagerModal
-                isOpen={isSkillModalOpen}
-                onClose={() => setIsSkillModalOpen(false)}
-                allSkills={allSkills}
-                selectedSkillIds={aggregatedSkillIds}
-                setSelectedSkillIds={handleSkillSelectionChange}
-                pendingSkills={aggregatedPendingSkills}
-                setPendingSkills={smartSetAggregatedPendingSkills}
-                disabledSkillIds={disabledSkillsForModal}
-            />
+            {/* Achievement Modal */}
              <AchievementManagerModal
                  isOpen={isAchievementModalOpen}
                  onClose={() => setIsAchievementModalOpen(false)}
