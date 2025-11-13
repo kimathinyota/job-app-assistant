@@ -1,22 +1,37 @@
 // frontend/src/components/applications/JobCard.jsx
 import React, { useState } from 'react';
+import { 
+    MapPin, 
+    Banknote, 
+    Calendar, 
+    ExternalLink, 
+    MoreVertical, 
+    Building2, 
+    CheckCircle2, 
+    Trash2,
+    Edit,
+    FileText,
+    Briefcase,
+    Star,
+    AlertCircle,
+    ListChecks
+} from 'lucide-react';
 
 const JobCard = ({ 
     job, 
     cvs = [], 
     defaultCvId, 
-    application, // This is the full application object or undefined
+    application, 
     onStartApplication, 
     onEdit,
     onDelete,
-
 }) => {
 
     const hasApplication = Boolean(application);
 
-    // This state is only used for the dropdown *before* an app is created
+    // Local state for the CV dropdown
     const [selectedCvId, setSelectedCvId] = useState(
-        hasApplication ? application.base_cv_id : defaultCvId
+        hasApplication ? application.base_cv_id : (defaultCvId || '')
     );
 
     const handleStartClick = () => {
@@ -25,194 +40,203 @@ const JobCard = ({
         }
     };
     
-    // Helper to find the CV name for display
     const getSelectedCvName = () => {
         if (!application) return "Unknown CV";
         const foundCv = cvs.find(cv => cv.id === application.base_cv_id);
-        // Use cv.name for the display name
         return foundCv ? foundCv.name : "Unknown CV"; 
     };
 
+    // Helper to style feature types
+    const getFeatureStyle = (type) => {
+        const t = type ? type.toLowerCase() : '';
+        if (t.includes('require') || t.includes('must')) {
+            return { 
+                label: 'Must Have', 
+                icon: AlertCircle,
+                badgeClass: 'text-danger bg-danger bg-opacity-10 border-danger-subtle' 
+            };
+        }
+        if (t.includes('nice') || t.includes('bonus') || t.includes('plus')) {
+            return { 
+                label: 'Bonus', 
+                icon: Star,
+                badgeClass: 'text-success bg-success bg-opacity-10 border-success-subtle' 
+            };
+        }
+        if (t.includes('responsibility') || t.includes('task')) {
+            return { 
+                label: 'Responsibility', 
+                icon: ListChecks,
+                badgeClass: 'text-primary bg-primary bg-opacity-10 border-primary-subtle' 
+            };
+        }
+        // Default
+        return { 
+            label: type ? type.replace(/_/g, ' ') : 'Info', 
+            icon: FileText,
+            badgeClass: 'text-secondary bg-secondary bg-opacity-10 border-secondary-subtle' 
+        };
+    };
+
     return (
-        // Use card, shadow-sm for depth, and mb-3 for spacing
-        <div className="card shadow-sm mb-3 text-start">
+        <div className={`card h-100 transition-all hover-shadow-md ${hasApplication ? 'border-success border-2 shadow-sm' : 'border shadow-sm'}`}>
+            <style>
+                {`
+                .text-xs { font-size: 0.75rem; }
+                .hover-shadow-md:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.08) !important; }
+                
+                /* Custom scrollbar for the features list */
+                .custom-scroll::-webkit-scrollbar { width: 4px; }
+                .custom-scroll::-webkit-scrollbar-thumb { background-color: #e2e8f0; border-radius: 4px; }
+                `}
+            </style>
             
-            {/* Card Header: Contains title, company, and edit button */}
-            <div className="card-header bg-white p-3">
-                <div className="d-flex justify-content-between align-items-start">
-                    <div>
-                        <h5 className="card-title mb-0">{job.title}</h5>
-                        <small className="text-muted">{job.company}</small>
-                    </div>
-
-                    {/* Edit/Delete Dropdown */}
-          <div className="dropdown">
-            <button className="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-              ...
-            </button>
-            {/* <ul className="dropdown-menu dropdown-menu-end">
-              <li><button
-                        className="btn btn-outline-secondary btn-sm"
-                        onClick={onEdit}
-                        disabled={hasApplication}
-                        title={hasApplication ? "Cannot edit a job with an active application" : "Edit Job Details"}
-                    >
-                        Edit Job
-                    </button></li>
-              <li><button
-              className="btn btn-outline-danger btn-sm"
-              onClick={onDelete}
-              title={'Delete Job'}
-            >
-              Delete
-            </button></li>
-            </ul> */}
-
-
-            <ul className="dropdown-menu dropdown-menu-end">
-              <li><button
-                        className="dropdown-item"
-                        onClick={onEdit}
-                        disabled={hasApplication}
-                        title={hasApplication ? "Cannot edit a job with an active application" : "Edit Job Details"}
-                    >
-                        Edit Job
-                    </button></li>
-              <li><button
-              className="dropdown-item text-danger"
-              onClick={onDelete}
-              title={'Delete Job'}
-            >
-              Delete
-            </button></li>
-            </ul>
-          </div>
-                    
-                    
-                </div>
-            </div>
-
-            {/* Card Body: Now contains details AND actions */}
-            <div className="card-body p-3">
-
-                {/* --- NEW: Job Details Section --- */}
-                <div className="mb-3">
-                    <div className="row g-2 small mb-3">
-                        {job.location && (
-                            <div className="col-auto">
-                                <span className="badge bg-light text-dark border me-1">Location</span>
-                                {job.location}
-                            </div>
-                        )}
-                        {job.salary_range && (
-                            <div className="col-auto">
-                                <span className="badge bg-light text-dark border me-1">Salary</span>
-                                {job.salary_range}
-                            </div>
-                        )}
-                        {job.application_end_date && (
-                            <div className="col-auto">
-                                <span className="badge bg-light text-dark border me-1">Apply By</span>
-                                {job.application_end_date}
-                            </div>
-                        )}
-                    </div>
-
-                    {job.job_url && (
-                        <div className="mb-3">
-                            <a 
-                                href={job.job_url} 
-                                target="_blank" 
-                                rel="noopener noreferrer" 
-                                className="btn btn-outline-info btn-sm"
-                            >
-                                View Job Posting
-                            </a>
+            {/* --- Header: Company & Actions --- */}
+            <div className="card-body p-4 pb-0 d-flex flex-column">
+                <div className="d-flex justify-content-between align-items-start mb-4">
+                    <div className="d-flex gap-3 align-items-center overflow-hidden">
+                        {/* Company Logo Placeholder */}
+                        <div className="rounded-3 d-flex align-items-center justify-content-center bg-light text-primary fw-bold border flex-shrink-0" 
+                             style={{ width: '52px', height: '52px', fontSize: '22px' }}>
+                            {job.company ? job.company.charAt(0).toUpperCase() : <Building2 size={24}/>}
                         </div>
-                    )}
+                        <div className="min-w-0">
+                            <h5 className="card-title fw-bold text-dark mb-1 text-truncate" title={job.title}>
+                                {job.title}
+                            </h5>
+                            <div className="text-muted small fw-medium text-truncate">{job.company}</div>
+                        </div>
+                    </div>
 
-                    {job.features && job.features.length > 0 && (
-                        <div>
-                            <h6 className="small fw-bold text-muted">Requirements & Features</h6>
-                            <ul className="list-group list-group-flush" style={{ maxHeight: '150px', overflowY: 'auto' }}>
-                                {job.features.map(feature => (
-                                    <li key={feature.id} className="list-group-item d-flex align-items-center p-1">
-                                        <span className={`badge bg-secondary me-2 text-capitalize`} style={{ width: '100px', textAlign: 'center' }}>
-                                            {feature.type.replace('_', ' ')}
-                                        </span>
-                                        <small>{feature.description}</small>
-                                    </li>
-                                ))}
+                    {/* Dropdown Menu */}
+                    <div className="dropdown">
+                        <button className="btn btn-link text-muted p-0 opacity-50 hover-opacity-100" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <MoreVertical size={20} />
+                        </button>
+                        <ul className="dropdown-menu dropdown-menu-end shadow-sm border-0">
+                            <li>
+                                <button
+                                    className="dropdown-item d-flex align-items-center gap-2 small"
+                                    onClick={onEdit}
+                                    disabled={hasApplication}
+                                >
+                                    <Edit size={14}/> Edit Details
+                                </button>
+                            </li>
+                            <li><hr className="dropdown-divider"/></li>
+                            <li>
+                                <button
+                                    className="dropdown-item text-danger d-flex align-items-center gap-2 small"
+                                    onClick={onDelete}
+                                >
+                                    <Trash2 size={14}/> Delete Job
+                                </button>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+
+                {/* --- Tag Visuals --- */}
+                <div className="d-flex flex-wrap gap-2 mb-4">
+                    {job.location && (
+                        <span className="badge bg-white text-secondary border fw-normal d-flex align-items-center gap-2 py-2 px-3 rounded-pill">
+                            <MapPin size={14} className="text-primary opacity-75" /> {job.location}
+                        </span>
+                    )}
+                    {job.salary_range && (
+                        <span className="badge bg-white text-secondary border fw-normal d-flex align-items-center gap-2 py-2 px-3 rounded-pill">
+                            <Banknote size={14} className="text-success opacity-75" /> {job.salary_range}
+                        </span>
+                    )}
+                    {job.application_end_date && (
+                        <span className="badge bg-white text-secondary border fw-normal d-flex align-items-center gap-2 py-2 px-3 rounded-pill">
+                            <Calendar size={14} className="text-warning opacity-75" /> 
+                            <span className="text-muted opacity-75 me-1">Due:</span>
+                            {new Date(job.application_end_date).toLocaleDateString(undefined, {month:'short', day:'numeric'})}
+                        </span>
+                    )}
+                </div>
+
+                {/* --- Features Snippet (Fixed Types) --- */}
+                <div className="flex-grow-1 mb-3">
+                    {job.features && job.features.length > 0 ? (
+                        <div className="bg-light bg-opacity-50 rounded-3 p-3 custom-scroll border border-dashed" style={{ maxHeight: '140px', overflowY: 'auto' }}>
+                            <h6 className="text-xs fw-bold text-uppercase text-muted mb-2 d-flex align-items-center gap-1">
+                                <FileText size={12}/> Key Highlights
+                            </h6>
+                            <ul className="list-unstyled mb-0">
+                                {job.features.map(feature => {
+                                    const style = getFeatureStyle(feature.type);
+                                    return (
+                                        <li key={feature.id} className="mb-2 d-flex align-items-start gap-2">
+                                            {/* Type Badge */}
+                                            <span className={`badge border ${style.badgeClass} text-xs fw-medium d-flex align-items-center gap-1 flex-shrink-0`} 
+                                                  style={{marginTop: '1px', minWidth: '85px', justifyContent: 'center'}}>
+                                                {style.label}
+                                            </span>
+                                            {/* Description */}
+                                            <span className="text-muted opacity-75 small" style={{lineHeight: '1.4'}}>
+                                                {feature.description}
+                                            </span>
+                                        </li>
+                                    );
+                                })}
                             </ul>
                         </div>
+                    ) : (
+                        <div className="p-4 text-center text-muted small bg-light bg-opacity-25 rounded-3 border border-dashed">
+                            <span className="opacity-50">No highlights added.</span>
+                        </div>
                     )}
                 </div>
-                {/* --- END of Job Details Section --- */}
-                
-                <hr />
 
-                {/* --- Action Section (CV Selector & Button) --- */}
-                <div className="d-flex justify-content-between align-items-end">
-                    {/* Column 1: CV Selector or CV "Tag" */}
-                    <div className="flex-grow-1 me-3">
-                        {hasApplication ? (
-                            // If application exists, show a "tag"
-                            <div>
-                                <label className="form-label small mb-1">
-                                    Selected CV:
-                                </label>
-                                <div 
-                                    className="badge bg-light text-dark border p-2 text-start w-100" 
-                                    style={{ fontWeight: '500', fontSize: '0.9rem' }}
-                                >
-                                    {getSelectedCvName()}
-                                </div>
-                            </div>
-                        ) : (
-                            // If no application, show the selector
-                            <div>
-                                <label htmlFor={`cv-select-${job.id}`} className="form-label small mb-1">
-                                    Select CV:
-                                </label>
-                                <select
-                                    id={`cv-select-${job.id}`}
-                                    className="form-select form-select-sm"
-                                    value={selectedCvId || ''} 
-                                    onChange={(e) => setSelectedCvId(e.target.value)}
-                                    disabled={cvs.length === 0}
-                                >
-                                    <option value="" disabled>
-                                        {cvs.length === 0 ? "No CVs found" : "-- Select a CV --"}
-                                    </option>
-                                    {cvs.map(cv => (
-                                        <option key={cv.id} value={cv.id}>
-                                            {cv.name}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-                        )}
+                 {/* Link */}
+                 {job.job_url && (
+                    <div className="mb-3 mt-auto">
+                         <a href={job.job_url} target="_blank" rel="noopener noreferrer" className="small text-primary d-flex align-items-center gap-1 text-decoration-none hover-underline">
+                            <ExternalLink size={14}/> View Original Job Post
+                         </a>
                     </div>
-                    
-                    {/* Column 2: Action Button or Status Badge */}
-                    <div className="flex-shrink-0">
-                        {hasApplication ? (
-                            <span className="badge bg-success p-2 fs-6">
-                                Application Started
-                            </span>
-                        ) : (
-                            <button 
-                                className="btn btn-primary"
-                                onClick={handleStartClick}
-                                disabled={!selectedCvId}
-                                style={{ minWidth: '160px' }} // Give button a consistent width
+                )}
+            </div>
+
+            {/* --- Footer: Action Area --- */}
+            <div className={`card-footer p-3 border-top-0 ${hasApplication ? 'bg-success bg-opacity-10' : 'bg-light'}`}>
+                {hasApplication ? (
+                    <div className="d-flex justify-content-between align-items-center">
+                        <div className="d-flex align-items-center gap-2 text-success fw-bold small">
+                            <CheckCircle2 size={16} /> Application Started
+                        </div>
+                        <div className="badge bg-white text-success border border-success-subtle fw-normal">
+                             CV: {getSelectedCvName()}
+                        </div>
+                    </div>
+                ) : (
+                    <div className="d-flex gap-2 align-items-center">
+                        <div className="flex-grow-1 position-relative">
+                            <Briefcase size={14} className="text-muted position-absolute top-50 start-0 translate-middle-y ms-3"/>
+                            <select
+                                className="form-select form-select-sm border-0 shadow-none bg-white ps-5"
+                                value={selectedCvId || ''} 
+                                onChange={(e) => setSelectedCvId(e.target.value)}
+                                disabled={cvs.length === 0}
+                                style={{fontSize: '0.9rem'}}
                             >
-                                Start Application
-                            </button>
-                        )}
+                                <option value="" disabled>Select Base CV...</option>
+                                {cvs.map(cv => (
+                                    <option key={cv.id} value={cv.id}>{cv.name}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <button 
+                            className="btn btn-sm btn-primary px-4 fw-medium shadow-sm d-flex align-items-center gap-1"
+                            onClick={handleStartClick}
+                            disabled={!selectedCvId}
+                        >
+                            Start
+                        </button>
                     </div>
-                </div>
-
+                )}
             </div>
         </div>
     );
