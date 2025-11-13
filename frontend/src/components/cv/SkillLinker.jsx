@@ -1,5 +1,6 @@
 // frontend/src/components/cv/SkillLinker.jsx
 import React, { useState } from 'react';
+import { Plus, Search, Check, X } from 'lucide-react';
 
 const SkillLinker = ({
   allSkills,
@@ -10,6 +11,7 @@ const SkillLinker = ({
 }) => {
   const [newSkillName, setNewSkillName] = useState('');
   const [newSkillCategory, setNewSkillCategory] = useState('technical');
+  const [searchTerm, setSearchTerm] = useState('');
 
   const handleToggleSkill = (skillId) => {
     if (selectedSkillIds.includes(skillId)) {
@@ -48,101 +50,122 @@ const SkillLinker = ({
     setPendingSkills(prev => prev.filter(skill => skill.name !== nameToRemove));
   };
 
-  return (
-    // Use Bootstrap card and colors
-    <div className="card bg-light-subtle border-success p-3">
-      <strong className="d-block mb-2 fs-6 text-success">
-        Skill Management
-      </strong>
+  // Filter existing skills
+  const filteredSkills = allSkills.filter(skill => 
+    skill.name.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
-      {/* 1️⃣ Add Pending Skill Section */}
-      <div className="pb-3 border-bottom mb-3">
-        <p className="mb-1 fw-bold">
-          Add New Skill (will be created on save):
-        </p>
+  return (
+    <div className="bg-white rounded-xl border shadow-sm p-4">
+      
+      {/* 1. Add Pending Skill Section */}
+      <div className="pb-4 border-bottom mb-4">
+        <label className="form-label fw-bold small text-uppercase text-muted mb-3">
+          Create New Skill (Local to this item)
+        </label>
         <div className="input-group">
             <input
                 type="text"
                 value={newSkillName}
                 onChange={(e) => setNewSkillName(e.target.value)}
-                placeholder="e.g., Python, Team Leadership"
+                placeholder="e.g., React Native, Crisis Management"
                 className="form-control"
             />
             <select
                 value={newSkillCategory}
                 onChange={(e) => setNewSkillCategory(e.target.value)}
-                className="form-select"
-                style={{ flex: '0 0 120px' }} // Give select a fixed width
+                className="form-select bg-light"
+                style={{ maxWidth: '130px' }}
             >
-                <option value="technical">Tech</option>
+                <option value="technical">Technical</option>
                 <option value="soft">Soft</option>
-                <option value="language">Lang</option>
+                <option value="language">Language</option>
                 <option value="other">Other</option>
             </select>
             <button
                 type="button"
                 onClick={handleAddPendingSkill}
                 disabled={!newSkillName.trim()}
-                className="btn btn-success"
+                className="btn btn-success d-flex align-items-center gap-2"
             >
-                Add Pending
+                <Plus size={18} /> Add
             </button>
         </div>
+
+        {/* Pending Skills Display (FIXED: Removed 'badge' class) */}
+        {pendingSkills.length > 0 && (
+            <div className="mt-3 d-flex flex-wrap gap-2">
+                {pendingSkills.map((skill, index) => (
+                <span 
+                    key={index} 
+                    className="px-3 py-2 rounded-pill bg-emerald-50 text-emerald-700 border border-emerald-200 d-flex align-items-center gap-2 small fw-medium"
+                >
+                    {skill.name} 
+                    <span className="opacity-50 ms-1" style={{fontSize: '0.75em'}}>({skill.category})</span>
+                    <button
+                        type="button"
+                        onClick={() => handleRemovePendingSkill(skill.name)}
+                        className="btn-close btn-close-sm" // This works because parent isn't forcing white text
+                        aria-label="Remove"
+                        style={{ fontSize: '0.6em' }} 
+                    ></button>
+                </span>
+                ))}
+            </div>
+        )}
       </div>
 
-      {/* 2️⃣ Show Pending Skills */}
-      {pendingSkills.length > 0 && (
-        <div className="mt-2 mb-3">
-          <strong className="form-label small">Skills to Create:</strong>
-          <div className="d-flex flex-wrap gap-2 mt-1">
-            {pendingSkills.map((skill, index) => (
-              <span 
-                key={index} 
-                className="badge rounded-pill text-bg-success-subtle border border-success-subtle fw-medium d-flex align-items-center p-2"
-              >
-                {skill.name} ({skill.category.substring(0, 4)})
-                <button
-                  type="button"
-                  onClick={() => handleRemovePendingSkill(skill.name)}
-                  className="btn-close btn-close-sm ms-1"
-                  aria-label="Remove pending skill"
-                ></button>
-              </span>
-            ))}
-          </div>
+      {/* 2. Link Existing Skills */}
+      <div>
+        <div className="d-flex justify-content-between align-items-center mb-2">
+            <label className="form-label fw-bold small text-uppercase text-muted mb-0">
+                Link Master Skills
+            </label>
+            <span className="badge bg-light text-muted border rounded-pill px-3">{selectedSkillIds.length} Selected</span>
         </div>
-      )}
+        
+        {/* Search Bar */}
+        <div className="position-relative mb-3">
+            <Search className="position-absolute text-muted" size={16} style={{ top: '10px', left: '12px' }} />
+            <input 
+                type="text" 
+                className="form-control ps-5 form-control-sm rounded-pill"
+                placeholder="Search master skills..."
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+            />
+        </div>
 
-      {/* 3️⃣ Link Existing Skills */}
-      <strong className="d-block mb-1 mt-3 border-top pt-3 fw-bold">
-        Link Existing Skills:
-      </strong>
-      <p className="form-text mt-0 mb-2">
-        {allSkills.length} master skills available. Select skills used here.
-      </p>
-
-      <div 
-        className="d-flex flex-wrap gap-2 border p-2 rounded"
-        style={{ maxHeight: '150px', overflowY: 'auto' }}
-      >
-        {allSkills.map(skill => (
-            <React.Fragment key={skill.id}>
-                <input
-                    type="checkbox"
-                    className="btn-check"
-                    id={`skill-check-${skill.id}`}
-                    checked={selectedSkillIds.includes(skill.id)}
-                    onChange={() => handleToggleSkill(skill.id)}
-                    autoComplete="off"
-                />
-                <label 
-                    className={`btn btn-sm ${selectedSkillIds.includes(skill.id) ? 'btn-success' : 'btn-outline-secondary'}`}
-                    htmlFor={`skill-check-${skill.id}`}
-                >
-                    {skill.name}
-                </label>
-            </React.Fragment>
-        ))}
+        <div 
+            className="d-flex flex-wrap gap-2 p-2 bg-light rounded-xl border inner-shadow"
+            style={{ maxHeight: '200px', overflowY: 'auto' }}
+        >
+            {filteredSkills.length === 0 ? (
+                <div className="w-100 text-center py-4 text-muted fst-italic small">
+                    {searchTerm ? "No matching skills found." : "No master skills available."}
+                </div>
+            ) : (
+                filteredSkills.map(skill => {
+                    const isSelected = selectedSkillIds.includes(skill.id);
+                    return (
+                        <div
+                            key={skill.id}
+                            onClick={() => handleToggleSkill(skill.id)}
+                            className={`
+                                px-3 py-1 rounded-pill border cursor-pointer user-select-none d-flex align-items-center gap-2 transition-all small fw-medium
+                                ${isSelected 
+                                    ? 'bg-primary text-white border-primary shadow-sm' 
+                                    : 'bg-white text-secondary border-light-subtle hover:bg-gray-100'}
+                            `}
+                            style={{ cursor: 'pointer' }}
+                        >
+                            {isSelected && <Check size={14} />}
+                            {skill.name}
+                        </div>
+                    );
+                })
+            )}
+        </div>
       </div>
     </div>
   );

@@ -1,6 +1,7 @@
 // frontend/src/components/cv/AchievementForm.jsx
 import React, { useState, useEffect } from 'react';
-import SkillManagerModal from './SkillManagerModal';
+import { Award, Layers, ChevronDown, ChevronUp } from 'lucide-react';
+import SkillLinker from './SkillLinker'; // <--- IMPORT DIRECTLY
 import SelectedSkillsDisplay from './SelectedSkillsDisplay';
 
 const AchievementForm = ({ 
@@ -11,138 +12,161 @@ const AchievementForm = ({
   onCancelEdit 
 }) => {
   const [text, setText] = useState('');
-  const [context, setContext] = useState(''); // <-- ADDED
+  const [context, setContext] = useState(''); 
   const [selectedSkillIds, setSelectedSkillIds] = useState([]);
   const [pendingSkills, setPendingSkills] = useState([]);
-  const [isSkillModalOpen, setIsSkillModalOpen] = useState(false);
+  
+  // Replaces the modal state with a simple toggle
+  const [showSkillLinker, setShowSkillLinker] = useState(false);
 
-  // 1. Use an 'isEditing' flag based on initialData
   const isEditing = Boolean(initialData);
 
   useEffect(() => {
     if (isEditing) {
       setText(initialData.text || '');
-      setContext(initialData.context || ''); // <-- ADDED
-      // This is crucial: populate state from initialData
+      setContext(initialData.context || '');
       setSelectedSkillIds(initialData.skill_ids || initialData.existing_skill_ids || []);
       setPendingSkills(initialData.new_skills || []);
+      // Auto-open linker if editing a new item that has no text yet (optional UX tweak)
+      if (!initialData.text) setShowSkillLinker(true);
     } else {
-      // Reset form if not editing
       setText('');
-      setContext(''); // <-- ADDED
+      setContext('');
       setSelectedSkillIds([]);
       setPendingSkills([]);
+      setShowSkillLinker(false);
     }
-  }, [initialData, isEditing]); // Depend on initialData
+  }, [initialData, isEditing]);
 
-  // 2. This is the NEW, corrected handler
   const handleFormSubmit = () => {
     if (!text.trim()) return;
 
-    // Package the form's *current state*
     const dataToSend = {
       text: text,
-      context: context || null, // <-- MODIFIED
-      // Use keys that match what the parent expects
+      context: context || null, 
       existing_skill_ids: selectedSkillIds, 
       new_skills: pendingSkills
     };
 
-    // When in the CVManagerPage, we also pass the ID
     if (isEditing && initialData.id && !String(initialData.id).startsWith('pending-')) {
       dataToSend.id = initialData.id;
     }
 
-    // Call the modal's "handleFormSubmit" or CVManager's "handleAddOrUpdate"
-    // The 'cvId' (which is null here) is just passed along
     onSubmit(cvId, dataToSend, 'Achievement');
 
-    // 3. Reset the form *only if we are not in edit mode*
-    // (When editing, the modal handles resetting state)
     if (!isEditing) {
         setText('');
-        setContext(''); // <-- ADDED
+        setContext('');
         setSelectedSkillIds([]);
         setPendingSkills([]);
+        setShowSkillLinker(false);
     }
   };
 
   return (
-    <div
-      className="card p-3 bg-light-subtle" // Use bootstrap classes
-      style={{
-        border: '1px solid #6c757d',
-      }}
-    >
-      <h4 className="h5 mt-0 mb-3 text-muted">
-        {isEditing ? 'Edit Achievement' : '+ Add New/Pending Achievement'}
-      </h4>
+    <div className="card border-0 shadow-sm p-4 bg-white">
+      
+      {/* Header */}
+      <div className="d-flex align-items-center gap-2 mb-4 border-bottom pb-2">
+        <Award className="text-amber-500" size={20}/>
+        <h5 className="mb-0 fw-bold text-dark">
+            {isEditing ? 'Edit Achievement' : 'Add New Achievement'}
+        </h5>
+      </div>
 
-      <textarea
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        placeholder="Achievement text (e.g., Optimized X by Y%)"
-        className="form-control mb-3"
-        rows="3"
-      />
-
-      {/* --- ADDED THIS INPUT FIELD --- */}
-      <input
-        type="text"
-        value={context}
-        onChange={(e) => setContext(e.target.value)}
-        placeholder="Context (e.g., 'Global', 'Internal Project')"
-        className="form-control mb-3"
-      />
-      {/* --- END OF ADDED FIELD --- */}
-
-
-      {/* Skill Management (unchanged) */}
+      {/* Core Fields */}
       <div className="mb-3">
-        <strong className="form-label d-block">Related Skills:</strong>
-        <button
-          type="button"
-          onClick={() => setIsSkillModalOpen(true)}
-          className="btn btn-secondary btn-sm mb-2"
-        >
-          Manage Skills
-        </button>
-
-        <SelectedSkillsDisplay
-          allSkills={allSkills}
-          selectedSkillIds={selectedSkillIds}
-          pendingSkills={pendingSkills}
+        <label className="form-label fw-bold small text-uppercase text-muted">Achievement Details</label>
+        <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="e.g., Optimized database queries reducing load by 40%"
+            className="form-control mb-3"
+            rows="3"
+            autoFocus={!isEditing} // Focus text on new
+        />
+        <input
+            type="text"
+            value={context}
+            onChange={(e) => setContext(e.target.value)}
+            placeholder="Context (e.g., 'Global', 'Project X')"
+            className="form-control"
         />
       </div>
 
-      <SkillManagerModal
-        isOpen={isSkillModalOpen}
-        onClose={() => setIsSkillModalOpen(false)}
-        allSkills={allSkills}
-        selectedSkillIds={selectedSkillIds}
-        setSelectedSkillIds={setSelectedSkillIds}
-        pendingSkills={pendingSkills}
-        setPendingSkills={setPendingSkills}
-      />
-
-      {/* 4. Action Buttons (wired to new handler) */}
-      <div className="mt-3 border-top pt-3">
-        <button
-          type="button"
-          onClick={handleFormSubmit} // <-- Use the new handler
-          className={`btn ${isEditing ? 'btn-warning' : 'btn-primary'} me-2`}
+      {/* Inline Skill Management */}
+      <div className="mb-4 pt-2">
+        <div 
+            className="d-flex justify-content-between align-items-center mb-2 cursor-pointer"
+            onClick={() => setShowSkillLinker(!showSkillLinker)}
         >
-          {isEditing ? 'Save Changes' : 'Add to Pending'}
-        </button>
-        {isEditing && (
+            <label className="form-label fw-bold text-dark d-flex align-items-center gap-2 mb-0 cursor-pointer">
+                <Layers size={16} className="text-emerald-600"/> 
+                Related Skills
+                <span className="text-muted fw-normal small">
+                    ({selectedSkillIds.length + pendingSkills.length})
+                </span>
+            </label>
+            <button 
+                type="button" 
+                className="btn btn-light btn-sm text-secondary"
+            >
+                {showSkillLinker ? <ChevronUp size={16}/> : <ChevronDown size={16}/>}
+            </button>
+        </div>
+
+        {/* Logic: Show Linker when open, show Summary when closed */}
+        {showSkillLinker ? (
+            <div className="animate-fade-in mt-2">
+                <SkillLinker
+                    allSkills={allSkills}
+                    selectedSkillIds={selectedSkillIds}
+                    setSelectedSkillIds={setSelectedSkillIds}
+                    pendingSkills={pendingSkills}
+                    setPendingSkills={setPendingSkills}
+                />
+            </div>
+        ) : (
+            (selectedSkillIds.length > 0 || pendingSkills.length > 0) ? (
+                <div 
+                    className="bg-light p-3 rounded border cursor-pointer hover:bg-slate-100 transition-all"
+                    onClick={() => setShowSkillLinker(true)}
+                >
+                    <SelectedSkillsDisplay
+                        allSkills={allSkills}
+                        selectedSkillIds={selectedSkillIds}
+                        pendingSkills={pendingSkills}
+                    />
+                </div>
+            ) : (
+                <div 
+                    className="text-muted small fst-italic border border-dashed rounded p-2 text-center cursor-pointer hover:bg-light"
+                    onClick={() => setShowSkillLinker(true)}
+                >
+                    Click to link skills...
+                </div>
+            )
+        )}
+      </div>
+
+      {/* Actions */}
+      <div className="d-flex gap-2 justify-content-end mt-4 pt-3 border-top">
+        {onCancelEdit && (
           <button
             type="button"
             onClick={onCancelEdit}
-            className="btn btn-outline-secondary"
+            className="btn btn-light border"
           >
             Cancel
           </button>
         )}
+        <button
+          type="button"
+          onClick={handleFormSubmit} 
+          className="btn btn-primary px-4"
+        >
+          {isEditing ? 'Save Changes' : 'Add to List'}
+        </button>
       </div>
     </div>
   );

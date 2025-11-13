@@ -1,5 +1,6 @@
 // frontend/src/components/cv/SkillManagerModal.jsx
 import React from 'react';
+import { Layers } from 'lucide-react';
 import SkillLinker from './SkillLinker';
 
 const SkillManagerModal = ({
@@ -14,32 +15,30 @@ const SkillManagerModal = ({
   if (!isOpen) return null;
 
   return (
-    // The modal container with overlay
     <div 
-        className="modal" 
-        style={{ display: 'block', backgroundColor: 'rgba(0,0,0,0.4)' }}
-        onClick={onClose} // Close on overlay click
+        className="modal fade show d-block" 
+        style={{ backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(2px)' }}
+        onClick={onClose}
     >
       <div 
         className="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable"
-        onClick={e => e.stopPropagation()} // Prevent modal click-through
+        onClick={e => e.stopPropagation()}
       >
-        <div className="modal-content">
+        <div className="modal-content border-0 shadow-lg rounded-xl overflow-hidden">
 
-          <div className="modal-header">
-            <h5 className="modal-title">Manage Skills</h5>
-            <button 
-                type="button" 
-                className="btn-close" 
-                onClick={onClose}
-            ></button>
+          {/* Header */}
+          <div className="modal-header bg-white border-bottom px-4 py-3">
+            <h5 className="modal-title fw-bold d-flex align-items-center gap-2">
+                <div className="p-2 bg-emerald-100 text-emerald-600 rounded-circle">
+                    <Layers size={20} />
+                </div>
+                Manage Skills
+            </h5>
+            <button type="button" className="btn-close" onClick={onClose}></button>
           </div>
 
-          <div className="modal-body">
-            <p className="text-muted small">
-              Link existing skills or add new ones (pending). Changes are saved when you submit the main form.
-            </p>
-
+          {/* Body */}
+          <div className="modal-body p-4 bg-slate-50">
             <SkillLinker
               allSkills={allSkills}
               selectedSkillIds={selectedSkillIds}
@@ -49,13 +48,14 @@ const SkillManagerModal = ({
             />
           </div>
 
-          <div className="modal-footer">
+          {/* Footer */}
+          <div className="modal-footer bg-white border-top px-4 py-3">
             <button 
                 type="button" 
-                className="btn btn-secondary" 
+                className="btn btn-primary px-4" 
                 onClick={onClose}
             >
-             Close
+             Done
             </button>
           </div>
 
