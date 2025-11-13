@@ -1,17 +1,18 @@
 // frontend/src/components/cv/ProjectForm.jsx
 import React, { useState, useEffect } from 'react';
 import { Cpu, Layers, Award, Link, ChevronDown, ChevronUp } from 'lucide-react';
-import SkillLinker from './SkillLinker'; // <-- Import new linker
+import SkillLinker from './SkillLinker';
 import SelectedSkillsDisplay from './SelectedSkillsDisplay';
 import AchievementManagerModal from './AchievementManagerModal';
 import AchievementDisplayGrid from './AchievementDisplayGrid';
-// import SkillManagerModal from './SkillManagerModal'; // <-- Removed modal
+import ContextLinker from './ContextLinker'; // <-- Import new ContextLinker
 
 const ProjectForm = ({
     onSubmit,
     cvId,
     allExperiences = [],
     allEducation = [],
+    allHobbies = [], // <-- Added allHobbies to props
     allSkills,
     allAchievements,
     initialData,
@@ -21,9 +22,10 @@ const ProjectForm = ({
     const [title, setTitle] = useState('');
     const [description, setDescription] = useState('');
     
-    // Related item dropdowns
-    const [relatedExperienceId, setRelatedExperienceId] = useState('');
-    const [relatedEducationId, setRelatedEducationId] = useState('');
+    // --- CHANGED: Related item Lists instead of single IDs ---
+    const [relatedExpIds, setRelatedExpIds] = useState([]);
+    const [relatedEduIds, setRelatedEduIds] = useState([]);
+    const [relatedHobbyIds, setRelatedHobbyIds] = useState([]);
     
     // State for *direct* skills
     const [directSkillIds, setDirectSkillIds] = useState([]);
@@ -34,16 +36,13 @@ const ProjectForm = ({
     const [pendingAchievements, setPendingAchievements] = useState([]);
     
     // State
-    const [showSkillLinker, setShowSkillLinker] = useState(false); // <-- ADDED
-    // const [isSkillModalOpen, setIsSkillModalOpen] = useState(false); // <-- REMOVED
+    const [showSkillLinker, setShowSkillLinker] = useState(false);
+    const [showContextLinker, setShowContextLinker] = useState(false); // <-- ADDED
     const [isAchievementModalOpen, setIsAchievementModalOpen] = useState(false);
 
     // State for "rolled-up" display
     const [aggregatedSkillIds, setAggregatedSkillIds] = useState([]);
     const [aggregatedPendingSkills, setAggregatedPendingSkills] = useState([]);
-
-    // This state is no longer needed by the new SkillLinker
-    // const [disabledSkillsForModal, setDisabledSkillsForModal] = useState([]);
 
     const isEditing = Boolean(initialData);
 
@@ -52,8 +51,23 @@ const ProjectForm = ({
         if (isEditing) {
             setTitle(initialData.title || '');
             setDescription(initialData.description || '');
-            setRelatedExperienceId(initialData.related_experience_id || '');
-            setRelatedEducationId(initialData.related_education_id || '');
+            
+            // --- CHANGED: Handle mapping from potential lists or fallback singulars ---
+            const initExpIds = initialData.related_experience_ids || [];
+            if (initExpIds.length === 0 && initialData.related_experience_id) {
+                initExpIds.push(initialData.related_experience_id);
+            }
+            setRelatedExpIds(initExpIds);
+
+            const initEduIds = initialData.related_education_ids || [];
+            if (initEduIds.length === 0 && initialData.related_education_id) {
+                initEduIds.push(initialData.related_education_id);
+            }
+            setRelatedEduIds(initEduIds);
+
+            const initHobbyIds = initialData.related_hobby_ids || [];
+            setRelatedHobbyIds(initHobbyIds);
+            // -----------------------------------------------------------
             
             setDirectSkillIds(initialData.skill_ids || []);
             setDirectPendingSkills([]); 
@@ -67,13 +81,17 @@ const ProjectForm = ({
         } else {
             setTitle('');
             setDescription('');
-            setRelatedExperienceId('');
-            setRelatedEducationId('');
+            // Reset Context Lists
+            setRelatedExpIds([]);
+            setRelatedEduIds([]);
+            setRelatedHobbyIds([]);
+            
             setDirectSkillIds([]); 
             setDirectPendingSkills([]); 
             setLinkedExistingAchievements([]);
             setPendingAchievements([]);
-            setShowSkillLinker(false); // Reset toggle
+            setShowSkillLinker(false);
+            setShowContextLinker(false);
         }
     }, [initialData, isEditing, cvId, allAchievements]); 
 
@@ -93,11 +111,6 @@ const ProjectForm = ({
         achIds.forEach(id => allIds.add(id));
         setAggregatedSkillIds(Array.from(allIds));
 
-        // This is no longer needed by SkillLinker
-        // const directSet = new Set(directSkillIds);
-        // const disabledIds = Array.from(achIds).filter(id => !directSet.has(id));
-        // setDisabledSkillsForModal(disabledIds);
-
         const allPending = [...directPendingSkills];
         const pendingNames = new Set(directPendingSkills.map(s => s.name));
         
@@ -115,6 +128,19 @@ const ProjectForm = ({
     
     
     // Handlers
+
+    // --- NEW HANDLER FOR CONTEXT ---
+    const handleContextToggle = (type, id) => {
+        if (type === 'experiences') {
+            setRelatedExpIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+        } else if (type === 'education') {
+            setRelatedEduIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+        } else if (type === 'hobbies') {
+            setRelatedHobbyIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+        }
+    };
+    // -------------------------------
+
     const handleExistingAchievementSelection = (newIdList) => {
         const newIds = newIdList.filter(id => !linkedExistingAchievements.some(a => a.id === id));
         const removedIds = linkedExistingAchievements.map(a => a.id).filter(id => !newIdList.includes(id));
@@ -129,7 +155,6 @@ const ProjectForm = ({
         setLinkedExistingAchievements(newList);
     };
 
-    // --- LOGIC PRESERVED ---
     const handleSkillSelectionChange = (newAggregatedList) => {
         const oldAggregatedList = aggregatedSkillIds; 
 
@@ -175,7 +200,6 @@ const ProjectForm = ({
         }
     };
 
-    // --- LOGIC PRESERVED ---
     const smartSetAggregatedPendingSkills = (updaterFn) => {
         const currentAggregated = aggregatedPendingSkills;
         const newAggregated = typeof updaterFn === 'function' ? updaterFn(currentAggregated) : updaterFn;
@@ -207,7 +231,6 @@ const ProjectForm = ({
         }
     };
 
-    // --- LOGIC PRESERVED ---
     const handleSubmit = (e) => {
         e.preventDefault();
         if (!title.trim()) return;
@@ -215,8 +238,12 @@ const ProjectForm = ({
         const dataToSend = {
             title,
             description: description || null,
-            related_experience_id: relatedExperienceId || null,
-            related_education_id: relatedEducationId || null,
+            
+            // --- CHANGED: Send Lists ---
+            related_experience_ids: relatedExpIds,
+            related_education_ids: relatedEduIds,
+            related_hobby_ids: relatedHobbyIds,
+            // ---------------------------
             
             existing_skill_ids: directSkillIds, 
             new_skills: directPendingSkills,
@@ -234,13 +261,15 @@ const ProjectForm = ({
         if (!isEditing) {
             setTitle('');
             setDescription('');
-            setRelatedExperienceId('');
-            setRelatedEducationId('');
+            setRelatedExpIds([]);
+            setRelatedEduIds([]);
+            setRelatedHobbyIds([]);
             setDirectSkillIds([]);
             setDirectPendingSkills([]);
             setLinkedExistingAchievements([]); 
             setPendingAchievements([]);
             setShowSkillLinker(false);
+            setShowContextLinker(false);
         }
     };
 
@@ -272,48 +301,69 @@ const ProjectForm = ({
             
             <hr className="my-4 opacity-10" />
 
-            {/* Relationships Section */}
-            <div className="row g-2 mb-4">
-                <label className="form-label fw-bold small text-uppercase text-muted d-flex align-items-center gap-2">
-                    <Link size={14}/> Linked Context (Optional)
-                </label>
-                <div className="col-md-6">
-                    <div className="form-floating">
-                        <select
-                            id="project-rel-exp"
-                            className="form-select"
-                            value={relatedExperienceId}
-                            onChange={(e) => setRelatedExperienceId(e.target.value)}
-                        >
-                            <option value="">-- None --</option>
-                            {allExperiences.map(exp => (
-                                <option key={exp.id} value={exp.id}>
-                                    {exp.title} @ {exp.company}
-                                </option>
-                            ))}
-                        </select>
-                        <label htmlFor="project-rel-exp">Related Experience</label>
-                    </div>
+            {/* --- CHANGED: Relationships Section (Integrated ContextLinker) --- */}
+            <div className="mb-4">
+                <div className="d-flex justify-content-between align-items-center mb-2">
+                    <label className="form-label fw-bold small text-uppercase text-muted mb-0 d-flex align-items-center gap-2">
+                        <Link size={14}/> Linked Context
+                    </label>
+                    <button 
+                        type="button" 
+                        className="btn btn-sm btn-outline-secondary py-0 px-2"
+                        style={{fontSize: '0.8rem'}}
+                        onClick={() => setShowContextLinker(!showContextLinker)}
+                    >
+                        {showContextLinker ? <ChevronUp size={16}/> : '+ Link Context'}
+                    </button>
                 </div>
-                <div className="col-md-6">
-                    <div className="form-floating">
-                        <select
-                            id="project-rel-edu"
-                            className="form-select"
-                            value={relatedEducationId}
-                            onChange={(e) => setRelatedEducationId(e.target.value)}
-                        >
-                            <option value="">-- None --</option>
-                            {allEducation.map(edu => (
-                                <option key={edu.id} value={edu.id}>
-                                    {edu.degree} @ {edu.institution}
-                                </option>
-                            ))}
-                        </select>
-                        <label htmlFor="project-rel-edu">Related Education</label>
-                    </div>
+
+                {/* Badge Display */}
+                <div className="d-flex flex-wrap gap-2 mb-2">
+                    {[...relatedExpIds, ...relatedEduIds, ...relatedHobbyIds].length === 0 && !showContextLinker && (
+                        <span className="text-muted small fst-italic">No contexts linked.</span>
+                    )}
+                    
+                    {relatedExpIds.map(id => {
+                        const item = allExperiences.find(e => e.id === id);
+                        return item ? (
+                             <span key={id} className="badge bg-white text-secondary border fw-normal d-flex align-items-center gap-1">
+                                <Layers size={10} className="text-primary"/> {item.title}
+                             </span>
+                        ) : null;
+                    })}
+                    {relatedEduIds.map(id => {
+                        const item = allEducation.find(e => e.id === id);
+                        return item ? (
+                             <span key={id} className="badge bg-white text-secondary border fw-normal d-flex align-items-center gap-1">
+                                <Layers size={10} className="text-info"/> {item.degree}
+                             </span>
+                        ) : null;
+                    })}
+                    {relatedHobbyIds.map(id => {
+                        const item = allHobbies.find(e => e.id === id);
+                        return item ? (
+                             <span key={id} className="badge bg-white text-secondary border fw-normal d-flex align-items-center gap-1">
+                                <Layers size={10} className="text-success"/> {item.name}
+                             </span>
+                        ) : null;
+                    })}
                 </div>
+
+                {showContextLinker && (
+                    <ContextLinker 
+                        allExperiences={allExperiences}
+                        allEducation={allEducation}
+                        allHobbies={allHobbies} 
+                        selectedIds={{
+                            experiences: relatedExpIds,
+                            education: relatedEduIds,
+                            hobbies: relatedHobbyIds
+                        }}
+                        onToggle={handleContextToggle}
+                    />
+                )}
             </div>
+            {/* ------------------------------------------------------------- */}
 
             {/* --- SKILLS Section (Integrated Linker) --- */}
             <div className="mb-4">

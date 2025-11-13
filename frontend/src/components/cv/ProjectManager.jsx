@@ -1,6 +1,6 @@
 // frontend/src/components/cv/ProjectManager.jsx
 import React, { useState } from 'react';
-import { Plus, Edit2, Trash2, Cpu, Link } from 'lucide-react';
+import { Plus, Edit2, Trash2, Cpu, Briefcase, BookOpen, Smile } from 'lucide-react';
 import ProjectForm from './ProjectForm';
 import AchievementDisplayGrid from './AchievementDisplayGrid';
 import SelectedSkillsDisplay from './SelectedSkillsDisplay';
@@ -10,6 +10,7 @@ const ProjectManager = ({
   projects = [],
   allExperiences = [],
   allEducation = [],
+  allHobbies = [], 
   allSkills = [],
   allAchievements = [],
   onSubmit,
@@ -18,23 +19,21 @@ const ProjectManager = ({
   const [isCreating, setIsCreating] = useState(false);
   const [editingId, setEditingId] = useState(null);
 
+  // --- Helper to resolve mixed (singular/plural) references ---
+  const resolveReferences = (itemIds, singularId, sourceList) => {
+    const uniqueIds = new Set(itemIds || []);
+    // Backward compatibility: if no list items, check the old singular ID
+    if (singularId && uniqueIds.size === 0) {
+        uniqueIds.add(singularId); 
+    }
+    return Array.from(uniqueIds).map(id => sourceList.find(i => i.id === id)).filter(Boolean);
+  };
+
   const getAchievements = (achievementIds = []) => {
     if (!achievementIds || achievementIds.length === 0) return [];
     return achievementIds
       .map(id => allAchievements.find(a => a.id === id))
       .filter(Boolean);
-  };
-  
-  const getRelatedExperienceName = (id) => {
-    if (!id) return null;
-    const exp = allExperiences.find(e => e.id === id);
-    return exp ? `${exp.title} @ ${exp.company}` : 'Unknown Experience';
-  };
-  
-  const getRelatedEducationName = (id) => {
-    if (!id) return null;
-    const edu = allEducation.find(e => e.id === id);
-    return edu ? `${edu.degree} @ ${edu.institution}` : 'Unknown Education';
   };
 
   const handleAddNewClick = () => { setIsCreating(true); setEditingId(null); };
@@ -79,6 +78,7 @@ const ProjectManager = ({
                 cvId={cvId}
                 allExperiences={allExperiences}
                 allEducation={allEducation}
+                allHobbies={allHobbies}
                 allSkills={allSkills}
                 allAchievements={allAchievements}
                 initialData={null}
@@ -106,6 +106,7 @@ const ProjectManager = ({
                     cvId={cvId}
                     allExperiences={allExperiences}
                     allEducation={allEducation}
+                    allHobbies={allHobbies}
                     allSkills={allSkills}
                     allAchievements={allAchievements}
                     initialData={item}
@@ -116,12 +117,16 @@ const ProjectManager = ({
           } else {
             // --- DISPLAY MODE ---
             const linkedAchievements = getAchievements(item.achievement_ids);
+            
+            // Calculate Aggregate Skills
             const allIds = new Set(item.skill_ids || []);
             linkedAchievements.forEach(ach => (ach.skill_ids || []).forEach(id => allIds.add(id)));
             const aggregatedSkillIds = Array.from(allIds);
             
-            const relatedExpName = getRelatedExperienceName(item.related_experience_id);
-            const relatedEduName = getRelatedEducationName(item.related_education_id);
+            // Resolve Contexts
+            const linkedExperiences = resolveReferences(item.related_experience_ids, item.related_experience_id, allExperiences);
+            const linkedEducation = resolveReferences(item.related_education_ids, item.related_education_id, allEducation);
+            const linkedHobbies = resolveReferences(item.related_hobby_ids, null, allHobbies);
 
             return (
               <div key={item.id} className="bg-white p-4 rounded-xl border shadow-sm hover-lift transition-all">
@@ -131,20 +136,29 @@ const ProjectManager = ({
                     <div>
                         <h5 className="fw-bold text-dark mb-1">{item.title || 'Untitled Project'}</h5>
                         
-                        {/* Relationship Badges */}
+                        {/* Context Badges */}
                         <div className="d-flex flex-wrap gap-2 mt-2">
-                            {relatedExpName && (
-                                <span className="badge bg-secondary bg-opacity-10 text-secondary border d-flex align-items-center gap-1 fw-normal">
-                                    <Link size={12}/> {relatedExpName}
+                            {linkedExperiences.map(exp => (
+                                <span key={exp.id} className="rounded-pill bg-blue-50 text-blue-700 border border-blue-200 small d-flex align-items-center gap-1 fw-bold px-2 py-1">
+                                    <Briefcase size={12} /> 
+                                    {exp.title}{exp.company ? ` @ ${exp.company}` : ''}
                                 </span>
-                            )}
-                            {relatedEduName && (
-                                <span className="badge bg-info bg-opacity-10 text-info border d-flex align-items-center gap-1 fw-normal">
-                                    <Link size={12}/> {relatedEduName}
+                            ))}
+                            {linkedEducation.map(edu => (
+                                <span key={edu.id} className="rounded-pill bg-indigo-50 text-indigo-700 border border-indigo-200 small d-flex align-items-center gap-1 fw-bold px-2 py-1">
+                                    <BookOpen size={12} /> 
+                                    {edu.degree}{edu.institution ? ` @ ${edu.institution}` : ''}
                                 </span>
-                            )}
+                            ))}
+                            {linkedHobbies.map(hobby => (
+                                <span key={hobby.id} className="rounded-pill bg-pink-50 text-pink-600 border border-pink-200 small d-flex align-items-center gap-1 fw-bold px-2 py-1">
+                                    <Smile size={12} /> {hobby.name}
+                                </span>
+                            ))}
                         </div>
                     </div>
+                    
+                    {/* Action Buttons */}
                     <div className="d-flex gap-2">
                         <button onClick={() => handleEditClick(item.id)} className="btn btn-light btn-sm text-primary" title="Edit">
                             <Edit2 size={16} />

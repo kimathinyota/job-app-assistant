@@ -347,7 +347,7 @@ const Step2_GenerateCV = ({ job, cv, mapping, onPrev, onNext, onMappingChanged }
                     <div className="mb-4">
                         <h5 className="text-primary border-bottom pb-1">Professional Experience</h5>
                         {mappedExperiences.map(item => (
-                            <CVItemDisplayCard key={item.id} item={item} itemType="experiences" allSkills={cv.skills} allAchievements={cv.achievements} />
+                            <CVItemDisplayCard key={item.id} item={item} itemType="experiences" allSkills={cv.skills} allAchievements={cv.achievements} allHobbies={cv.hobbies} />
                         ))}
                         
                         {/* --- AI Suggested Experiences --- */}
@@ -385,7 +385,7 @@ const Step2_GenerateCV = ({ job, cv, mapping, onPrev, onNext, onMappingChanged }
                     <div className="mb-4">
                         <h5 className="text-primary border-bottom pb-1">Education</h5>
                         {mappedEducation.map(item => (
-                            <CVItemDisplayCard key={item.id} item={item} itemType="education" allSkills={cv.skills} allAchievements={cv.achievements} />
+                            <CVItemDisplayCard key={item.id} item={item} itemType="education" allSkills={cv.skills} allAchievements={cv.achievements} allHobbies={cv.hobbies} />
                         ))}
                         {/* --- AI Suggested Education --- */}
                         {suggestedEducation.map(item => (
@@ -411,7 +411,7 @@ const Step2_GenerateCV = ({ job, cv, mapping, onPrev, onNext, onMappingChanged }
                     <div className="mb-4">
                         <h5 className="text-primary border-bottom pb-1">Projects</h5>
                         {mappedProjects.map(item => (
-                            <CVItemDisplayCard key={item.id} item={item} itemType="projects" allSkills={cv.skills} allAchievements={cv.achievements} allExperiences={cv.experiences} allEducation={cv.education} />
+                            <CVItemDisplayCard key={item.id} item={item} itemType="projects" allSkills={cv.skills} allAchievements={cv.achievements} allExperiences={cv.experiences} allEducation={cv.education} allHobbies={cv.hobbies} />
                         ))}
                         {/* --- AI Suggested Projects --- */}
                         {suggestedProjects.map(item => (
@@ -437,7 +437,7 @@ const Step2_GenerateCV = ({ job, cv, mapping, onPrev, onNext, onMappingChanged }
                     <div className="mb-4">
                         <h5 className="text-primary border-bottom pb-1">Hobbies & Interests</h5>
                         {mappedHobbies.map(item => (
-                            <CVItemDisplayCard key={item.id} item={item} itemType="hobbies" allSkills={cv.skills} allAchievements={cv.achievements} />
+                            <CVItemDisplayCard key={item.id} item={item} itemType="hobbies" allSkills={cv.skills} allAchievements={cv.achievements} allHobbies={cv.hobbies} />
                         ))}
                         {/* --- AI Suggested Hobbies --- */}
                         {suggestedHobbies.map(item => (

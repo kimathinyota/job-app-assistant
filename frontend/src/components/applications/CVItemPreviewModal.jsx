@@ -9,7 +9,8 @@ const CVItemPreviewModal = ({
     allSkills,
     allAchievements,
     allExperiences,
-    allEducation
+    allEducation,
+    allHobbies = [] // <--- 1. Accept Prop
 }) => {
     if (!isOpen || !itemToPreview) return null;
 
@@ -38,6 +39,7 @@ const CVItemPreviewModal = ({
                             allAchievements={allAchievements}
                             allExperiences={allExperiences}
                             allEducation={allEducation}
+                            allHobbies={allHobbies} // <--- 2. Pass Prop
                         />
                     </div>
                     <div className="modal-footer">

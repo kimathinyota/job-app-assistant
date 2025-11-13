@@ -285,7 +285,7 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
             'Experiences': <ExperienceManager {...commonProps} experiences={masterExperiences} />,
             'Education': <EducationManager {...commonProps} education={masterEducation} />,
             'Hobbies': <HobbyManager {...commonProps} hobbies={masterHobbies} />,
-            'Projects': <ProjectManager {...commonProps} projects={masterProjects} allExperiences={masterExperiences} allEducation={masterEducation} />,
+            'Projects': <ProjectManager {...commonProps} projects={masterProjects} allExperiences={masterExperiences} allEducation={masterEducation} allHobbies={masterHobbies} />,
             'Skills': <SkillsetManager {...commonProps} allExperiences={masterExperiences} allEducation={masterEducation} allProjects={masterProjects} allHobbies={masterHobbies} />,
             'Achievements': <AchievementHub {...commonProps} allExperiences={masterExperiences} allEducation={masterEducation} allProjects={masterProjects} allHobbies={masterHobbies} />
         };

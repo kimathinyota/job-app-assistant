@@ -1054,6 +1054,7 @@ const Step3_BuildCoverLetter = ({
                     allAchievements={fullCV.achievements}
                     allExperiences={fullCV.experiences}
                     allEducation={fullCV.education}
+                    allHobbies={cv.hobbies}
                 />
             )}
             
