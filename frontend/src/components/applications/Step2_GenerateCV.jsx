@@ -1,115 +1,241 @@
 // frontend/src/components/applications/Step2_GenerateCV.jsx
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { 
+    FileText, Wand2, Plus, Check, X, ArrowRight, ArrowLeft, 
+    Loader2, Sparkles, Briefcase, GraduationCap, FolderGit2, Heart, Cpu,
+    FileCheck, Link2, ChevronDown, ChevronUp, Search
+} from 'lucide-react';
 import { 
     generateCvPrompt,
-    inferMappingPairs,  // 1. Import the inferer
-    addMappingPair      // 2. Import add pair
-} from '../../api/applicationClient'; // <-- FIX: Removed .js extension
-import PromptModal from './PromptModal'; // <-- FIX: Removed .jsx extension
-import CVItemDisplayCard from './CVItemDisplayCard'; // <-- FIX: Removed .jsx extension
-import PromoteItemModal from './PromoteItemModal'; // <-- FIX: Removed .jsx extension
-import { getCVDisplayName } from '../../utils/cvHelpers'; // <--- IMPORT
+    inferMappingPairs,  
+    addMappingPair      
+} from '../../api/applicationClient';
+import PromptModal from './PromptModal'; 
+import CVItemDisplayCard from './CVItemDisplayCard'; 
+import { getCVDisplayName } from '../../utils/cvHelpers'; 
 
-// --- 3. NEW "AI GHOST" COMPONENT ---
-// This card is for unmapped items that HAVE an AI suggestion.
+// --- 1. MODERN "AI GHOST" COMPONENT ---
 const AISuggestionCard = ({ item, itemType, suggestion, onAccept, onIgnore, isAccepting }) => {
     let itemTitle = item.title || item.name || item.degree || 'Unknown Item';
     if (itemType === 'experiences') itemTitle = `${item.title} @ ${item.company}`;
     if (itemType === 'education') itemTitle = `${item.degree} @ ${item.institution}`;
 
     return (
-        <div 
-            className="card card-body p-3 mb-2 border-dashed border-info" 
-            style={{ opacity: 0.9 }}
-        >
-            <div className="d-flex justify-content-between align-items-center mb-2">
-                <span className="fst-italic fw-medium">{itemTitle}</span>
-            </div>
-
-            {/* AI Suggestion Details */}
-            <div className="alert alert-info p-2" role="alert">
-                <strong className="d-block small">💡 AI Suggestion:</strong>
-                <p className="small mb-1">
-                    <strong>Matches:</strong> {suggestion.feature_text}
+        <div className="card border-0 shadow-sm mb-3 bg-primary bg-opacity-10 border-start border-4 border-primary overflow-hidden">
+            <div className="card-body p-3">
+                <div className="d-flex justify-content-between align-items-start mb-2">
+                    <div className="d-flex align-items-center gap-2 text-primary fw-bold small text-uppercase">
+                        <Sparkles size={14} /> AI Recommendation
+                    </div>
+                    <div className="d-flex gap-1">
+                        <button 
+                            type="button"
+                            className="btn btn-sm btn-white border text-muted hover-bg-light p-1" 
+                            onClick={() => onIgnore(suggestion.id)}
+                            disabled={isAccepting}
+                            title="Ignore"
+                        >
+                            <X size={14}/>
+                        </button>
+                        <button 
+                            type="button"
+                            className="btn btn-sm btn-primary shadow-sm p-1 px-2 d-flex align-items-center gap-1" 
+                            onClick={() => onAccept(suggestion)}
+                            disabled={isAccepting}
+                        >
+                            {isAccepting ? <Loader2 size={14} className="animate-spin"/> : <Plus size={14}/>}
+                            Add
+                        </button>
+                    </div>
+                </div>
+                
+                <h6 className="fw-bold text-dark mb-1">{itemTitle}</h6>
+                <p className="small text-muted mb-2">
+                    Matches: <span className="fw-medium text-dark">{suggestion.feature_text}</span>
                 </p>
-                <p className="small fst-italic mb-0">
-                    <strong>Reason:</strong> {suggestion.annotation || "Good conceptual match."}
-                </p>
-            </div>
-
-            <div className="d-flex justify-content-end gap-2">
-                <button
-                    type="button"
-                    className="btn btn-sm btn-outline-secondary"
-                    onClick={() => onIgnore(suggestion.id)} // Use suggestion's temp ID
-                    disabled={isAccepting}
-                >
-                    Ignore
-                </button>
-                <button
-                    type="button"
-                    className="btn btn-sm btn-success"
-                    onClick={() => onAccept(suggestion)}
-                    disabled={isAccepting}
-                >
-                    {isAccepting ? "Adding..." : "Accept & Add"}
-                </button>
+                <div className="bg-white bg-opacity-50 p-2 rounded border border-primary border-opacity-10">
+                    <p className="small fst-italic mb-0 text-primary text-opacity-75">
+                        "{suggestion.annotation || "Good match."}"
+                    </p>
+                </div>
             </div>
         </div>
     );
 };
 
+// --- 2. INLINE GHOST ITEM CARD (With Custom Searchable Dropdown) ---
+const GhostItemCard = ({ item, itemType, jobFeatures, onPromote }) => {
+    const [isExpanded, setIsExpanded] = useState(false);
+    
+    // Form State
+    const [selectedReqId, setSelectedReqId] = useState("");
+    const [annotation, setAnnotation] = useState("");
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
-// --- ORIGINAL "GHOST" COMPONENT ---
-// This card is for unmapped items that HAVE NO AI suggestion.
-const GhostItemCard = ({ item, itemType, onPromote }) => {
-  let itemTitle = item.title || item.name || item.degree || 'Unknown Item';
-  if (itemType === 'experiences') itemTitle = `${item.title} @ ${item.company}`;
-  if (itemType === 'education') itemTitle = `${item.degree} @ ${item.institution}`;
+    // Dropdown State
+    const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+    const [searchTerm, setSearchTerm] = useState("");
 
-  return (
-    <div 
-        className="card card-body p-2 mb-2 border-dashed" 
-        style={{ opacity: 0.6 }}
-    >
-        <div className="d-flex justify-content-between align-items-center">
-            <span className="fst-italic">{itemTitle}</span>
-            <button 
-                type="button" 
-                className="btn btn-sm btn-outline-primary"
-                onClick={() => onPromote(item, itemType)}
-            >
-                + Map Manually...
-            </button>
+    let itemTitle = item.title || item.name || item.degree || 'Unknown Item';
+    if (itemType === 'experiences') itemTitle = `${item.title} @ ${item.company}`;
+    if (itemType === 'education') itemTitle = `${item.degree} @ ${item.institution}`;
+
+    // Helper to get selected Requirement Text
+    const selectedReqText = useMemo(() => {
+        if (!selectedReqId) return "Select a requirement...";
+        const req = jobFeatures.find(f => f.id === selectedReqId);
+        return req ? req.description : "Unknown Requirement";
+    }, [selectedReqId, jobFeatures]);
+
+    // Filter requirements for dropdown
+    const filteredFeatures = useMemo(() => {
+        if (!searchTerm) return jobFeatures || [];
+        return (jobFeatures || []).filter(f => 
+            f.description.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+    }, [jobFeatures, searchTerm]);
+
+    const handleSubmit = async () => {
+        if (!selectedReqId) return;
+        setIsSubmitting(true);
+        try {
+            await onPromote(selectedReqId, item.id, itemType, annotation);
+            setIsExpanded(false);
+            setAnnotation("");
+            setSelectedReqId("");
+            setSearchTerm("");
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    return (
+        <div className={`card border-2 transition-all mb-2 ${isExpanded ? 'border-primary shadow-sm bg-white' : 'border-dashed border-light bg-light bg-opacity-25 hover-shadow-sm'}`}>
+            <div className="card-body p-2">
+                {/* Card Header / Toggle */}
+                <div className="d-flex justify-content-between align-items-center cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
+                    <span className={`small fw-medium ps-2 ${isExpanded ? 'text-primary fw-bold' : 'text-muted'}`}>{itemTitle}</span>
+                    <button 
+                        type="button"
+                        className={`btn btn-sm border shadow-sm fw-medium d-flex align-items-center gap-1 transition-all ${isExpanded ? 'btn-light text-muted' : 'btn-white text-primary'}`}
+                        onClick={(e) => { e.stopPropagation(); setIsExpanded(!isExpanded); }}
+                    >
+                        {isExpanded ? <X size={14}/> : <Plus size={12}/>} 
+                        {isExpanded ? "Cancel" : "Map"}
+                    </button>
+                </div>
+
+                {/* Expanded Form */}
+                {isExpanded && (
+                    <div className="mt-3 ps-2 pe-2 pb-1 animate-fade-in">
+                        
+                        {/* Custom Searchable Dropdown */}
+                        <div className="mb-3 position-relative">
+                            <label className="form-label small text-muted fw-bold text-uppercase mb-1">Link to Requirement</label>
+                            
+                            {/* Trigger Button */}
+                            <button 
+                                type="button"
+                                className="form-control form-control-sm d-flex justify-content-between align-items-center bg-light border-0 shadow-sm text-start"
+                                onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                                style={{ cursor: 'pointer', minHeight: '38px' }}
+                            >
+                                <span className={`text-truncate ${!selectedReqId ? 'text-muted' : 'text-dark'}`} style={{maxWidth: '90%'}}>
+                                    {selectedReqText}
+                                </span>
+                                <ChevronDown size={14} className="text-muted"/>
+                            </button>
+
+                            {/* Dropdown Menu */}
+                            {isDropdownOpen && (
+                                <>
+                                    <div className="fixed-top w-100 h-100" style={{zIndex: 1040}} onClick={() => setIsDropdownOpen(false)}/>
+                                    <div className="position-absolute w-100 bg-white shadow-lg rounded-3 border mt-1 overflow-hidden animate-fade-in" style={{zIndex: 1050, top: '100%'}}>
+                                        <div className="p-2 border-bottom bg-light">
+                                            <div className="input-group input-group-sm">
+                                                <span className="input-group-text bg-white border-0"><Search size={12} className="text-muted"/></span>
+                                                <input 
+                                                    type="text" 
+                                                    className="form-control border-0 shadow-none bg-white" 
+                                                    placeholder="Search requirements..."
+                                                    value={searchTerm}
+                                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                                    autoFocus
+                                                />
+                                            </div>
+                                        </div>
+                                        <div className="list-group list-group-flush custom-scroll" style={{maxHeight: '200px', overflowY: 'auto'}}>
+                                            {filteredFeatures.map(f => (
+                                                <button
+                                                    key={f.id}
+                                                    type="button"
+                                                    className={`list-group-item list-group-item-action border-0 small text-start py-2 ${selectedReqId === f.id ? 'bg-primary bg-opacity-10 text-primary fw-medium' : ''}`}
+                                                    onClick={() => {
+                                                        setSelectedReqId(f.id);
+                                                        setIsDropdownOpen(false);
+                                                    }}
+                                                >
+                                                    {f.description}
+                                                </button>
+                                            ))}
+                                            {filteredFeatures.length === 0 && (
+                                                <div className="p-3 text-center text-muted small fst-italic">No matching requirements found.</div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+
+                        {/* Annotation */}
+                        <div className="mb-3">
+                            <label className="form-label small text-muted fw-bold text-uppercase mb-1">Reasoning (Optional)</label>
+                            <textarea 
+                                className="form-control form-control-sm bg-light border-0 shadow-sm"
+                                rows="2"
+                                placeholder="Why is this relevant?"
+                                value={annotation}
+                                onChange={(e) => setAnnotation(e.target.value)}
+                            />
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="d-flex justify-content-end">
+                            <button 
+                                type="button"
+                                className="btn btn-sm btn-primary d-flex align-items-center gap-2 shadow-sm"
+                                disabled={!selectedReqId || isSubmitting}
+                                onClick={handleSubmit}
+                            >
+                                {isSubmitting ? <Loader2 size={14} className="animate-spin"/> : <Link2 size={14}/>}
+                                Confirm & Add
+                            </button>
+                        </div>
+                    </div>
+                )}
+            </div>
         </div>
-    </div>
-  );
+    );
 };
 
-
+// --- MAIN COMPONENT ---
 const Step2_GenerateCV = ({ job, cv, mapping, onPrev, onNext, onMappingChanged }) => {
     const [cvPromptJson, setCvPromptJson] = useState('');
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isLoadingPrompt, setIsLoadingPrompt] = useState(false);
 
-    const [isPromoteModalOpen, setIsPromoteModalOpen] = useState(false);
-    const [itemToPromote, setItemToPromote] = useState(null); 
-    const [isSubmittingManual, setIsSubmittingManual] = useState(false);
-
-    // --- 4. ADD STATE FOR AI SUGGESTIONS ---
+    // AI State
     const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(true);
     const [allSuggestions, setAllSuggestions] = useState([]);
     const [suggestionError, setSuggestionError] = useState(null);
-    const [isAccepting, setIsAccepting] = useState(null); // Tracks the ID of the suggestion being accepted
+    const [isAccepting, setIsAccepting] = useState(null);
 
-    // --- 5. FETCH SUGGESTIONS ON LOAD ---
+    // --- FETCH SUGGESTIONS ---
     useEffect(() => {
         setIsLoadingSuggestions(true);
         setSuggestionError(null);
-        // Use 'eager_mode' to show more possibilities in the review step
         inferMappingPairs(mapping.id, "eager_mode")
             .then(res => {
-                // Give each suggestion a unique temp ID for React keys & state
                 setAllSuggestions(res.data.map((s, i) => ({ ...s, id: `sugg-${i}` })));
             })
             .catch(err => {
@@ -121,52 +247,24 @@ const Step2_GenerateCV = ({ job, cv, mapping, onPrev, onNext, onMappingChanged }
             });
     }, [mapping.id]);
 
-
-    // --- 6. UPDATE useMemo TO TRIAGE ALL CV ITEMS ---
+    // --- TRIAGE LOGIC ---
     const {
-        mappedExperiences,
-        mappedProjects,
-        mappedEducation,
-        mappedHobbies,
-        // NEW LISTS FOR SUGGESTIONS
-        suggestedExperiences,
-        suggestedProjects,
-        suggestedEducation,
-        suggestedHobbies,
-        // RENAMED LISTS for other unmapped items
-        otherUnmappedExperiences,
-        otherUnmappedProjects,
-        otherUnmappedEducation,
-        otherUnmappedHobbies,
-        aggregatedSkillIds, 
-        groupedSkills
+        mappedExperiences, mappedProjects, mappedEducation, mappedHobbies,
+        suggestedExperiences, suggestedProjects, suggestedEducation, suggestedHobbies,
+        otherUnmappedExperiences, otherUnmappedProjects, otherUnmappedEducation, otherUnmappedHobbies,
+        aggregatedSkillIds, groupedSkills
     } = useMemo(() => {
-        const mappedItemIds = new Set(
-            mapping.pairs.map(p => p.context_item_id)
-        );
-        
-        // Create a quick lookup map for suggestions by *their* context_item_id
-        const suggestionMap = new Map(
-            allSuggestions.map(s => [s.context_item_id, s])
-        );
+        const mappedItemIds = new Set(mapping.pairs.map(p => p.context_item_id));
+        const suggestionMap = new Map(allSuggestions.map(s => [s.context_item_id, s]));
 
-        // Triage helper function
         const triageList = (cvList) => {
-            const mapped = [];
-            const suggested = [];
-            const otherUnmapped = [];
-
+            const mapped = [], suggested = [], otherUnmapped = [];
             for (const item of cvList) {
                 if (mappedItemIds.has(item.id)) {
                     mapped.push(item);
                 } else if (suggestionMap.has(item.id)) {
-                    // It's not mapped, but the AI has a suggestion for it.
-                    // Attach the suggestion object to the item.
-                    // We need to create a copy to avoid mutation issues
-                    const itemWithSuggestion = { ...item, suggestion: suggestionMap.get(item.id) };
-                    suggested.push(itemWithSuggestion);
+                    suggested.push({ ...item, suggestion: suggestionMap.get(item.id) });
                 } else {
-                    // Not mapped, and no suggestion.
                     otherUnmapped.push(item);
                 }
             }
@@ -178,7 +276,7 @@ const Step2_GenerateCV = ({ job, cv, mapping, onPrev, onNext, onMappingChanged }
         const { mapped: mappedEducation, suggested: suggestedEducation, otherUnmapped: otherUnmappedEducation } = triageList(cv.education);
         const { mapped: mappedHobbies, suggested: suggestedHobbies, otherUnmapped: otherUnmappedHobbies } = triageList(cv.hobbies);
 
-        // Skill logic (unchanged)
+        // Skill logic
         let skillIds = new Set();
         const allMappedItems = [...mappedExperiences, ...mappedProjects, ...mappedEducation, ...mappedHobbies];
         
@@ -186,27 +284,22 @@ const Step2_GenerateCV = ({ job, cv, mapping, onPrev, onNext, onMappingChanged }
             (item.skill_ids || []).forEach(id => skillIds.add(id));
             (item.achievement_ids || []).forEach(achId => {
                 const ach = cv.achievements.find(a => a.id === achId);
-                if (ach) {
-                    (ach.skill_ids || []).forEach(id => skillIds.add(id));
-                }
+                if (ach) (ach.skill_ids || []).forEach(id => skillIds.add(id));
             });
         });
 
         const groupedSkills = { technical: [], soft: [], language: [], other: [] };
         cv.skills.forEach(skill => {
-            if(skill) { // Add safety check
-                (groupedSkills[skill.category] || groupedSkills.other).push(skill);
-            }
+            if(skill) (groupedSkills[skill.category] || groupedSkills.other).push(skill);
         });
         
         return { 
             mappedExperiences, mappedProjects, mappedEducation, mappedHobbies, 
             suggestedExperiences, suggestedProjects, suggestedEducation, suggestedHobbies,
             otherUnmappedExperiences, otherUnmappedProjects, otherUnmappedEducation, otherUnmappedHobbies,
-            aggregatedSkillIds: skillIds,
-            groupedSkills
+            aggregatedSkillIds: skillIds, groupedSkills
         };
-    }, [cv, mapping, allSuggestions]); // <-- NOW DEPENDS ON allSuggestions
+    }, [cv, mapping, allSuggestions]);
 
     const [selectedSkillIds, setSelectedSkillIds] = useState(new Set(aggregatedSkillIds));
 
@@ -217,11 +310,7 @@ const Step2_GenerateCV = ({ job, cv, mapping, onPrev, onNext, onMappingChanged }
     const handleToggleSkill = (skillId) => {
         setSelectedSkillIds(prev => {
             const newSet = new Set(prev);
-            if (newSet.has(skillId)) {
-                newSet.delete(skillId);
-            } else {
-                newSet.add(skillId);
-            }
+            newSet.has(skillId) ? newSet.delete(skillId) : newSet.add(skillId);
             return newSet;
         });
     };
@@ -231,311 +320,228 @@ const Step2_GenerateCV = ({ job, cv, mapping, onPrev, onNext, onMappingChanged }
         try {
             const skillIdArray = Array.from(selectedSkillIds);
             const res = await generateCvPrompt(cv.id, job.id, skillIdArray); 
-            
             setCvPromptJson(JSON.stringify(res.data, null, 2));
             setIsModalOpen(true);
         } catch (err) {
             alert("Failed to generate prompt.");
-            console.error(err);
         } finally {
             setIsLoadingPrompt(false);
         }
     };
 
-    // --- 7. HANDLERS FOR AI SUGGESTIONS ---
+    // --- HANDLERS ---
     const handleAcceptSuggestion = async (suggestion) => {
-        setIsAccepting(suggestion.id); // Use the temp ID
+        setIsAccepting(suggestion.id); 
         try {
             await addMappingPair(
-                mapping.id, 
-                suggestion.feature_id, 
-                suggestion.context_item_id, 
-                suggestion.context_item_type, 
-                suggestion.annotation,
-                suggestion.feature_text,    // Pass the exact text
-                suggestion.context_item_text  // Pass the exact text
+                mapping.id, suggestion.feature_id, suggestion.context_item_id, 
+                suggestion.context_item_type, suggestion.annotation, 
+                suggestion.feature_text, suggestion.context_item_text
             );
-            // This prop comes from ApplicationWorkspace and refetches the mapping
-            // This will trigger the useMemo to re-triage the lists
             await onMappingChanged(); 
         } catch (err) {
-            alert(`Failed to accept pair: ${err.response?.data?.detail || err.message}`);
-            console.error(err);
+            alert(`Failed to accept: ${err.message}`);
         } finally {
             setIsAccepting(null);
         }
     };
 
     const handleIgnoreSuggestion = (suggestionId) => {
-        // Just remove it from the local suggestions list.
-        // On next re-render, useMemo will see it's gone and move
-        // the item to the "otherUnmapped" list.
         setAllSuggestions(prev => prev.filter(s => s.id !== suggestionId));
     };
 
-    // --- 8. HANDLERS FOR MANUAL PROMOTION (from old code) ---
-    const handleOpenPromoteModal = (item, itemType) => {
-        setItemToPromote({ item: item, type: itemType });
-        setIsPromoteModalOpen(true);
-    };
-
-    const handleClosePromoteModal = () => {
-        setItemToPromote(null);
-        setIsPromoteModalOpen(false);
-    };
-    
-    // This handler now needs to be passed *down* to the modal
-    const handleManualPromoteSubmit = async (featureId) => {
-        if (!itemToPromote || !featureId) return;
-        
-        setIsSubmittingManual(true);
+    // New Handler for Inline Promotion (Replaces Modal Logic)
+    const handleInlinePromote = async (reqId, itemId, type, note) => {
         try {
             await addMappingPair(
-                mapping.id,
-                featureId,
-                itemToPromote.item.id,
-                itemToPromote.type,
-                "Manually promoted in Step 2" // Add a default note
+                mapping.id, reqId, itemId, type, note || "Manually promoted in Step 2"
             );
-            await onMappingChanged(); // Reload mapping
-            handleClosePromoteModal();
+            await onMappingChanged();
         } catch (err) {
-            alert(`Failed to promote item: ${err.response?.data?.detail || err.message}`);
-            console.error(err);
-        } finally {
-            setIsSubmittingManual(false);
+            alert(`Failed to promote: ${err.message}`);
+            throw err; // Rethrow to stop loading state in child
         }
     };
 
-
-    // --- 9. RENDER THE FULL CV PREVIEW ---
     return (
-        <div>
-            <h4 className="h5">Step 2: Review Your Tailored CV</h4>
-            <p className="text-muted">
-                This is a preview of the content that will be sent to the AI.
-                Review AI suggestions or manually promote unmapped items to include them.
-            </p>
+        // --- THIS IS THE MODIFIED LINE ---
+        <div className="animate-fade-in" style={{ maxWidth: '960px', margin: '0 auto' }}>
+            <style>{`
+                .border-dashed { border-style: dashed !important; }
+                .hover-shadow-sm:hover { box-shadow: 0 .125rem .25rem rgba(0,0,0,.075)!important; }
+                .cursor-pointer { cursor: pointer; }
+                .custom-scroll::-webkit-scrollbar { width: 6px; }
+                .custom-scroll::-webkit-scrollbar-track { background: transparent; }
+                .custom-scroll::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 10px; }
+            `}</style>
+
+            {/* Header */}
+            <div className="d-flex justify-content-between align-items-center mb-4">
+                <div>
+                    <h5 className="fw-bold text-dark mb-1 d-flex align-items-center gap-2">
+                        <FileCheck size={24} className="text-primary"/> Review Tailored CV
+                    </h5>
+                    <p className="text-muted small mb-0">
+                        Review the content selected for this application. Accept suggestions to enrich your CV.
+                    </p>
+                </div>
+                <button 
+                    type="button"
+                    className="btn btn-primary shadow-sm d-flex align-items-center gap-2" 
+                    onClick={handleGeneratePrompt}
+                    disabled={isLoadingPrompt || isLoadingSuggestions}
+                >
+                    {isLoadingPrompt ? <Loader2 size={16} className="animate-spin"/> : <Wand2 size={16}/>}
+                    Generate AI Prompt
+                </button>
+            </div>
             
             {isLoadingSuggestions && (
-                <div className="d-flex justify-content-center align-items-center my-3">
-                    <div className="spinner-border text-info" role="status">
-                        <span className="visually-hidden">Loading...</span>
-                    </div>
-                    <span className="ms-2">Loading AI suggestions...</span>
+                <div className="alert alert-light border d-flex align-items-center justify-content-center gap-2 text-muted mb-4">
+                    <Loader2 size={16} className="animate-spin"/> Checking for extra suggestions...
                 </div>
             )}
-            {suggestionError && <div className="alert alert-danger">{suggestionError}</div>}
+            {suggestionError && <div className="alert alert-danger small mb-4">{suggestionError}</div>}
             
-            <div 
-                className="border p-3 p-md-4 rounded bg-light" 
-                style={{ maxHeight: '60vh', overflowY: 'auto', filter: isLoadingSuggestions ? 'blur(2px)' : 'none' }}
-            >
-                
-                {/* Header */}
-                <div className="text-center border-bottom pb-3 mb-3">
-                    <h3 className="h4 m-0">{getCVDisplayName(cv)}</h3>
-                    {cv.summary && (
-                        <p className="m-0 mt-1 fst-italic text-muted" style={{whiteSpace: 'pre-wrap'}}>
-                            {cv.summary}
-                        </p>
-                    )}
+            {/* Content Preview Area */}
+            <div className="border rounded-4 shadow-sm bg-white overflow-hidden">
+                <div className="bg-light border-bottom p-3 text-center">
+                    <h3 className="h5 fw-bold text-dark mb-1">{getCVDisplayName(cv)}</h3>
+                    {cv.summary && <p className="small text-muted fst-italic mb-0">{cv.summary}</p>}
                 </div>
 
-                {/* Mapped Experiences */}
-                {(mappedExperiences.length > 0 || suggestedExperiences.length > 0 || otherUnmappedExperiences.length > 0) && (
-                    <div className="mb-4">
-                        <h5 className="text-primary border-bottom pb-1">Professional Experience</h5>
-                        {mappedExperiences.map(item => (
-                            <CVItemDisplayCard key={item.id} item={item} itemType="experiences" allSkills={cv.skills} allAchievements={cv.achievements} allHobbies={cv.hobbies} />
-                        ))}
-                        
-                        {/* --- AI Suggested Experiences --- */}
-                        {suggestedExperiences.length > 0 && (
-                            <div className="mt-3">
-                                <h6 className="text-muted small">💡 AI Suggestions (Not Mapped):</h6>
-                                {suggestedExperiences.map(item => (
-                                    <AISuggestionCard 
-                                        key={item.suggestion.id} 
-                                        item={item} 
-                                        itemType="experiences" 
-                                        suggestion={item.suggestion}
-                                        onAccept={handleAcceptSuggestion}
-                                        onIgnore={handleIgnoreSuggestion}
-                                        isAccepting={isAccepting === item.suggestion.id}
-                                    />
-                                ))}
-                            </div>
-                        )}
-
-                        {/* --- Other Unmapped Experiences --- */}
-                        {otherUnmappedExperiences.length > 0 && (
-                            <div className="mt-3">
-                                <h6 className="text-muted small">Available (Not Mapped):</h6>
-                                {otherUnmappedExperiences.map(item => (
-                                    <GhostItemCard key={item.id} item={item} itemType="experiences" onPromote={handleOpenPromoteModal} />
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                )}
-
-                {/* Mapped Education */}
-                {(mappedEducation.length > 0 || suggestedEducation.length > 0 || otherUnmappedEducation.length > 0) && (
-                    <div className="mb-4">
-                        <h5 className="text-primary border-bottom pb-1">Education</h5>
-                        {mappedEducation.map(item => (
-                            <CVItemDisplayCard key={item.id} item={item} itemType="education" allSkills={cv.skills} allAchievements={cv.achievements} allHobbies={cv.hobbies} />
-                        ))}
-                        {/* --- AI Suggested Education --- */}
-                        {suggestedEducation.map(item => (
-                            <AISuggestionCard 
-                                key={item.suggestion.id} 
-                                item={item} 
-                                itemType="education" 
-                                suggestion={item.suggestion}
-                                onAccept={handleAcceptSuggestion}
-                                onIgnore={handleIgnoreSuggestion}
-                                isAccepting={isAccepting === item.suggestion.id}
-                            />
-                        ))}
-                        {/* --- Other Unmapped Education --- */}
-                        {otherUnmappedEducation.map(item => (
-                            <GhostItemCard key={item.id} item={item} itemType="education" onPromote={handleOpenPromoteModal} />
-                        ))}
-                    </div>
-                )}
-                
-                {/* Mapped Projects */}
-                {(mappedProjects.length > 0 || suggestedProjects.length > 0 || otherUnmappedProjects.length > 0) && (
-                    <div className="mb-4">
-                        <h5 className="text-primary border-bottom pb-1">Projects</h5>
-                        {mappedProjects.map(item => (
-                            <CVItemDisplayCard key={item.id} item={item} itemType="projects" allSkills={cv.skills} allAchievements={cv.achievements} allExperiences={cv.experiences} allEducation={cv.education} allHobbies={cv.hobbies} />
-                        ))}
-                        {/* --- AI Suggested Projects --- */}
-                        {suggestedProjects.map(item => (
-                            <AISuggestionCard 
-                                key={item.suggestion.id} 
-                                item={item} 
-                                itemType="projects" 
-                                suggestion={item.suggestion}
-                                onAccept={handleAcceptSuggestion}
-                                onIgnore={handleIgnoreSuggestion}
-                                isAccepting={isAccepting === item.suggestion.id}
-                            />
-                        ))}
-                        {/* --- Other Unmapped Projects --- */}
-                        {otherUnmappedProjects.map(item => (
-                            <GhostItemCard key={item.id} item={item} itemType="projects" onPromote={handleOpenPromoteModal} />
-                        ))}
-                    </div>
-                )}
-
-                {/* Mapped Hobbies */}
-                {(mappedHobbies.length > 0 || suggestedHobbies.length > 0 || otherUnmappedHobbies.length > 0) && (
-                    <div className="mb-4">
-                        <h5 className="text-primary border-bottom pb-1">Hobbies & Interests</h5>
-                        {mappedHobbies.map(item => (
-                            <CVItemDisplayCard key={item.id} item={item} itemType="hobbies" allSkills={cv.skills} allAchievements={cv.achievements} allHobbies={cv.hobbies} />
-                        ))}
-                        {/* --- AI Suggested Hobbies --- */}
-                        {suggestedHobbies.map(item => (
-                            <AISuggestionCard 
-                                key={item.suggestion.id} 
-                                item={item} 
-                                itemType="hobbies" 
-                                suggestion={item.suggestion}
-                                onAccept={handleAcceptSuggestion}
-                                onIgnore={handleIgnoreSuggestion}
-                                isAccepting={isAccepting === item.suggestion.id}
-                            />
-                        ))}
-                        {/* --- Other Unmapped Hobbies --- */}
-                        {otherUnmappedHobbies.map(item => (
-                            <GhostItemCard key={item.id} item={item} itemType="hobbies" onPromote={handleOpenPromoteModal} />
-                        ))}
-                    </div>
-                )}
-
-                {/* --- Interactive Skills Section (Unchanged) --- */}
-                <div className="mb-4">
-                    <h5 className="text-primary border-bottom pb-1">Skills</h5>
-                    <p className="form-text mt-0 mb-2">
-                        Skills highlighted in green are automatically selected based on your mapping.
-                        Click any skill to include or exclude it from the prompt.
-                    </p>
+                <div className="p-4" style={{ maxHeight: '65vh', overflowY: 'auto' }}>
                     
-                    {['technical', 'soft', 'language', 'other'].map(category => (
-                        groupedSkills[category].length > 0 && (
-                            <div key={category} className="mb-3">
-                                <strong className="text-capitalize d-block mb-2">{category}</strong>
-                                <div className="d-flex flex-wrap gap-2">
-                                    {groupedSkills[category].map(skill => {
-                                        if (!skill) return null; // Safety check
-                                        const isSelected = selectedSkillIds.has(skill.id);
-                                        const isAutoSelected = aggregatedSkillIds.has(skill.id);
-                                        
-                                        return (
-                                            <React.Fragment key={skill.id}>
-                                                <input
-                                                    type="checkbox"
-                                                    className="btn-check"
-                                                    id={`skill-check-${skill.id}`}
-                                                    checked={isSelected}
-                                                    onChange={() => handleToggleSkill(skill.id)}
-                                                    autoComplete="off"
-                                                />
-                                                <label 
-                                                    className={`btn btn-sm ${isSelected ? (isAutoSelected ? 'btn-success' : 'btn-primary') : 'btn-outline-secondary'}`}
-                                                    htmlFor={`skill-check-${skill.id}`}
-                                                >
-                                                    {skill.name}
-                                                </label>
-                                            </React.Fragment>
-                                        );
-                                    })}
+                    {/* --- Section Renderer Helper --- */}
+                    {[
+                        { title: 'Professional Experience', icon: Briefcase, mapped: mappedExperiences, suggested: suggestedExperiences, ghost: otherUnmappedExperiences, type: 'experiences' },
+                        { title: 'Education', icon: GraduationCap, mapped: mappedEducation, suggested: suggestedEducation, ghost: otherUnmappedEducation, type: 'education' },
+                        { title: 'Projects', icon: FolderGit2, mapped: mappedProjects, suggested: suggestedProjects, ghost: otherUnmappedProjects, type: 'projects' },
+                        { title: 'Hobbies & Interests', icon: Heart, mapped: mappedHobbies, suggested: suggestedHobbies, ghost: otherUnmappedHobbies, type: 'hobbies' }
+                    ].map(section => (
+                        (section.mapped.length > 0 || section.suggested.length > 0 || section.ghost.length > 0) && (
+                            <div key={section.type} className="mb-5">
+                                <h6 className="fw-bold text-uppercase text-muted small mb-3 d-flex align-items-center gap-2 border-bottom pb-2">
+                                    <section.icon size={14}/> {section.title}
+                                </h6>
+                                
+                                {/* Mapped Items */}
+                                <div className="d-flex flex-column gap-3 mb-3">
+                                    {section.mapped.map(item => (
+                                        <CVItemDisplayCard 
+                                            key={item.id} 
+                                            item={item} 
+                                            itemType={section.type} 
+                                            allSkills={cv.skills} 
+                                            allAchievements={cv.achievements} 
+                                            allExperiences={cv.experiences} 
+                                            allEducation={cv.education} 
+                                            allHobbies={cv.hobbies} 
+                                        />
+                                    ))}
                                 </div>
+
+                                {/* AI Suggestions */}
+                                {section.suggested.length > 0 && (
+                                    <div className="ps-3 border-start border-2 border-primary border-opacity-25 mb-3">
+                                        <div className="small text-primary fw-bold mb-2">AI Suggestions</div>
+                                        {section.suggested.map(item => (
+                                            <AISuggestionCard 
+                                                key={item.suggestion.id} 
+                                                item={item} 
+                                                itemType={section.type} 
+                                                suggestion={item.suggestion}
+                                                onAccept={handleAcceptSuggestion}
+                                                onIgnore={handleIgnoreSuggestion}
+                                                isAccepting={isAccepting === item.suggestion.id}
+                                            />
+                                        ))}
+                                    </div>
+                                )}
+
+                                {/* Ghost Items (Inline Expandable) */}
+                                {section.ghost.length > 0 && (
+                                    <div className="ps-3 border-start border-2 border-secondary border-opacity-10">
+                                        <div className="small text-muted mb-2">Also Available</div>
+                                        {section.ghost.map(item => (
+                                            <GhostItemCard 
+                                                key={item.id} 
+                                                item={item} 
+                                                itemType={section.type} 
+                                                jobFeatures={job.features} 
+                                                onPromote={handleInlinePromote} 
+                                            />
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         )
                     ))}
+
+                    {/* --- Skills Section --- */}
+                    <div className="mb-4">
+                        <h6 className="fw-bold text-uppercase text-muted small mb-3 d-flex align-items-center gap-2 border-bottom pb-2">
+                            <Cpu size={14}/> Skills
+                        </h6>
+                        <p className="small text-muted mb-3">
+                            Green skills are automatically selected based on your mapping. Click to toggle manual selection (Blue).
+                        </p>
+                        
+                        {['technical', 'soft', 'language', 'other'].map(category => (
+                            groupedSkills[category].length > 0 && (
+                                <div key={category} className="mb-3">
+                                    <strong className="text-capitalize d-block small text-dark mb-2">{category}</strong>
+                                    <div className="d-flex flex-wrap gap-2">
+                                        {groupedSkills[category].map(skill => {
+                                            if (!skill) return null;
+                                            const isSelected = selectedSkillIds.has(skill.id);
+                                            const isAutoSelected = aggregatedSkillIds.has(skill.id);
+                                            
+                                            return (
+                                                <div key={skill.id} className="position-relative">
+                                                    <input
+                                                        type="checkbox"
+                                                        className="btn-check"
+                                                        id={`skill-check-${skill.id}`}
+                                                        checked={isSelected}
+                                                        onChange={() => handleToggleSkill(skill.id)}
+                                                        autoComplete="off"
+                                                    />
+                                                    <label 
+                                                        className={`btn btn-sm rounded-pill border small px-3 transition-all ${
+                                                            isSelected 
+                                                                ? (isAutoSelected ? 'btn-success text-white border-success' : 'btn-primary text-white border-primary') 
+                                                                : 'btn-white text-muted border-light hover-border-secondary'
+                                                        }`}
+                                                        htmlFor={`skill-check-${skill.id}`}
+                                                        style={{fontSize: '0.8rem'}}
+                                                    >
+                                                        {skill.name}
+                                                    </label>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )
+                        ))}
+                    </div>
                 </div>
             </div>
-
-            <button 
-                className="btn btn-info mt-3" 
-                onClick={handleGeneratePrompt}
-                disabled={isLoadingPrompt || isLoadingSuggestions}
-            >
-                {isLoadingPrompt ? "Generating..." : "Generate CV Prompt"}
-            </button>
 
             <PromptModal
                 isOpen={isModalOpen}
                 jsonString={cvPromptJson}
                 onClose={() => setIsModalOpen(false)}
             />
-
-            {/* --- 10. RENDER THE PROMOTE MODAL (passing the new handler) --- */}
-            {isPromoteModalOpen && (
-                <PromoteItemModal
-                    isOpen={isPromoteModalOpen}
-                    onClose={handleClosePromoteModal}
-                    job={job}
-                    mapping={mapping}
-                    itemToPromote={itemToPromote}
-                    onMappingChanged={onMappingChanged}
-                    onPromoteSubmit={handleManualPromoteSubmit} // <-- Pass the correct handler
-                    isSubmitting={isSubmittingManual}
-                />
-            )}
             
-            <div className="d-flex justify-content-between mt-4">
-                <button className="btn btn-outline-secondary" onClick={onPrev}>
-                    &lt; Back: Mapping
+            {/* This button bar will now be constrained by the parent div */}
+            <div className="d-flex justify-content-between mt-4 pt-3 border-top">
+                <button type="button" className="btn btn-outline-secondary d-flex align-items-center gap-2 px-4" onClick={onPrev}>
+                    <ArrowLeft size={16}/> Back
                 </button>
-                <button className="btn btn-primary" onClick={onNext}>
-                    Next: Build Cover Letter &gt;
+                <button type="button" className="btn btn-outline-primary d-flex align-items-center gap-2 px-4" onClick={onNext}>
+                    Next <ArrowRight size={16}/>
                 </button>
             </div>
         </div>

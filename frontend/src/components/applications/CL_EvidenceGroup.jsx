@@ -1,7 +1,7 @@
 // frontend/src/components/applications/CL_EvidenceGroup.jsx
 import React, { useMemo } from 'react';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
-import { SortablePairChip } from './Step3_BuildCoverLetter.jsx'; // Will be exported from Step3
+import { SortablePairChip } from './Step3_BuildCoverLetter.jsx';
 
 /**
  * A component that visually groups mapping pairs under their
@@ -28,13 +28,14 @@ const CL_EvidenceGroup = ({
     }
 
     return (
-        <div className="mb-3">
-            <strong 
-                className="d-block small text-muted border-bottom pb-1 mb-2"
+        // STYLING: Changed to a light card for better UI consistency
+        <div className="card card-body bg-light bg-opacity-50 border-0 p-2 mb-2">
+            <small 
+                className="fw-bold text-muted mb-2 px-1"
                 title={cvItemText}
             >
-                From: {cvItemText.length > 50 ? cvItemText.substring(0, 50) + '...' : cvItemText}
-            </strong>
+                {cvItemText}
+            </small>
             <SortableContext
                 id={`group-${ideaId || 'pool'}-${pairs[0].context_item_id}`}
                 items={sortableIds}
@@ -45,7 +46,11 @@ const CL_EvidenceGroup = ({
                         key={pair.id}
                         pair={pair}
                         ideaId={ideaId}
-                        // Only pass onRemove if it's for an idea
+                        
+                        // --- THIS IS THE FIX ---
+                        // The 'x' button's onClick calls `onRemove()` with no arguments.
+                        // We must wrap `onRemovePair` in a new function that
+                        // provides the `ideaId` and `pair.id` it needs.
                         onRemove={ideaId ? () => onRemovePair(ideaId, pair.id) : null}
                     />
                 ))}
