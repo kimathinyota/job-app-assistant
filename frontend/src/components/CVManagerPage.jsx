@@ -1,6 +1,9 @@
 // frontend/src/components/CVManagerPage.jsx
 import React, { useState, useEffect } from 'react';
+// 1. Import useParams and useNavigate
+import { useLocation, useParams, useNavigate } from 'react-router-dom'; 
 import {
+    fetchAllCVs, 
     deleteBaseCV,
     fetchCVDetails,
     updateBaseCV,
@@ -34,7 +37,7 @@ import {
 } from 'lucide-react';
 
 import CVSelector from './cv/CVList';
-import { getCVDisplayName } from '../utils/cvHelpers'; // <--- IMPORT HELPER
+import { getCVDisplayName } from '../utils/cvHelpers'; 
 
 // --- Managers ---
 import ExperienceManager from './cv/ExperienceManager';
@@ -44,7 +47,7 @@ import ProjectManager from './cv/ProjectManager';
 import SkillsetManager from './cv/SkillsetManager';
 import AchievementHub from './cv/AchievementHub';
 
-// --- Professional Section Card ---
+// --- Professional Section Card (UI UNCHANGED) ---
 const SectionCard = ({ title, count, icon: Icon, colorClass, onClick }) => (
     <div onClick={onClick} className="col-md-4 mb-3">
         <div className="card border-0 shadow-sm h-100 hover-lift cursor-pointer transition-all">
@@ -61,7 +64,7 @@ const SectionCard = ({ title, count, icon: Icon, colorClass, onClick }) => (
     </div>
 );
 
-// --- CVSectionDashboard ---
+// --- CVSectionDashboard (UI UNCHANGED) ---
 const CVSectionDashboard = ({ cv, onSelectSection }) => (
     <div className="row g-3 py-2">
         <SectionCard 
@@ -109,20 +112,65 @@ const CVSectionDashboard = ({ cv, onSelectSection }) => (
     </div>
 );
 
-const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
-    const [selectedCVId, setSelectedCVId] = useState(cvs[0]?.id || null);
+// (Props removed)
+const CVManagerPage = () => {
+    
+    // 2. Get URL param and navigation functions
+    const { cvId } = useParams(); // This will be 'cv_123' or undefined
+    const navigate = useNavigate();
+    const location = useLocation();
+
+    // --- State ---
+    const [cvs, setCvs] = useState([]);
+    const [loadingCvs, setLoadingCvs] = useState(true);
+    const initialSection = location.state?.initialSection;
+    const [selectedCVId, setSelectedCVId] = useState(null);
     const [detailedCV, setDetailedCV] = useState(null);
     const [loadingDetails, setLoadingDetails] = useState(false);
     const [activeSection, setActiveSection] = useState(null);
-    
-    // Edit Header State (Added Title)
     const [isEditingHeader, setIsEditingHeader] = useState(false);
     const [editFormData, setEditFormData] = useState({ name: '', first_name: '', last_name: '', title: '', summary: '' });
-
-    // Create Modal State (Added Title)
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [createFormData, setCreateFormData] = useState({ name: '', first_name: '', last_name: '', title: '', summary: '' });
 
+    
+    // 3. reloadData now determines which CV to select based on the URL
+    const reloadData = async () => {
+        setLoadingCvs(true);
+        let newSelectedCvId = null;
+        try {
+            const data = await fetchAllCVs();
+            setCvs(data || []);
+            
+            if (data && data.length > 0) {
+                // Check if the cvId from the URL is valid
+                const cvFromUrl = data.find(cv => cv.id === cvId);
+                
+                if (cvFromUrl) {
+                    // Priority 1: Select the CV from the URL
+                    newSelectedCvId = cvFromUrl.id;
+                } else {
+                    // Priority 2: Select the first CV in the list
+                    newSelectedCvId = data[0].id;
+                }
+            }
+            // else: No CVs, newSelectedCvId remains null
+            
+        } catch (error) {
+            console.error("Failed to reload CVs:", error);
+        } finally {
+            setLoadingCvs(false);
+            // Set the selected ID. This will trigger the next useEffect
+            setSelectedCVId(newSelectedCvId);
+        }
+    };
+    
+    // Initial data load
+    useEffect(() => {
+        reloadData();
+    }, []); // Runs once on mount
+
+    
     // --- EFFECTS ---
      const fetchAndSetDetails = async (id) => {
         setLoadingDetails(true); 
@@ -137,6 +185,7 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
         }
     };
 
+    // 4. This useEffect now ALSO handles URL synchronization
      useEffect(() => {
         setIsEditingHeader(false);
         if (initialSection) {
@@ -147,21 +196,30 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
 
         if (selectedCVId) {
             fetchAndSetDetails(selectedCVId);
-        } else if (cvs.length > 0) {
-            setSelectedCVId(cvs[0].id);
-        } else {
+            // --- NEW URL SYNC LOGIC ---
+            // If the selected ID is real and doesn't match the URL param, update the URL
+            if (cvId !== selectedCVId) {
+                navigate(`/cv/${selectedCVId}`, { replace: true });
+            }
+            // --- END NEW LOGIC ---
+
+        } else if (!loadingCvs && cvs.length === 0) {
              setDetailedCV(null);
+             // If no CV is selected (e.g., all deleted), navigate to the base /cv URL
+             if (cvId) {
+                navigate('/cv', { replace: true });
+             }
         }
-    }, [selectedCVId, cvs.length, initialSection]);
+    }, [selectedCVId, cvs.length, initialSection, loadingCvs, cvId, navigate]); // Added dependencies
 
 
-    // --- HANDLERS: Header Edit ---
+    // --- HANDLERS ---
      const handleStartEditHeader = () => {
         setEditFormData({
             name: detailedCV.name,
             first_name: detailedCV.first_name || '',
             last_name: detailedCV.last_name || '',
-            title: detailedCV.title || '', // <--- Load title
+            title: detailedCV.title || '', 
             summary: detailedCV.summary || ''
         });
         setIsEditingHeader(true);
@@ -174,14 +232,13 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
             const updatedCV = await updateBaseCV(detailedCV.id, editFormData);
             setDetailedCV(updatedCV);
             setIsEditingHeader(false);
-            await reloadData();
+            await reloadData(); 
         } catch (error) {
             alert('Failed to update CV.');
             console.error(error);
         }
     };
 
-    // --- HANDLERS: Create CV ---
     const handleCreateCV = async (e) => {
         e.preventDefault();
         if (!createFormData.name.trim()) return alert("Internal Name is required");
@@ -191,11 +248,12 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
                 createFormData.name, 
                 createFormData.first_name, 
                 createFormData.last_name, 
-                createFormData.title, // <--- Pass title
+                createFormData.title,
                 createFormData.summary
             );
-            await reloadData(); 
+            // Set the new CV as active, which will trigger the useEffect to navigate
             setSelectedCVId(newCV.id); 
+            await reloadData(); // Reload the list
             setShowCreateModal(false);
             setCreateFormData({ name: '', first_name: '', last_name: '', title: '', summary: '' });
         } catch (err) {
@@ -204,9 +262,8 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
         }
     };
 
-    // --- Unified Item Handler (No changes here) ---
     const handleAddOrUpdateNestedItem = async (cvId, data, itemType) => {
-        // ... (Same as before) ...
+        // ... (This handler is unchanged)
         const isUpdating = Boolean(data.id);
         const itemId = data.id;
         const apiFunctions = {
@@ -238,15 +295,15 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
         }
     };
 
-    // --- Delete Handlers (No changes here) ---
     const handleDeleteCV = async (cvIdToDelete) => {
         if (window.confirm("Delete this master CV? This action cannot be undone.")) {
             try {
                 await deleteBaseCV(cvIdToDelete);
                 alert("CV deleted!");
+                // After deleting, reloadData will run.
+                // The useEffect will see the selectedId has changed
+                // (or become null) and automatically navigate.
                 await reloadData();
-                setSelectedCVId(null);
-                setDetailedCV(null);
             } catch (error) {
                 alert("Failed to delete CV."); console.error(error);
             }
@@ -254,6 +311,7 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
     };
 
      const handleDeleteNested = async (cvIdToDeleteFrom, itemId, listName) => {
+        // ... (This handler is unchanged)
         if (window.confirm(`Permanently delete this item?`)) {
             try {
                 await deleteNestedItem(cvIdToDeleteFrom, itemId, listName);
@@ -264,15 +322,16 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
         }
     };
 
-    const masterSkills = detailedCV?.skills || [];
-    const masterAchievements = detailedCV?.achievements || [];
-    const masterExperiences = detailedCV?.experiences || [];
-    const masterEducation = detailedCV?.education || [];
-    const masterProjects = detailedCV?.projects || [];
-    const masterHobbies = detailedCV?.hobbies || [];
-
+    // --- (This function is unchanged) ---
     const renderSectionDetail = () => {
          if (!activeSection) return null;
+         const masterSkills = detailedCV?.skills || [];
+         const masterAchievements = detailedCV?.achievements || [];
+         const masterExperiences = detailedCV?.experiences || [];
+         const masterEducation = detailedCV?.education || [];
+         const masterProjects = detailedCV?.projects || [];
+         const masterHobbies = detailedCV?.hobbies || [];
+
         const commonProps = {
             cvId: detailedCV.id,
             allSkills: masterSkills,
@@ -293,6 +352,17 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
     };
 
     // --- Main Render ---
+    
+    if (loadingCvs) {
+        return (
+            <div className="text-center py-5">
+                <div className="spinner-border text-primary" role="status">
+                    <span className="visually-hidden">Loading CV Library...</span>
+                </div>
+            </div>
+        );
+    }
+    
     return (
         <div className="text-start pb-5">
             <style>
@@ -305,6 +375,8 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
 
             <div className="mb-4">
                 <h2 className="fw-bold text-dark mb-3">CV Library</h2>
+                {/* 5. The onSelect prop is just setSelectedCVId. This is correct! */}
+                {/* The state update triggers the useEffect, which handles the navigation. */}
                 <CVSelector 
                     cvs={cvs} 
                     onSelect={setSelectedCVId} 
@@ -319,19 +391,17 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
                 ) : detailedCV ? (
                     <div className="animate-fade-in">
                         
-                        {/* CV Header Card */}
+                        {/* CV Header Card (UI UNCHANGED) */}
                         <div className="bg-white rounded-xl border shadow-sm p-4 mb-4">
                             {!isEditingHeader ? (
                                 <div className="d-flex justify-content-between align-items-start">
                                     <div>
                                         <div className="d-flex align-items-center gap-2 mb-1">
-                                            {/* Use Display Name */}
                                             <h3 className="h4 fw-bold text-primary mb-0">
                                                 {getCVDisplayName(detailedCV)}
                                             </h3>
                                             <span className="badge bg-light text-muted border">Master Version</span>
                                         </div>
-                                        {/* Show Internal Name if different from display name */}
                                         <p className="text-muted small mb-1">
                                             Internal ID: <span className="fw-medium text-dark">{detailedCV.name}</span>
                                         </p>
@@ -405,7 +475,7 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
                             )}
                         </div>
 
-                        {/* Content */}
+                        {/* Content (UI UNCHANGED) */}
                         {activeSection === null ? (
                             <>
                                 <CVSectionDashboard cv={detailedCV} onSelectSection={setActiveSection} />
@@ -431,13 +501,13 @@ const CVManagerPage = ({ cvs, setActiveView, reloadData, initialSection }) => {
                     </div>
                 ) : (
                     <div className="text-center py-5 border rounded-xl border-dashed bg-light">
-                        <p className="text-muted mb-3">No CV Selected.</p>
+                        <p className="text-muted mb-3">{cvs.length > 0 ? "No CV Selected." : "No CVs found."}</p>
                         <button onClick={() => setShowCreateModal(true)} className="btn btn-primary">Create your first CV</button>
                     </div>
                 )}
             </div>
 
-            {/* Create CV Modal */}
+            {/* Create CV Modal (UI UNCHANGED) */}
             {showCreateModal && (
                 <>
                     <div className="modal-backdrop fade show"></div>

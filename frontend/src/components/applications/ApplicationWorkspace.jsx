@@ -1,7 +1,10 @@
+// frontend/src/components/applications/ApplicationWorkspace.jsx
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, CheckCircle } from 'lucide-react';
+// --- (NEW) ---
+import { useParams, useNavigate } from 'react-router-dom';
+import { CheckCircle, Info } from 'lucide-react'; 
 
-// --- 1. RESTORED API IMPORTS ---
+// API Imports
 import { 
     fetchApplicationDetails, 
     fetchJobDetails, 
@@ -10,8 +13,8 @@ import {
 } from '../../api/applicationClient';
 import { fetchCVDetails } from '../../api/cvClient';
 
-// --- 2. RESTORED COMPONENT IMPORTS ---
-import Step1_TriageView from './Step1_TriageView'; // Was Step1_Mapping in your snippet, assuming TriageView is the correct UI component
+// Component Imports
+import Step1_TriageView from './Step1_TriageView';
 import Step2_GenerateCV from './Step2_GenerateCV';
 import Step3_BuildCoverLetter from './Step3_BuildCoverLetter';
 import Step4_Submit from './Step4_Submit';
@@ -19,7 +22,13 @@ import JobPreviewModal from './JobPreviewModal';
 
 import './ApplicationWorkspace.css';
 
-const ApplicationWorkspace = ({ applicationId, onExitWorkspace }) => {
+// --- (MODIFIED) ---
+// Props are removed
+const ApplicationWorkspace = () => {
+    // --- (NEW) ---
+    const { applicationId } = useParams(); // Get ID from URL
+    const navigate = useNavigate(); // Get navigation function
+
     // UI State
     const [currentStep, setCurrentStep] = useState(1);
     const [isJobModalOpen, setIsJobModalOpen] = useState(false);
@@ -34,16 +43,15 @@ const ApplicationWorkspace = ({ applicationId, onExitWorkspace }) => {
         mapping: null
     });
 
-    // --- 3. RESTORED DATA FETCHING LOGIC ---
+    // --- (MODIFIED) ---
+    // Data fetching now uses 'applicationId' from useParams
     useEffect(() => {
         const loadAllData = async () => {
             try {
                 setLoading(true);
-                // 1. Fetch Application
                 const appRes = await fetchApplicationDetails(applicationId);
                 const app = appRes.data;
 
-                // 2. Fetch dependencies in parallel
                 const [jobRes, cvRes, mappingRes] = await Promise.all([
                     fetchJobDetails(app.job_id),
                     fetchCVDetails(app.base_cv_id),
@@ -67,13 +75,25 @@ const ApplicationWorkspace = ({ applicationId, onExitWorkspace }) => {
         loadAllData();
     }, [applicationId]);
 
-    // --- 4. RESTORED HANDLERS ---
+    // --- HANDLERS ---
     const handleNextStep = () => setCurrentStep(prev => prev + 1);
     const handlePrevStep = () => setCurrentStep(prev => prev - 1);
+
+    const handleStepClick = (stepId) => {
+        if (stepId < currentStep) {
+            setCurrentStep(stepId);
+        }
+    };
 
     const reloadMapping = async () => {
         const mappingRes = await fetchMappingDetails(data.application.mapping_id);
         setData(prev => ({ ...prev, mapping: mappingRes.data }));
+    };
+
+    // --- (NEW) ---
+    // This is called on the final step to return to the app list
+    const handleOnComplete = () => {
+        navigate('/applications');
     };
 
     const handleCoverLetterCreated = async (newCoverLetterId) => {
@@ -89,7 +109,7 @@ const ApplicationWorkspace = ({ applicationId, onExitWorkspace }) => {
         }
     };
 
-    // --- 5. RENDER LOADING STATES ---
+    // --- RENDER LOADING STATES ---
     if (loading) return (
         <div className="d-flex justify-content-center align-items-center py-5">
             <div className="spinner-border text-primary" role="status">
@@ -103,7 +123,6 @@ const ApplicationWorkspace = ({ applicationId, onExitWorkspace }) => {
     const { application, job, cv, mapping } = data;
     if (!application || !job || !cv || !mapping) return <p className="p-4">Initializing Workspace...</p>;
 
-    // --- 6. MAIN RENDER (THE NEW UI SHELL) ---
     const steps = [
         { id: 1, label: 'Job Analysis' },
         { id: 2, label: 'Tailor CV' },
@@ -112,32 +131,40 @@ const ApplicationWorkspace = ({ applicationId, onExitWorkspace }) => {
     ];
 
     return (
-        <div className="application-workspace animate-fade-in">
+        // This component renders full-width, so we add our own padding
+        <div className="application-workspace animate-fade-in p-4">
             
-            {/* Header */}
-            <div className="d-flex align-items-center justify-content-between mb-4">
-                <div className="d-flex align-items-center gap-3">
-                    <button 
-                        onClick={onExitWorkspace} 
-                        className="btn btn-outline-secondary d-flex align-items-center gap-2"
-                    >
-                        <ArrowLeft size={16} />
-                        Back
-                    </button>
-                    <div>
-                        <h4 className="mb-0 fw-bold">{job.title}</h4>
-                        <small className="text-muted">@ {job.company}</small>
-                    </div>
+            <style>{`
+                .stepper-clickable:hover {
+                    opacity: 0.8;
+                    transform: scale(1.1);
+                }
+                .cursor-pointer {
+                    cursor: pointer;
+                }
+            `}</style>
+            
+            {/* --- (MODIFIED) HEADER --- */}
+            <div className="d-flex align-items-center justify-content-between gap-2 mb-4">
+                {/* Left Group: Title (Back button is GONE) */}
+                <div style={{ minWidth: 0 }}>
+                    <h4 className="mb-0 fw-bold text-truncate">{job.title}</h4>
+                    <small className="text-muted text-truncate d-block">{job.company}</small>
                 </div>
+                
+                {/* Right Group: View Job Button (Icon only) */}
                 <button 
-                    className="btn btn-outline-info btn-sm" 
+                    className="btn btn-outline-info btn-sm d-flex align-items-center p-2" 
                     onClick={() => setIsJobModalOpen(true)}
+                    title="View Job Description"
+                    style={{ flexShrink: 0 }}
                 >
-                    View Job Description
+                    <Info size={16} />
                 </button>
             </div>
+            {/* --- END OF HEADER --- */}
 
-            {/* Progress Stepper */}
+            {/* Progress Stepper (with clickable logic) */}
             <div className="card border-0 shadow-sm mb-4">
                 <div className="card-body py-3">
                     <div className="d-flex justify-content-between align-items-center position-relative">
@@ -147,16 +174,21 @@ const ApplicationWorkspace = ({ applicationId, onExitWorkspace }) => {
                             const isCompleted = step.id < currentStep;
                             const isActive = step.id === currentStep;
                             return (
-                                <div key={step.id} className="d-flex flex-column align-items-center position-relative" style={{ zIndex: 1 }}>
+                                <div 
+                                    key={step.id} 
+                                    className={`d-flex flex-column align-items-center position-relative ${isCompleted ? 'cursor-pointer' : ''}`} 
+                                    style={{ zIndex: 1 }}
+                                    onClick={() => handleStepClick(step.id)}
+                                >
                                     <div 
                                         className={`rounded-circle d-flex align-items-center justify-content-center border border-2 ${
                                             isCompleted || isActive ? 'bg-primary border-primary text-white' : 'bg-white border-secondary-subtle text-muted'
-                                        }`}
+                                        } ${isCompleted ? 'stepper-clickable' : ''}`}
                                         style={{ width: '32px', height: '32px', transition: 'all 0.3s' }}
                                     >
                                         {isCompleted ? <CheckCircle size={16} /> : <span style={{ fontSize: '12px', fontWeight: 'bold' }}>{step.id}</span>}
                                     </div>
-                                    <span className={`mt-2 small fw-bold ${isActive ? 'text-primary' : 'text-muted'}`}>
+                                    <span className={`mt-2 small fw-bold ${isActive || isCompleted ? 'text-primary' : 'text-muted'}`}>
                                         {step.label}
                                     </span>
                                 </div>
@@ -203,7 +235,7 @@ const ApplicationWorkspace = ({ applicationId, onExitWorkspace }) => {
                         <Step4_Submit
                             applicationId={application.id}
                             onPrev={handlePrevStep}
-                            onComplete={onExitWorkspace}
+                            onComplete={handleOnComplete} // <-- Use new handler
                         />
                     )}
                 </div>

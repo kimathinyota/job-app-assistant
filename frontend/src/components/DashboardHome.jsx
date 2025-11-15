@@ -1,5 +1,6 @@
 // frontend/src/components/DashboardHome.jsx
 import React, { useEffect, useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom'; // Import useNavigate
 import { 
     Briefcase, 
     CheckCircle, 
@@ -24,8 +25,13 @@ import {
     fetchAllWorkItems 
 } from '../api/goalClient'; 
 
-const DashboardHome = ({ cvs = [], setActiveView, onNavigateToWorkspace, onNavigateToCVSection }) => {
+import { fetchAllCVs } from '../api/cvClient'; // Import fetchAllCVs
+
+// Component signature no longer accepts any props
+const DashboardHome = () => {
+    const navigate = useNavigate(); // Initialize navigate
     const [loading, setLoading] = useState(true);
+    const [cvs, setCvs] = useState([]); // Add state for CVs
     const [data, setData] = useState({
         apps: [],
         jobs: [],
@@ -33,15 +39,17 @@ const DashboardHome = ({ cvs = [], setActiveView, onNavigateToWorkspace, onNavig
         tasks: []
     });
 
-    // --- 1. Data Loading ---
+    // --- 1. Data Loading (Now fetches CVs as well) ---
     useEffect(() => {
         const loadData = async () => {
             try {
-                const [appsRes, jobsRes, goalsRes, tasksRes] = await Promise.all([
+                // Fetch all data in parallel, including CVs
+                const [appsRes, jobsRes, goalsRes, tasksRes, cvsRes] = await Promise.all([
                     fetchAllApplications(),
                     fetchAllJobs(),
                     fetchAllGoals().catch(() => ({ data: [] })), 
-                    fetchAllWorkItems().catch(() => ({ data: [] }))
+                    fetchAllWorkItems().catch(() => ({ data: [] })),
+                    fetchAllCVs() // Fetch CVs
                 ]);
                 
                 const apps = appsRes.data || [];
@@ -61,6 +69,7 @@ const DashboardHome = ({ cvs = [], setActiveView, onNavigateToWorkspace, onNavig
                     goals: goalsRes.data || [],
                     tasks: tasksRes.data || []
                 });
+                setCvs(cvsRes || []); // Set CVs to local state
 
             } catch (err) {
                 console.error("Dashboard load error:", err);
@@ -69,9 +78,10 @@ const DashboardHome = ({ cvs = [], setActiveView, onNavigateToWorkspace, onNavig
             }
         };
         loadData();
-    }, []);
+    }, []); // Empty dependency array ensures this runs once on mount
 
     // --- 2. Smart Logic (Derived State) ---
+    // This memo now correctly depends on the local 'cvs' state
     const stats = useMemo(() => {
         const now = new Date();
         const sevenDaysAgo = new Date(now.setDate(now.getDate() - 7));
@@ -85,14 +95,14 @@ const DashboardHome = ({ cvs = [], setActiveView, onNavigateToWorkspace, onNavig
             (a.status === 'draft' || a.status === 'applied') && a.updatedAt < sevenDaysAgo
         );
 
-        // Expiring Jobs Logic (Look for drafts where job deadline is soon)
+        // Expiring Jobs Logic
         const upcomingDeadlines = drafts.filter(app => {
             if (!app.job?.application_end_date) return false;
             const deadline = new Date(app.job.application_end_date);
             const today = new Date();
             const diffTime = deadline - today;
             const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
-            return diffDays >= 0 && diffDays <= 3; // Expiring within 3 days
+            return diffDays >= 0 && diffDays <= 3;
         });
 
         // CV Assets Logic: Find the "Master" (largest) CV
@@ -107,7 +117,6 @@ const DashboardHome = ({ cvs = [], setActiveView, onNavigateToWorkspace, onNavig
             quietCount: quiet.length,
             draftCount: drafts.length,
             
-            // Context Arrays
             interviews, 
             offers,
             quiet,
@@ -123,12 +132,13 @@ const DashboardHome = ({ cvs = [], setActiveView, onNavigateToWorkspace, onNavig
             
             masterCvName: bestCV.name || 'Master CV'
         };
-    }, [data.apps, cvs]);
+    }, [data.apps, cvs]); // Now correctly depends on local state
 
     const topTasks = data.tasks.filter(t => t.status !== 'completed').slice(0, 5);
     const activeGoals = data.goals.filter(g => g.status === 'active').slice(0, 3);
 
     // --- 3. Dynamic Welcome Message Engine ---
+    // (This function requires no changes as it depends on 'stats')
     const getWelcomeMessage = () => {
         // Priority 1: Interviews
         if (stats.interviewCount > 0) {
@@ -138,7 +148,6 @@ const DashboardHome = ({ cvs = [], setActiveView, onNavigateToWorkspace, onNavig
                 text: `You have ${stats.interviewCount} active interview process${stats.interviewCount > 1 ? 'es' : ''}. Focus on your prep for ${nextCompany}.`
             };
         }
-
         // Priority 2: Offers
         if (stats.offerCount > 0) {
              return {
@@ -146,7 +155,6 @@ const DashboardHome = ({ cvs = [], setActiveView, onNavigateToWorkspace, onNavig
                 text: `You have ${stats.offerCount} offer${stats.offerCount > 1 ? 's' : ''} waiting for your decision. Take your time to evaluate.`
             };
         }
-
         // Priority 3: Expiring Jobs (Deadlines)
         if (stats.upcomingDeadlines.length > 0) {
             const urgentApp = stats.upcomingDeadlines[0];
@@ -155,15 +163,13 @@ const DashboardHome = ({ cvs = [], setActiveView, onNavigateToWorkspace, onNavig
                 text: `The application for ${urgentApp.job?.title} closes soon. Might be worth finishing that draft today.`
             };
         }
-
-        // Priority 4: Drafts / Momentum (The "Pick me up")
+        // Priority 4: Drafts / Momentum
         if (stats.draftCount > 0) {
             return {
                 title: "Keep the momentum.",
                 text: `You have ${stats.draftCount} application draft${stats.draftCount > 1 ? 's' : ''} in progress. Completing one today is a great win.`
             };
         }
-
         // Default
         return {
             title: "Welcome back.",
@@ -173,11 +179,12 @@ const DashboardHome = ({ cvs = [], setActiveView, onNavigateToWorkspace, onNavig
 
     const welcomeMsg = getWelcomeMessage();
 
-    // --- 4. The "Smart Card" Renderer ---
+    // --- 4. The "Smart Card" Renderer (Updated with navigate) ---
     const renderSmartCard = () => {
         if (stats.offerCount > 0) {
             return (
-                <div className="card border-0 shadow-sm h-100 border-start border-4 border-success bg-success bg-opacity-10 hover-lift cursor-pointer" onClick={() => setActiveView('Application_Tracker')}>
+                <div className="card border-0 shadow-sm h-100 border-start border-4 border-success bg-success bg-opacity-10 hover-lift cursor-pointer" 
+                     onClick={() => navigate('/applications')}> {/* <-- UPDATED */}
                     <div className="card-body p-4">
                         <div className="d-flex justify-content-between align-items-center mb-2">
                             <span className="badge bg-success text-white">Victory Lap</span>
@@ -191,7 +198,8 @@ const DashboardHome = ({ cvs = [], setActiveView, onNavigateToWorkspace, onNavig
         }
         if (stats.interviewCount > 0) {
             return (
-                <div className="card border-0 shadow-sm h-100 border-start border-4 border-info bg-white hover-lift cursor-pointer" onClick={() => onNavigateToWorkspace(stats.interviews[0].id)}>
+                <div className="card border-0 shadow-sm h-100 border-start border-4 border-info bg-white hover-lift cursor-pointer" 
+                     onClick={() => navigate(`/applications/${stats.interviews[0].id}`)}> {/* <-- UPDATED */}
                     <div className="card-body p-4">
                         <div className="d-flex justify-content-between align-items-center mb-2">
                             <span className="badge bg-info bg-opacity-10 text-info-emphasis">High Priority</span>
@@ -208,7 +216,8 @@ const DashboardHome = ({ cvs = [], setActiveView, onNavigateToWorkspace, onNavig
         }
         if (stats.upcomingDeadlines.length > 0) {
              return (
-                <div className="card border-0 shadow-sm h-100 border-start border-4 border-danger bg-white hover-lift cursor-pointer" onClick={() => onNavigateToWorkspace(stats.upcomingDeadlines[0].id)}>
+                <div className="card border-0 shadow-sm h-100 border-start border-4 border-danger bg-white hover-lift cursor-pointer" 
+                     onClick={() => navigate(`/applications/${stats.upcomingDeadlines[0].id}`)}> {/* <-- UPDATED */}
                     <div className="card-body p-4">
                         <div className="d-flex justify-content-between align-items-center mb-2">
                             <span className="badge bg-danger bg-opacity-10 text-danger-emphasis">Expiring Soon</span>
@@ -225,7 +234,8 @@ const DashboardHome = ({ cvs = [], setActiveView, onNavigateToWorkspace, onNavig
         }
         if (stats.quietCount > 0) {
             return (
-                <div className="card border-0 shadow-sm h-100 border-start border-4 border-warning bg-white hover-lift cursor-pointer" onClick={() => onNavigateToWorkspace(stats.quiet[0].id)}>
+                <div className="card border-0 shadow-sm h-100 border-start border-4 border-warning bg-white hover-lift cursor-pointer" 
+                     onClick={() => navigate(`/applications/${stats.quiet[0].id}`)}> {/* <-- UPDATED */}
                     <div className="card-body p-4">
                         <div className="d-flex justify-content-between align-items-center mb-2">
                             <span className="badge bg-warning bg-opacity-10 text-warning-emphasis">Nudge Needed</span>
@@ -243,7 +253,8 @@ const DashboardHome = ({ cvs = [], setActiveView, onNavigateToWorkspace, onNavig
 
         const topGoal = activeGoals[0];
         return (
-            <div className="card border-0 shadow-sm h-100 border-start border-4 border-primary bg-primary bg-opacity-10 hover-lift cursor-pointer" onClick={() => setActiveView('Goal_Tracker')}>
+            <div className="card border-0 shadow-sm h-100 border-start border-4 border-primary bg-primary bg-opacity-10 hover-lift cursor-pointer" 
+                 onClick={() => navigate('/goals')}> {/* <-- UPDATED */}
                 <div className="card-body p-4">
                     <div className="d-flex justify-content-between align-items-center mb-2">
                         <span className="badge bg-primary text-white">Current Focus</span>
@@ -274,6 +285,12 @@ const DashboardHome = ({ cvs = [], setActiveView, onNavigateToWorkspace, onNavig
     // Calculate total assets count
     const totalAssets = stats.skillCount + stats.achievementCount + stats.experienceCount + stats.projectCount + stats.educationCount + stats.hobbyCount;
 
+    // --- Helper for Deep Linking to CV Manager ---
+    const handleNavigateToCVSection = (sectionName) => {
+        // Navigate to /cv and pass the sectionName in location.state
+        navigate('/cv', { state: { initialSection: sectionName } });
+    };
+
     return (
         <div className="container-fluid px-0 pb-5">
             <style>
@@ -302,7 +319,8 @@ const DashboardHome = ({ cvs = [], setActiveView, onNavigateToWorkspace, onNavig
                 
                 {/* Card 1: The Engine (Deep Asset View) */}
                 <div className="col-md-4">
-                    <div className="card border-0 shadow-sm h-100 bg-white hover-lift cursor-pointer" onClick={() => setActiveView('CV_Manager')}>
+                    <div className="card border-0 shadow-sm h-100 bg-white hover-lift cursor-pointer" 
+                         onClick={() => navigate('/cv')}> {/* <-- UPDATED */}
                         <div className="card-body p-4">
                             <div className="d-flex align-items-center gap-3 mb-3">
                                 <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
@@ -331,7 +349,8 @@ const DashboardHome = ({ cvs = [], setActiveView, onNavigateToWorkspace, onNavig
 
                 {/* Card 2: The Pursuit (Pipeline) */}
                 <div className="col-md-4">
-                    <div className="card border-0 shadow-sm h-100 bg-white hover-lift cursor-pointer" onClick={() => setActiveView('Application_Tracker')}>
+                    <div className="card border-0 shadow-sm h-100 bg-white hover-lift cursor-pointer" 
+                         onClick={() => navigate('/applications')}> {/* <-- UPDATED */}
                         <div className="card-body p-4">
                             <div className="d-flex align-items-center gap-3 mb-3">
                                 <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
@@ -371,16 +390,16 @@ const DashboardHome = ({ cvs = [], setActiveView, onNavigateToWorkspace, onNavig
                     <span className="fw-bold text-muted small text-uppercase">Quick Workbench</span>
                     <div className="d-flex gap-2">
                         {/* Add Skill -> CV Manager (Deep Link) */}
-                        <button onClick={() => onNavigateToCVSection('Skills')} className="btn btn-white bg-white border shadow-sm btn-sm fw-medium text-dark d-flex align-items-center gap-2 hover-lift">
+                        <button onClick={() => handleNavigateToCVSection('Skills')} className="btn btn-white bg-white border shadow-sm btn-sm fw-medium text-dark d-flex align-items-center gap-2 hover-lift"> {/* <-- UPDATED */}
                             <PlusCircle size={14} className="text-primary"/> Add Skill
                         </button>
                         {/* Add Experience -> CV Manager (Deep Link) */}
-                        <button onClick={() => onNavigateToCVSection('Experiences')} className="btn btn-white bg-white border shadow-sm btn-sm fw-medium text-dark d-flex align-items-center gap-2 hover-lift">
+                        <button onClick={() => handleNavigateToCVSection('Experiences')} className="btn btn-white bg-white border shadow-sm btn-sm fw-medium text-dark d-flex align-items-center gap-2 hover-lift"> {/* <-- UPDATED */}
                             <PlusCircle size={14} className="text-primary"/> Add Experience
                         </button>
                         <div className="vr opacity-25 mx-1"></div>
                         {/* Track Job -> Tracker */}
-                        <button onClick={() => setActiveView('Application_Tracker')} className="btn btn-primary btn-sm fw-medium d-flex align-items-center gap-2 hover-lift">
+                        <button onClick={() => navigate('/applications')} className="btn btn-primary btn-sm fw-medium d-flex align-items-center gap-2 hover-lift"> {/* <-- UPDATED */}
                             <Briefcase size={14}/> Track Job
                         </button>
                     </div>
@@ -394,7 +413,7 @@ const DashboardHome = ({ cvs = [], setActiveView, onNavigateToWorkspace, onNavig
                 <div className="col-lg-7">
                     <div className="d-flex justify-content-between align-items-center mb-3">
                         <h5 className="fw-bold text-dark mb-0">Recent Journey</h5>
-                        <button onClick={() => setActiveView('Application_Tracker')} className="btn btn-link btn-sm text-decoration-none">View All</button>
+                        <button onClick={() => navigate('/applications')} className="btn btn-link btn-sm text-decoration-none">View All</button> {/* <-- UPDATED */}
                     </div>
                     
                     <div className="card border-0 shadow-sm">
@@ -402,7 +421,7 @@ const DashboardHome = ({ cvs = [], setActiveView, onNavigateToWorkspace, onNavig
                             {data.apps.slice(0, 5).map(app => (
                                 <div 
                                     key={app.id} 
-                                    onClick={() => onNavigateToWorkspace(app.id)}
+                                    onClick={() => navigate(`/applications/${app.id}`)} // <-- UPDATED
                                     className="list-group-item list-group-item-action p-3 border-bottom d-flex align-items-center justify-content-between cursor-pointer hover-lift"
                                 >
                                     <div className="d-flex align-items-center gap-3">
@@ -438,7 +457,7 @@ const DashboardHome = ({ cvs = [], setActiveView, onNavigateToWorkspace, onNavig
                 <div className="col-lg-5">
                     <div className="d-flex justify-content-between align-items-center mb-3">
                         <h5 className="fw-bold text-dark mb-0">Action Center</h5>
-                        <button onClick={() => setActiveView('Goal_Tracker')} className="btn btn-link btn-sm text-decoration-none">Open Tracker</button>
+                        <button onClick={() => navigate('/goals')} className="btn btn-link btn-sm text-decoration-none">Open Tracker</button> {/* <-- UPDATED */}
                     </div>
 
                     {/* Goals Section */}
@@ -487,7 +506,7 @@ const DashboardHome = ({ cvs = [], setActiveView, onNavigateToWorkspace, onNavig
                                 )) : (
                                     <li className="list-group-item border-0 py-4 text-center text-muted small">
                                         No pending tasks. <br/>
-                                        <button onClick={() => setActiveView('Goal_Tracker')} className="btn btn-link btn-sm p-0">Create a task</button>
+                                        <button onClick={() => navigate('/goals')} className="btn btn-link btn-sm p-0">Create a task</button> {/* <-- UPDATED */}
                                     </li>
                                 )}
                             </ul>

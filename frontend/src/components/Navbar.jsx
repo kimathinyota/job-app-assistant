@@ -1,9 +1,11 @@
+// frontend/src/components/Navbar.jsx
 import React, { useState, useEffect } from 'react';
+import { NavLink, Link } from 'react-router-dom';
 import { LayoutDashboard, FileText, Briefcase, Target, Sun, Moon, Settings } from 'lucide-react';
 import logoLight from '../assets/logo_light.svg';
 import logoDark from '../assets/logo_dark.svg';
 
-const Navbar = ({ activeView, setActiveView }) => {
+const Navbar = () => {
   const [isDarkMode, setIsDarkMode] = useState(false);
 
   // Handle Theme Persistence
@@ -27,23 +29,18 @@ const Navbar = ({ activeView, setActiveView }) => {
   };
 
   const navItems = [
-    { key: 'Dashboard', label: 'Overview', icon: LayoutDashboard },
-    { key: 'Application_Tracker', label: 'Applications', icon: Briefcase },
-    { key: 'CV_Manager', label: 'CV Library', icon: FileText },
-    { key: 'Goal_Tracker', label: 'Goals', icon: Target },
+    { to: '/', label: 'Overview', icon: LayoutDashboard },
+    { to: '/applications', label: 'Applications', icon: Briefcase },
+    { to: '/cv', label: 'CV Library', icon: FileText },
+    { to: '/goals', label: 'Goals', icon: Target },
   ];
 
   return (
-    // FIXED-TOP: This class pins the navbar to the top of the viewport
     <nav className="navbar navbar-expand-lg fixed-top navbar-glass border-bottom">
       <div className="container-xxl">
         
         {/* Brand */}
-        <div 
-            className="d-flex align-items-center cursor-pointer" 
-            onClick={() => setActiveView('Dashboard')}
-            style={{ cursor: 'pointer' }}
-        >
+        <Link to="/" className="d-flex align-items-center text-decoration-none">
             <img 
                 src={isDarkMode ? logoDark : logoLight} 
                 alt="RoleCraft Logo" 
@@ -59,7 +56,7 @@ const Navbar = ({ activeView, setActiveView }) => {
                     Career OS
                 </span>
             </div>
-        </div>
+        </Link>
 
         {/* Mobile Toggle */}
         <button className="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarContent">
@@ -71,17 +68,18 @@ const Navbar = ({ activeView, setActiveView }) => {
             <ul className="navbar-nav mb-2 mb-lg-0 gap-2">
                 {navItems.map((item) => {
                     const Icon = item.icon;
-                    const isActive = activeView === item.key;
                     return (
-                        <li className="nav-item" key={item.key}>
-                            <button
-                                onClick={() => setActiveView(item.key)}
-                                className={`nav-link d-flex align-items-center gap-2 px-3 rounded-3 ${isActive ? 'active bg-primary-subtle text-primary fw-semibold' : ''}`}
-                                style={{ border: 'none', background: isActive ? '' : 'transparent' }}
+                        <li className="nav-item" key={item.to}>
+                            <NavLink
+                                to={item.to}
+                                className={({ isActive }) => 
+                                    `nav-link d-flex align-items-center gap-2 px-3 rounded-3 ${isActive ? 'active bg-primary-subtle text-primary fw-semibold' : ''}`
+                                }
+                                style={{ border: 'none', background: 'transparent' }}
                             >
                                 <Icon size={18} />
                                 {item.label}
-                            </button>
+                            </NavLink>
                         </li>
                     );
                 })}

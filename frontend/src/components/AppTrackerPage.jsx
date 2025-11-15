@@ -1,12 +1,40 @@
 // frontend/src/components/AppTrackerPage.jsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react'; // <-- Added useEffect
+import { useNavigate } from 'react-router-dom';   // <-- Added useNavigate
 import { Rocket, Briefcase } from 'lucide-react'; 
 import ApplicationsView from './applications/ApplicationsView';
 import SavedJobsView from './applications/SavedJobsView';
+import { fetchAllCVs } from '../api/cvClient'; // <-- Added cvClient import
 
-const AppTrackerPage = ({ defaultCvId, onNavigateToWorkspace }) => {
+// 1. Removed all props
+const AppTrackerPage = () => {
     const [activeTab, setActiveTab] = useState('applications');
+    
+    // 2. Added state and hooks to make the component self-contained
+    const [defaultCvId, setDefaultCvId] = useState(null);
+    const navigate = useNavigate();
 
+    // 3. Fetch data that was previously passed as props
+    useEffect(() => {
+        const loadData = async () => {
+            try {
+                const cvs = await fetchAllCVs();
+                if (cvs && cvs.length > 0) {
+                    setDefaultCvId(cvs[0].id);
+                }
+            } catch (err) {
+                console.error("Failed to load default CV ID:", err);
+            }
+        };
+        loadData();
+    }, []);
+
+    // 4. Re-create the navigation function locally
+    const handleNavigateToWorkspace = (appId) => {
+        navigate(`/applications/${appId}`);
+    };
+
+    // 5. The entire return block (UI) is identical to your original file.
     return (
         <div className="text-start h-100 d-flex flex-column">
             <style>
@@ -78,8 +106,8 @@ const AppTrackerPage = ({ defaultCvId, onNavigateToWorkspace }) => {
             <div className="flex-grow-1 animate-fade-in">
                 {activeTab === 'applications' && (
                     <ApplicationsView 
-                        onNavigateToWorkspace={onNavigateToWorkspace}
-                        // PASS THE SWITCHER FUNCTION HERE:
+                        // 6. Pass the locally created function
+                        onNavigateToWorkspace={handleNavigateToWorkspace}
                         onTrackJob={() => setActiveTab('jobs')} 
                     />
                 )}
@@ -87,8 +115,9 @@ const AppTrackerPage = ({ defaultCvId, onNavigateToWorkspace }) => {
                 {activeTab === 'jobs' && (
                     <div className="animation-slide-up">
                         <SavedJobsView 
+                            // 7. Pass the locally fetched state and created function
                             defaultCvId={defaultCvId}
-                            onNavigateToWorkspace={onNavigateToWorkspace} 
+                            onNavigateToWorkspace={handleNavigateToWorkspace} 
                         />
                     </div>
                 )}
