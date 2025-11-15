@@ -82,3 +82,23 @@
     from { opacity: 0; transform: translateY(10px); }
     to { opacity: 1; transform: translateY(0); }
 }
+
+
+.application-workspace {
+    /* Ensure it doesn't sit on top of the fixed Navbar (z-index 1030) */
+    position: relative; 
+    z-index: 1; 
+    
+    /* If it was previously 'fixed', change it to relative/static 
+       so it flows inside the standard Layout container. */
+    height: 100%;
+    width: 100%;
+    
+    /* Add fade-in animation */
+    animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
