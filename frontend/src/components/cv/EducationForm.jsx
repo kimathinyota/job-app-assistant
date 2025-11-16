@@ -1,10 +1,11 @@
-// frontend/src/components/cv/EducationForm.jsx
 import React, { useState, useEffect } from 'react';
 import { BookOpen, Layers, Award, ChevronDown, ChevronUp } from 'lucide-react';
 import SkillLinker from './SkillLinker';
 import SelectedSkillsDisplay from './SelectedSkillsDisplay';
-import AchievementManagerModal from './AchievementManagerModal';
+import AchievementManagerPanel from './AchievementManagerPanel'; // 1. IMPORT PANEL
 import AchievementDisplayGrid from './AchievementDisplayGrid';
+import SkillManagerPanel from './SkillManagerPanel'; // 2. IMPORT PANEL
+import { useWindowSize } from '../../hooks/useWindowSize'; // 3. IMPORT HOOK
 
 const EducationForm = ({
     onSubmit,
@@ -14,6 +15,10 @@ const EducationForm = ({
     initialData,
     onCancelEdit
 }) => {
+    // 4. HOOK FOR RESPONSIVENESS
+    const { width } = useWindowSize();
+    const isMobile = width <= 768; // Bootstrap 'md' breakpoint
+
     // Form fields for Education
     const [institution, setInstitution] = useState('');
     const [degree, setDegree] = useState('');
@@ -30,16 +35,17 @@ const EducationForm = ({
     const [pendingAchievements, setPendingAchievements] = useState([]);
     
     // Toggles
-    const [showSkillLinker, setShowSkillLinker] = useState(false); // Replaces Modal
-    const [isAchievementModalOpen, setIsAchievementModalOpen] = useState(false);
+    const [showSkillLinker, setShowSkillLinker] = useState(false);
+    const [isAchievementPanelOpen, setIsAchievementPanelOpen] = useState(false); // 5. STATE RENAMED
+    const [isSkillPanelOpen, setIsSkillPanelOpen] = useState(false); // 6. NEW STATE
 
-    // State for "rolled-up" display
+    // State for "rolled-up" display (BUG FIX ALREADY PRESENT)
     const [aggregatedSkillIds, setAggregatedSkillIds] = useState([]);
     const [aggregatedPendingSkills, setAggregatedPendingSkills] = useState([]);
 
     const isEditing = Boolean(initialData);
 
-    // Populate form on load
+    // Populate form on load (Unchanged)
     useEffect(() => {
         if (isEditing) {
             setInstitution(initialData.institution || '');
@@ -72,7 +78,7 @@ const EducationForm = ({
     }, [initialData, isEditing, cvId, allAchievements]); 
 
     
-    // Calculate aggregated lists
+    // Calculate aggregated lists (Unchanged)
     useEffect(() => {
         const allIds = new Set(directSkillIds);
         const achIds = new Set(); 
@@ -103,7 +109,7 @@ const EducationForm = ({
     }, [directSkillIds, directPendingSkills, linkedExistingAchievements, pendingAchievements]);
     
     
-    // Handler: Achievement Selection
+    // Handler: Achievement Selection (Unchanged)
     const handleExistingAchievementSelection = (newIdList) => {
         const newIds = newIdList.filter(id => !linkedExistingAchievements.some(a => a.id === id));
         const removedIds = linkedExistingAchievements.map(a => a.id).filter(id => !newIdList.includes(id));
@@ -118,7 +124,7 @@ const EducationForm = ({
         setLinkedExistingAchievements(newList);
     };
 
-    // --- CORE LOGIC RESTORED ---
+    // Handler: Skill Selection (Unchanged)
     const handleSkillSelectionChange = (newAggregatedList) => {
         const oldAggregatedList = aggregatedSkillIds; 
 
@@ -164,7 +170,7 @@ const EducationForm = ({
         }
     };
 
-    // --- CORE LOGIC RESTORED ---
+    // Handler: Smart Pending Skills (Unchanged)
     const smartSetAggregatedPendingSkills = (updaterFn) => {
         const currentAggregated = aggregatedPendingSkills;
         const newAggregated = typeof updaterFn === 'function' ? updaterFn(currentAggregated) : updaterFn;
@@ -196,6 +202,7 @@ const EducationForm = ({
         }
     };
 
+    // Handler: Submit (Unchanged)
     const handleSubmit = (e) => {
         e.preventDefault();
         if (!institution.trim() || !degree.trim()) return;
@@ -242,13 +249,25 @@ const EducationForm = ({
         }
     };
 
-    const allAchievementsToShow = [...linkedExistingAchievements, ...pendingAchievements];
+    // 7. ADD isPending FLAG
+    const linkedWithFlag = linkedExistingAchievements.map(a => ({ ...a, isPending: false }));
+    const pendingWithFlag = pendingAchievements.map(a => ({ ...a, isPending: true }));
+    const allAchievementsToShow = [...linkedWithFlag, ...pendingWithFlag];
+
+    // 8. NEW RESPONSIVE HANDLER
+    const handleSkillToggle = () => {
+        if (isMobile) {
+            setIsSkillPanelOpen(true);
+        } else {
+            setShowSkillLinker(!showSkillLinker);
+        }
+    };
 
     return (
         <form 
             key={initialData?.id || 'new'} 
             onSubmit={handleSubmit} 
-            className="card border-0 shadow-sm p-4 bg-white"
+            className="card border-0 shadow-sm p-3 p-md-4 bg-white" // Responsive padding
         >
             {/* Header */}
             <div className="d-flex align-items-center gap-2 mb-4 border-bottom pb-2">
@@ -258,19 +277,19 @@ const EducationForm = ({
                 </h5>
             </div>
 
-            {/* Fields */}
+            {/* Fields (Unchanged) */}
             <div className="row g-3">
                 <div className="col-md-6">
                     <label htmlFor="edu-institution" className="form-label fw-bold small text-uppercase text-muted">Institution</label>
-                    <input type="text" value={institution} onChange={(e) => setInstitution(e.target.value)} placeholder="e.g., University of Example" required className="form-control" />
+                    <input id="edu-institution" type="text" value={institution} onChange={(e) => setInstitution(e.target.value)} placeholder="e.g., University of Example" required className="form-control" />
                 </div>
                 <div className="col-md-6">
                     <label htmlFor="edu-degree" className="form-label fw-bold small text-uppercase text-muted">Degree</label>
-                    <input type="text" value={degree} onChange={(e) => setDegree(e.target.value)} placeholder="e.g., B.S. Computer Science" required className="form-control"/>
+                    <input id="edu-degree" type="text" value={degree} onChange={(e) => setDegree(e.target.value)} placeholder="e.g., B.S. Computer Science" required className="form-control"/>
                 </div>
                 <div className="col-12">
-                    <label className="form-label fw-bold small text-uppercase text-muted">Field of Study (Optional)</label>
-                    <input type="text" value={field} onChange={(e) => setField(e.target.value)} placeholder="e.g., Software Engineering" className="form-control" />
+                    <label htmlFor="edu-field" className="form-label fw-bold small text-uppercase text-muted">Field of Study (Optional)</label>
+                    <input id="edu-field" type="text" value={field} onChange={(e) => setField(e.target.value)} placeholder="e.g., Software Engineering" className="form-control" />
                 </div>
                 <div className="col-md-6">
                     <label htmlFor="edu-start" className="form-label fw-bold small text-uppercase text-muted">Start Date</label>
@@ -300,11 +319,11 @@ const EducationForm = ({
 
             <hr className="my-4 opacity-10" />
 
-            {/* --- SKILLS Section (Integrated Linker) --- */}
+            {/* --- 9. SKILLS Section (RESPONSIVE) --- */}
             <div className="mb-4">
                 <div 
                     className="d-flex justify-content-between align-items-center mb-2 cursor-pointer"
-                    onClick={() => setShowSkillLinker(!showSkillLinker)}
+                    onClick={handleSkillToggle} // Use new handler
                 >
                     <label className="form-label fw-bold text-dark d-flex align-items-center gap-2 mb-0 cursor-pointer">
                         <Layers size={16} className="text-emerald-600"/> 
@@ -317,63 +336,79 @@ const EducationForm = ({
                         type="button" 
                         className="btn btn-light btn-sm text-secondary"
                     >
-                        {showSkillLinker ? <ChevronUp size={16}/> : <ChevronDown size={16}/>}
+                        {/* Show chevron on mobile, or toggle up/down on desktop */}
+                        {isMobile ? 
+                            <ChevronDown size={16}/> : 
+                            (showSkillLinker ? <ChevronUp size={16}/> : <ChevronDown size={16}/>)
+                        }
                     </button>
                 </div>
 
-                {showSkillLinker ? (
+                {/* --- RENDER LOGIC FOR SKILLS --- */}
+                {/* A. On Desktop, show inline linker */}
+                {!isMobile && showSkillLinker && (
                     <div className="animate-fade-in mt-2 p-3 bg-light rounded border">
                         <SkillLinker
                             allSkills={allSkills}
-                            // Bind to AGGREGATED lists to support the complex logic
                             selectedSkillIds={aggregatedSkillIds}
                             setSelectedSkillIds={handleSkillSelectionChange}
                             pendingSkills={aggregatedPendingSkills}
                             setPendingSkills={smartSetAggregatedPendingSkills}
-                            // Pass aggregated session skills
                             sessionSkills={aggregatedPendingSkills} 
                         />
                     </div>
-                ) : (
-                    (aggregatedSkillIds.length > 0 || aggregatedPendingSkills.length > 0) ? (
-                        <div 
-                            className="bg-light p-3 rounded border cursor-pointer hover:bg-slate-100 transition-all"
-                            onClick={() => setShowSkillLinker(true)}
-                        >
-                            <SelectedSkillsDisplay
-                                allSkills={allSkills}
-                                selectedSkillIds={aggregatedSkillIds}
-                                pendingSkills={aggregatedPendingSkills}
-                            />
-                        </div>
-                    ) : (
-                        <div 
-                            className="text-muted small fst-italic border border-dashed rounded p-2 text-center cursor-pointer hover:bg-light"
-                            onClick={() => setShowSkillLinker(true)}
-                        >
-                            Click to link skills...
-                        </div>
-                    )
                 )}
+                
+                {/* B. On Desktop AND Mobile, show display card when linker is hidden */}
+                {(isMobile || !showSkillLinker) && (aggregatedSkillIds.length > 0 || aggregatedPendingSkills.length > 0) ? (
+                    <div 
+                        className="bg-light p-3 rounded border cursor-pointer hover-bg-slate-100 transition-all"
+                        onClick={handleSkillToggle} // This will now open the panel on mobile
+                    >
+                        <SelectedSkillsDisplay
+                            allSkills={allSkills}
+                            selectedSkillIds={aggregatedSkillIds}
+                            pendingSkills={aggregatedPendingSkills}
+                        />
+                    </div>
+                ) : null}
+                
+                {/* C. On Desktop AND Mobile, show empty state when linker is hidden */}
+                {(isMobile || !showSkillLinker) && !(aggregatedSkillIds.length > 0 || aggregatedPendingSkills.length > 0) ? (
+                    <div 
+                        className="text-muted small fst-italic border border-dashed rounded p-2 text-center cursor-pointer hover:bg-light"
+                        onClick={handleSkillToggle} // This will now open the panel on mobile
+                    >
+                        Click to link skills...
+                    </div>
+                ) : null}
             </div>
 
-            {/* --- ACHIEVEMENTS Section --- */}
+            {/* --- 10. ACHIEVEMENTS Section (RESPONSIVE) --- */}
             <div className="mb-4">
                  <div className="d-flex justify-content-between align-items-center mb-2">
                      <label className="form-label fw-bold text-dark d-flex align-items-center gap-2 mb-0">
                         <Award size={16} className="text-amber-500"/> Achievements
                      </label>
+                     {/* Responsive Button */}
                      <button 
                         type="button" 
-                        onClick={() => setIsAchievementModalOpen(true)} 
-                        className="btn btn-outline-secondary btn-sm py-0 px-2"
-                        style={{fontSize: '0.8rem'}}
+                        onClick={() => setIsAchievementPanelOpen(true)}
+                        className={`btn btn-sm ${isMobile ? 'btn-light text-secondary' : 'btn-outline-secondary'}`}
                      >
-                         + Manage
+                        {isMobile ? (
+                            <ChevronDown size={16}/>
+                        ) : (
+                            <span className="py-0 px-1" style={{fontSize: '0.8rem'}}>+ Manage</span>
+                        )}
                      </button>
                  </div>
+                 
                  {allAchievementsToShow.length > 0 ? (
-                     <div className="bg-light p-3 rounded border">
+                     <div // Make grid clickable
+                        className="bg-light p-3 rounded border cursor-pointer hover-bg-slate-100 transition-all"
+                        onClick={() => setIsAchievementPanelOpen(true)} 
+                    >
                         <AchievementDisplayGrid
                             achievementsToDisplay={allAchievementsToShow}
                             allSkills={allSkills}
@@ -381,16 +416,19 @@ const EducationForm = ({
                         />
                      </div>
                  ) : (
-                     <div className="bg-light p-3 rounded border text-center">
-                        <span className="text-muted small fst-italic">No achievements added.</span>
+                     <div // Make empty state clickable
+                        className="bg-light p-3 rounded border text-center cursor-pointer hover-bg-slate-100 transition-all"
+                        onClick={() => setIsAchievementPanelOpen(true)}
+                    >
+                        <span className="text-muted small fst-italic">No achievements added. Click to manage.</span>
                      </div>
                  )}
             </div>
 
-            {/* Achievement Modal */}
-             <AchievementManagerModal
-                 isOpen={isAchievementModalOpen}
-                 onClose={() => setIsAchievementModalOpen(false)}
+            {/* --- 11. RENDER THE PANELS --- */}
+             <AchievementManagerPanel
+                 isOpen={isAchievementPanelOpen}
+                 onClose={() => setIsAchievementPanelOpen(false)}
                  allAchievements={allAchievements}
                  selectedAchievementIds={linkedExistingAchievements.map(a => a.id)}
                  setSelectedAchievementIds={handleExistingAchievementSelection}
@@ -399,8 +437,19 @@ const EducationForm = ({
                  allSkills={allSkills}
                  sessionSkills={aggregatedPendingSkills}
              />
+             
+             <SkillManagerPanel
+                isOpen={isSkillPanelOpen}
+                onClose={() => setIsSkillPanelOpen(false)}
+                allSkills={allSkills}
+                selectedSkillIds={aggregatedSkillIds}
+                setSelectedSkillIds={handleSkillSelectionChange}
+                pendingSkills={aggregatedPendingSkills}
+                setPendingSkills={smartSetAggregatedPendingSkills}
+                sessionSkills={aggregatedPendingSkills}
+             />
 
-            {/* Actions */}
+            {/* Actions (Unchanged) */}
             <div className="d-flex gap-2 justify-content-end mt-4 pt-3 border-top">
                 {onCancelEdit && (
                     <button 
@@ -418,4 +467,5 @@ const EducationForm = ({
         </form>
     );
 };
+
 export default EducationForm;

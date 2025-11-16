@@ -78,7 +78,15 @@ const SkillLinker = ({
         <label className="form-label fw-bold small text-uppercase text-muted mb-3">
           Create New Skill (Local)
         </label>
-        <div className="input-group">
+        
+        {/* --- THIS IS THE FIX ---
+          * Replaced `className="input-group"` with:
+          * `d-flex`: Enables flexbox
+          * `flex-column`: Stacks items vertically by default (on mobile)
+          * `flex-sm-row`: Switches to a horizontal row on 'sm' screens and up
+          * `gap-2`: Adds spacing that works in both column and row
+        */}
+        <div className="d-flex flex-column flex-sm-row gap-2">
             <input
                 type="text"
                 value={newSkillName}
@@ -90,6 +98,9 @@ const SkillLinker = ({
                 value={newSkillCategory}
                 onChange={(e) => setNewSkillCategory(e.target.value)}
                 className="form-select bg-light"
+                // This style works with the fix:
+                // On mobile (column): form-select is 100% width, capped at 130px.
+                // On desktop (row): form-select is capped at 130px, which is what you want.
                 style={{ maxWidth: '130px' }}
             >
                 <option value="technical">Technical</option>
@@ -106,6 +117,8 @@ const SkillLinker = ({
                 <Plus size={18} /> Add
             </button>
         </div>
+        {/* --- END FIX --- */}
+
 
         {/* Display Currently Added (Pending) */}
         {pendingSkills.length > 0 && (

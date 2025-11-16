@@ -1,6 +1,39 @@
-// frontend/src/components/cv/AchievementDisplayGrid.jsx
 import React from 'react';
-import { Edit2, X, Award } from 'lucide-react';
+import { Edit2, X, Award, Link as LinkIcon, Plus, Copy } from 'lucide-react';
+
+// A new sub-component to render the status badge
+const StatusBadge = ({ achievement, isDisplayOnly }) => {
+    if (achievement.isPending) {
+        const isModified = !!achievement.original_id;
+        return (
+            <span 
+                className="badge d-flex align-items-center gap-1 bg-warning-subtle text-warning-emphasis border border-warning-subtle"
+            >
+                {/* --- FIX IS HERE --- */}
+                {isModified ? <Copy size={12} /> : <Plus size={12} />}
+                {isModified ? 'Modified' : 'New'} 
+                {/* --- END FIX --- */}
+            </span>
+        );
+    }
+
+    // It's a "Linked" item.
+    // Only show the badge if we are NOT in display-only mode (i.e., we are inside the panel).
+    if (!isDisplayOnly) {
+        return (
+            <span 
+                className="badge d-flex align-items-center gap-1 bg-primary-subtle text-primary-emphasis border border-primary-subtle"
+            >
+                <LinkIcon size={12} />
+                Linked
+            </span>
+        );
+    }
+
+    // In display-only mode, don't show a badge for linked items.
+    return null; 
+};
+
 
 const AchievementDisplayGrid = ({
   achievementsToDisplay = [],
@@ -9,8 +42,10 @@ const AchievementDisplayGrid = ({
   onEditAchievement,
   isDisplayOnly = false 
 }) => {
+
   if (!achievementsToDisplay || achievementsToDisplay.length === 0) {
-    return <p className="text-muted fst-italic small mt-2 text-center w-100">No achievements to display.</p>;
+    // Return null instead of a message, the parent component will handle the empty state
+    return null; 
   }
 
   const getSkillName = (id) => {
@@ -22,10 +57,17 @@ const AchievementDisplayGrid = ({
     <div className="row g-3 mt-1">
       {achievementsToDisplay.map((ach) => ( 
         <div key={ach.id || ach.index} className="col-12 col-md-6">
-            <div className={`
-                card border-0 shadow-sm h-100 group hover-lift transition-all bg-white
-                ${ach.isPending ? 'border-start border-4 border-warning' : ''}
-            `}>
+            <div 
+                className={`
+                    card border-0 shadow-sm h-100 group hover-lift transition-all bg-white
+                `}
+                style={ach.isPending ? {
+                    borderStyle: 'dashed',
+                    borderWidth: '1px',
+                    borderColor: 'var(--bs-warning-border-subtle)',
+                    opacity: 0.9
+                } : {}}
+            >
                 <div className="card-body p-3 position-relative">
                     
                     {/* Actions */}
@@ -59,11 +101,17 @@ const AchievementDisplayGrid = ({
                     {/* Content */}
                     <div className="d-flex gap-3">
                         <div className="mt-1 flex-shrink-0">
-                            <div className="p-2 bg-amber-50 text-amber-600 rounded-circle">
-                                <Award size={16} />
+                            <div className={`p-2 rounded-circle ${ach.isPending ? 'bg-light' : 'bg-amber-50 text-amber-600'}`}>
+                                <Award size={16} className={ach.isPending ? 'text-muted' : ''} />
                             </div>
                         </div>
                         <div className="flex-grow-1" style={{ paddingRight: isDisplayOnly ? '0' : '3rem' }}>
+                            
+                            {/* Status Badge */}
+                            <div className="mb-2">
+                                <StatusBadge achievement={ach} isDisplayOnly={isDisplayOnly} />
+                            </div>
+
                             <p className="mb-2 small text-dark fw-medium lh-sm">
                                 {ach.text}
                             </p>

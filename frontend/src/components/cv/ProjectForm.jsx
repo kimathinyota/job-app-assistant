@@ -1,28 +1,33 @@
-// frontend/src/components/cv/ProjectForm.jsx
 import React, { useState, useEffect } from 'react';
-import { Cpu, Layers, Award, Link, ChevronDown, ChevronUp } from 'lucide-react';
+import { Cpu, Layers, Award, Link, ChevronDown, ChevronUp, Briefcase } from 'lucide-react';
 import SkillLinker from './SkillLinker';
 import SelectedSkillsDisplay from './SelectedSkillsDisplay';
-import AchievementManagerModal from './AchievementManagerModal';
+import AchievementManagerPanel from './AchievementManagerPanel'; // 1. IMPORT PANEL
 import AchievementDisplayGrid from './AchievementDisplayGrid';
-import ContextLinker from './ContextLinker'; // <-- Import new ContextLinker
+import ContextLinker from './ContextLinker';
+import SkillManagerPanel from './SkillManagerPanel'; // 2. IMPORT PANEL
+import { useWindowSize } from '../../hooks/useWindowSize'; // 3. IMPORT HOOK
 
 const ProjectForm = ({
     onSubmit,
     cvId,
     allExperiences = [],
     allEducation = [],
-    allHobbies = [], // <-- Added allHobbies to props
+    allHobbies = [],
     allSkills,
     allAchievements,
     initialData,
     onCancelEdit
 }) => {
+    // 4. HOOK FOR RESPONSIVENESS
+    const { width } = useWindowSize();
+    const isMobile = width <= 768; // Bootstrap 'md' breakpoint
+
     // Form fields
     const [title, setTitle] = useState('');
     const [description, setDescription] = useState('');
     
-    // --- CHANGED: Related item Lists instead of single IDs ---
+    // Related item Lists
     const [relatedExpIds, setRelatedExpIds] = useState([]);
     const [relatedEduIds, setRelatedEduIds] = useState([]);
     const [relatedHobbyIds, setRelatedHobbyIds] = useState([]);
@@ -35,24 +40,24 @@ const ProjectForm = ({
     const [linkedExistingAchievements, setLinkedExistingAchievements] = useState([]);
     const [pendingAchievements, setPendingAchievements] = useState([]);
     
-    // State
+    // Toggles
     const [showSkillLinker, setShowSkillLinker] = useState(false);
-    const [showContextLinker, setShowContextLinker] = useState(false); // <-- ADDED
-    const [isAchievementModalOpen, setIsAchievementModalOpen] = useState(false);
+    const [showContextLinker, setShowContextLinker] = useState(false);
+    const [isAchievementPanelOpen, setIsAchievementPanelOpen] = useState(false); // 5. STATE RENAMED
+    const [isSkillPanelOpen, setIsSkillPanelOpen] = useState(false); // 6. NEW STATE
 
-    // State for "rolled-up" display
+    // State for "rolled-up" display (BUG FIX ALREADY PRESENT)
     const [aggregatedSkillIds, setAggregatedSkillIds] = useState([]);
     const [aggregatedPendingSkills, setAggregatedPendingSkills] = useState([]);
 
     const isEditing = Boolean(initialData);
 
-    // Populate form on load
+    // Populate form on load (Unchanged)
     useEffect(() => {
         if (isEditing) {
             setTitle(initialData.title || '');
             setDescription(initialData.description || '');
             
-            // --- CHANGED: Handle mapping from potential lists or fallback singulars ---
             const initExpIds = initialData.related_experience_ids || [];
             if (initExpIds.length === 0 && initialData.related_experience_id) {
                 initExpIds.push(initialData.related_experience_id);
@@ -67,7 +72,6 @@ const ProjectForm = ({
 
             const initHobbyIds = initialData.related_hobby_ids || [];
             setRelatedHobbyIds(initHobbyIds);
-            // -----------------------------------------------------------
             
             setDirectSkillIds(initialData.skill_ids || []);
             setDirectPendingSkills([]); 
@@ -81,11 +85,9 @@ const ProjectForm = ({
         } else {
             setTitle('');
             setDescription('');
-            // Reset Context Lists
             setRelatedExpIds([]);
             setRelatedEduIds([]);
             setRelatedHobbyIds([]);
-            
             setDirectSkillIds([]); 
             setDirectPendingSkills([]); 
             setLinkedExistingAchievements([]);
@@ -96,7 +98,7 @@ const ProjectForm = ({
     }, [initialData, isEditing, cvId, allAchievements]); 
 
     
-    // Calculate aggregated lists
+    // Calculate aggregated lists (Unchanged)
     useEffect(() => {
         const allIds = new Set(directSkillIds);
         const achIds = new Set(); 
@@ -129,7 +131,7 @@ const ProjectForm = ({
     
     // Handlers
 
-    // --- NEW HANDLER FOR CONTEXT ---
+    // Context Handler (Unchanged)
     const handleContextToggle = (type, id) => {
         if (type === 'experiences') {
             setRelatedExpIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
@@ -139,8 +141,8 @@ const ProjectForm = ({
             setRelatedHobbyIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
         }
     };
-    // -------------------------------
 
+    // Achievement Handler (Unchanged)
     const handleExistingAchievementSelection = (newIdList) => {
         const newIds = newIdList.filter(id => !linkedExistingAchievements.some(a => a.id === id));
         const removedIds = linkedExistingAchievements.map(a => a.id).filter(id => !newIdList.includes(id));
@@ -155,6 +157,7 @@ const ProjectForm = ({
         setLinkedExistingAchievements(newList);
     };
 
+    // Skill Selection Handler (Unchanged)
     const handleSkillSelectionChange = (newAggregatedList) => {
         const oldAggregatedList = aggregatedSkillIds; 
 
@@ -200,6 +203,7 @@ const ProjectForm = ({
         }
     };
 
+    // Smart Pending Skills Handler (Unchanged)
     const smartSetAggregatedPendingSkills = (updaterFn) => {
         const currentAggregated = aggregatedPendingSkills;
         const newAggregated = typeof updaterFn === 'function' ? updaterFn(currentAggregated) : updaterFn;
@@ -231,6 +235,7 @@ const ProjectForm = ({
         }
     };
 
+    // Submit Handler (Unchanged)
     const handleSubmit = (e) => {
         e.preventDefault();
         if (!title.trim()) return;
@@ -239,11 +244,9 @@ const ProjectForm = ({
             title,
             description: description || null,
             
-            // --- CHANGED: Send Lists ---
             related_experience_ids: relatedExpIds,
             related_education_ids: relatedEduIds,
             related_hobby_ids: relatedHobbyIds,
-            // ---------------------------
             
             existing_skill_ids: directSkillIds, 
             new_skills: directPendingSkills,
@@ -273,13 +276,25 @@ const ProjectForm = ({
         }
     };
 
-    const allAchievementsToShow = [...linkedExistingAchievements, ...pendingAchievements];
+    // 7. ADD isPending FLAG
+    const linkedWithFlag = linkedExistingAchievements.map(a => ({ ...a, isPending: false }));
+    const pendingWithFlag = pendingAchievements.map(a => ({ ...a, isPending: true }));
+    const allAchievementsToShow = [...linkedWithFlag, ...pendingWithFlag];
+
+    // 8. NEW RESPONSIVE HANDLER
+    const handleSkillToggle = () => {
+        if (isMobile) {
+            setIsSkillPanelOpen(true);
+        } else {
+            setShowSkillLinker(!showSkillLinker);
+        }
+    };
 
     return (
         <form 
             key={initialData?.id || 'new'} 
             onSubmit={handleSubmit} 
-            className="card border-0 shadow-sm p-4 bg-white"
+            className="card border-0 shadow-sm p-3 p-md-4 bg-white" // Responsive padding
         >
             {/* Header */}
             <div className="d-flex align-items-center gap-2 mb-4 border-bottom pb-2">
@@ -301,75 +316,93 @@ const ProjectForm = ({
             
             <hr className="my-4 opacity-10" />
 
-            {/* --- CHANGED: Relationships Section (Integrated ContextLinker) --- */}
+            {/* --- ContextLinker Section (LOGIC UNCHANGED) --- */}
             <div className="mb-4">
-                <div className="d-flex justify-content-between align-items-center mb-2">
-                    <label className="form-label fw-bold small text-uppercase text-muted mb-0 d-flex align-items-center gap-2">
-                        <Link size={14}/> Linked Context
+                <div 
+                    className="d-flex justify-content-between align-items-center mb-2 cursor-pointer"
+                    onClick={() => setShowContextLinker(!showContextLinker)}
+                >
+                    <label className="form-label fw-bold text-dark d-flex align-items-center gap-2 mb-0 cursor-pointer">
+                        <Link size={16} className="text-info"/> 
+                        Linked Context
+                        <span className="text-muted fw-normal small">
+                            ({relatedExpIds.length + relatedEduIds.length + relatedHobbyIds.length})
+                        </span>
                     </label>
                     <button 
                         type="button" 
-                        className="btn btn-sm btn-outline-secondary py-0 px-2"
-                        style={{fontSize: '0.8rem'}}
+                        className="btn btn-light btn-sm text-secondary"
                         onClick={() => setShowContextLinker(!showContextLinker)}
                     >
-                        {showContextLinker ? <ChevronUp size={16}/> : '+ Link Context'}
+                        {showContextLinker ? <ChevronUp size={16}/> : <ChevronDown size={16}/>}
                     </button>
                 </div>
 
                 {/* Badge Display */}
-                <div className="d-flex flex-wrap gap-2 mb-2">
-                    {[...relatedExpIds, ...relatedEduIds, ...relatedHobbyIds].length === 0 && !showContextLinker && (
-                        <span className="text-muted small fst-italic">No contexts linked.</span>
-                    )}
-                    
-                    {relatedExpIds.map(id => {
-                        const item = allExperiences.find(e => e.id === id);
-                        return item ? (
-                             <span key={id} className="badge bg-white text-secondary border fw-normal d-flex align-items-center gap-1">
-                                <Layers size={10} className="text-primary"/> {item.title}
-                             </span>
-                        ) : null;
-                    })}
-                    {relatedEduIds.map(id => {
-                        const item = allEducation.find(e => e.id === id);
-                        return item ? (
-                             <span key={id} className="badge bg-white text-secondary border fw-normal d-flex align-items-center gap-1">
-                                <Layers size={10} className="text-info"/> {item.degree}
-                             </span>
-                        ) : null;
-                    })}
-                    {relatedHobbyIds.map(id => {
-                        const item = allHobbies.find(e => e.id === id);
-                        return item ? (
-                             <span key={id} className="badge bg-white text-secondary border fw-normal d-flex align-items-center gap-1">
-                                <Layers size={10} className="text-success"/> {item.name}
-                             </span>
-                        ) : null;
-                    })}
-                </div>
+                {!showContextLinker && (
+                    (relatedExpIds.length + relatedEduIds.length + relatedHobbyIds.length) > 0 ? (
+                        <div 
+                            className="bg-light p-3 rounded border cursor-pointer hover-bg-slate-100 transition-all d-flex flex-wrap gap-2"
+                            onClick={() => setShowContextLinker(true)}
+                        >
+                            {relatedExpIds.map(id => {
+                                const item = allExperiences.find(e => e.id === id);
+                                return item ? (
+                                    <span key={id} className="badge bg-white text-secondary border fw-normal d-flex align-items-center gap-1">
+                                        <Briefcase size={10} className="text-primary"/> {item.title}
+                                    </span>
+                                ) : null;
+                            })}
+                            {relatedEduIds.map(id => {
+                                const item = allEducation.find(e => e.id === id);
+                                return item ? (
+                                    <span key={id} className="badge bg-white text-secondary border fw-normal d-flex align-items-center gap-1">
+                                        <BookOpen size={10} className="text-indigo-600"/> {item.degree}
+                                    </span>
+                                ) : null;
+                            })}
+                            {relatedHobbyIds.map(id => {
+                                const item = allHobbies.find(e => e.id === id);
+                                return item ? (
+                                    <span key={id} className="badge bg-white text-secondary border fw-normal d-flex align-items-center gap-1">
+                                        <Smile size={10} className="text-pink-500"/> {item.name}
+                                    </span>
+                                ) : null;
+                            })}
+                        </div>
+                    ) : (
+                         <div 
+                            className="text-muted small fst-italic border border-dashed rounded p-2 text-center cursor-pointer hover:bg-light"
+                            onClick={() => setShowContextLinker(true)}
+                        >
+                            Click to link context (experiences, education..._
+                        </div>
+                    )
+                )}
+                
 
                 {showContextLinker && (
-                    <ContextLinker 
-                        allExperiences={allExperiences}
-                        allEducation={allEducation}
-                        allHobbies={allHobbies} 
-                        selectedIds={{
-                            experiences: relatedExpIds,
-                            education: relatedEduIds,
-                            hobbies: relatedHobbyIds
-                        }}
-                        onToggle={handleContextToggle}
-                    />
+                    <div className="animate-fade-in mt-2 p-3 bg-light rounded border">
+                        <ContextLinker 
+                            allExperiences={allExperiences}
+                            allEducation={allEducation}
+                            allHobbies={allHobbies} 
+                            selectedIds={{
+                                experiences: relatedExpIds,
+                                education: relatedEduIds,
+                                hobbies: relatedHobbyIds
+                            }}
+                            onToggle={handleContextToggle}
+                        />
+                    </div>
                 )}
             </div>
-            {/* ------------------------------------------------------------- */}
 
-            {/* --- SKILLS Section (Integrated Linker) --- */}
+            {/* --- 9. SKILLS Section (RESPONSIVE) --- */}
             <div className="mb-4">
                 <div 
                     className="d-flex justify-content-between align-items-center mb-2 cursor-pointer"
-                    onClick={() => setShowSkillLinker(!showSkillLinker)}
+                    onClick={handleSkillToggle} // Use new handler
                 >
                     <label className="form-label fw-bold text-dark d-flex align-items-center gap-2 mb-0 cursor-pointer">
                         <Layers size={16} className="text-emerald-600"/> 
@@ -382,63 +415,79 @@ const ProjectForm = ({
                         type="button" 
                         className="btn btn-light btn-sm text-secondary"
                     >
-                        {showSkillLinker ? <ChevronUp size={16}/> : <ChevronDown size={16}/>}
+                        {/* Show chevron on mobile, or toggle up/down on desktop */}
+                        {isMobile ? 
+                            <ChevronDown size={16}/> : 
+                            (showSkillLinker ? <ChevronUp size={16}/> : <ChevronDown size={16}/>)
+                        }
                     </button>
                 </div>
 
-                {showSkillLinker ? (
+                {/* --- RENDER LOGIC FOR SKILLS --- */}
+                {/* A. On Desktop, show inline linker */}
+                {!isMobile && showSkillLinker && (
                     <div className="animate-fade-in mt-2 p-3 bg-light rounded border">
                         <SkillLinker
                             allSkills={allSkills}
-                            // --- BIND TO THE CORE LOGIC ---
                             selectedSkillIds={aggregatedSkillIds}
                             setSelectedSkillIds={handleSkillSelectionChange}
                             pendingSkills={aggregatedPendingSkills}
                             setPendingSkills={smartSetAggregatedPendingSkills}
-                            // ---
                             sessionSkills={aggregatedPendingSkills} 
                         />
                     </div>
-                ) : (
-                    (aggregatedSkillIds.length > 0 || aggregatedPendingSkills.length > 0) ? (
-                        <div 
-                            className="bg-light p-3 rounded border cursor-pointer hover:bg-slate-100 transition-all"
-                            onClick={() => setShowSkillLinker(true)}
-                        >
-                            <SelectedSkillsDisplay
-                                allSkills={allSkills}
-                                selectedSkillIds={aggregatedSkillIds}
-                                pendingSkills={aggregatedPendingSkills}
-                            />
-                        </div>
-                    ) : (
-                        <div 
-                            className="text-muted small fst-italic border border-dashed rounded p-2 text-center cursor-pointer hover:bg-light"
-                            onClick={() => setShowSkillLinker(true)}
-                        >
-                            Click to link skills...
-                        </div>
-                    )
                 )}
+                
+                {/* B. On Desktop AND Mobile, show display card when linker is hidden */}
+                {(isMobile || !showSkillLinker) && (aggregatedSkillIds.length > 0 || aggregatedPendingSkills.length > 0) ? (
+                    <div 
+                        className="bg-light p-3 rounded border cursor-pointer hover-bg-slate-100 transition-all"
+                        onClick={handleSkillToggle} // This will now open the panel on mobile
+                    >
+                        <SelectedSkillsDisplay
+                            allSkills={allSkills}
+                            selectedSkillIds={aggregatedSkillIds}
+                            pendingSkills={aggregatedPendingSkills}
+                        />
+                    </div>
+                ) : null}
+                
+                {/* C. On Desktop AND Mobile, show empty state when linker is hidden */}
+                {(isMobile || !showSkillLinker) && !(aggregatedSkillIds.length > 0 || aggregatedPendingSkills.length > 0) ? (
+                    <div 
+                        className="text-muted small fst-italic border border-dashed rounded p-2 text-center cursor-pointer hover:bg-light"
+                        onClick={handleSkillToggle} // This will now open the panel on mobile
+                    >
+                        Click to link skills...
+                    </div>
+                ) : null}
             </div>
 
-            {/* --- ACHIEVEMENTS Section --- */}
+            {/* --- 10. ACHIEVEMENTS Section (RESPONSIVE) --- */}
             <div className="mb-4">
                  <div className="d-flex justify-content-between align-items-center mb-2">
                      <label className="form-label fw-bold text-dark d-flex align-items-center gap-2 mb-0">
                         <Award size={16} className="text-amber-500"/> Achievements
                      </label>
+                     {/* Responsive Button */}
                      <button 
                         type="button" 
-                        onClick={() => setIsAchievementModalOpen(true)} 
-                        className="btn btn-outline-secondary btn-sm py-0 px-2"
-                        style={{fontSize: '0.8rem'}}
+                        onClick={() => setIsAchievementPanelOpen(true)}
+                        className={`btn btn-sm ${isMobile ? 'btn-light text-secondary' : 'btn-outline-secondary'}`}
                      >
-                         + Manage
+                        {isMobile ? (
+                            <ChevronDown size={16}/>
+                        ) : (
+                            <span className="py-0 px-1" style={{fontSize: '0.8rem'}}>+ Manage</span>
+                        )}
                      </button>
                  </div>
+                 
                  {allAchievementsToShow.length > 0 ? (
-                     <div className="bg-light p-3 rounded border">
+                     <div // Make grid clickable
+                        className="bg-light p-3 rounded border cursor-pointer hover-bg-slate-100 transition-all"
+                        onClick={() => setIsAchievementPanelOpen(true)} 
+                    >
                         <AchievementDisplayGrid
                             achievementsToDisplay={allAchievementsToShow}
                             allSkills={allSkills}
@@ -446,16 +495,19 @@ const ProjectForm = ({
                         />
                      </div>
                  ) : (
-                     <div className="bg-light p-3 rounded border text-center">
-                        <span className="text-muted small fst-italic">No achievements added.</span>
+                     <div // Make empty state clickable
+                        className="bg-light p-3 rounded border text-center cursor-pointer hover-bg-slate-100 transition-all"
+                        onClick={() => setIsAchievementPanelOpen(true)}
+                    >
+                        <span className="text-muted small fst-italic">No achievements added. Click to manage.</span>
                      </div>
                  )}
             </div>
 
-            {/* Achievement Modal */}
-             <AchievementManagerModal
-                 isOpen={isAchievementModalOpen}
-                 onClose={() => setIsAchievementModalOpen(false)}
+            {/* --- 11. RENDER THE PANELS --- */}
+             <AchievementManagerPanel
+                 isOpen={isAchievementPanelOpen}
+                 onClose={() => setIsAchievementPanelOpen(false)}
                  allAchievements={allAchievements}
                  selectedAchievementIds={linkedExistingAchievements.map(a => a.id)}
                  setSelectedAchievementIds={handleExistingAchievementSelection}
@@ -464,8 +516,19 @@ const ProjectForm = ({
                  allSkills={allSkills}
                  sessionSkills={aggregatedPendingSkills}
              />
+             
+             <SkillManagerPanel
+                isOpen={isSkillPanelOpen}
+                onClose={() => setIsSkillPanelOpen(false)}
+                allSkills={allSkills}
+                selectedSkillIds={aggregatedSkillIds}
+                setSelectedSkillIds={handleSkillSelectionChange}
+                pendingSkills={aggregatedPendingSkills}
+                setPendingSkills={smartSetAggregatedPendingSkills}
+                sessionSkills={aggregatedPendingSkills}
+             />
 
-            {/* ACTION BUTTONS */}
+            {/* ACTION BUTTONS (Unchanged) */}
             <div className="d-flex gap-2 justify-content-end mt-4 pt-3 border-top">
                 {onCancelEdit && (
                     <button 

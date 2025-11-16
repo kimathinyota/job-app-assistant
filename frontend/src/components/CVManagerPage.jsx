@@ -400,7 +400,7 @@ const CVManagerPage = () => {
                                             <h3 className="h4 fw-bold text-primary mb-0">
                                                 {getCVDisplayName(detailedCV)}
                                             </h3>
-                                            <span className="badge bg-light text-muted border">Master Version</span>
+                                            <span className="badge bg-light text-muted border">Master</span>
                                         </div>
                                         <p className="text-muted small mb-1">
                                             Internal ID: <span className="fw-medium text-dark">{detailedCV.name}</span>
@@ -413,7 +413,7 @@ const CVManagerPage = () => {
                                         onClick={handleStartEditHeader} 
                                         className="btn btn-outline-secondary btn-sm d-flex align-items-center gap-2"
                                     >
-                                        <Edit2 size={14}/> Edit Header
+                                        <Edit2 size={14}/> Edit
                                     </button>
                                 </div>
                             ) : (
