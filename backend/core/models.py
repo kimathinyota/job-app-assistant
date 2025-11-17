@@ -355,6 +355,9 @@ class Idea(BaseEntity):
     description: Optional[str] = None
     mapping_pair_ids: List[str] = Field(default_factory=list)
     annotation: Optional[str] = None
+    owner: Literal["user", "autofill"] = "user"
+    classification: Literal["professional", "personal", "company", "unclassified"] = "unclassified"
+
 
 
 class Paragraph(BaseEntity):
@@ -362,6 +365,7 @@ class Paragraph(BaseEntity):
     idea_ids: List[str] = Field(default_factory=list)
     purpose: Optional[str] = None  # e.g., "Opening", "Skills", "Closing"
     draft_text: Optional[str] = None
+    owner: Literal["user", "autofill"] = "user"
 
 
 class CoverLetter(BaseEntity):
@@ -717,15 +721,20 @@ class MappingPairUpdate(BaseModel):
 class IdeaUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
-    mapping_pair_ids: Optional[List[str]] = None  # <-- ADD THIS LINE
+    mapping_pair_ids: Optional[List[str]] = None
     annotation: Optional[str] = None
+    # --- ADDED TO SUPPORT THE "OWNERSHIP & PROMOTION" RULE ---
+    owner: Optional[Literal["user", "autofill"]] = None
+    classification: Optional[Literal["professional", "personal", "company", "unclassified"]] = None
 
 
 class ParagraphUpdate(BaseModel):
     order: Optional[int] = None
-    idea_ids: Optional[List[str]] = None  # <-- ADD THIS LINE
+    idea_ids: Optional[List[str]] = None
     purpose: Optional[str] = None
     draft_text: Optional[str] = None
+    # --- ADDED TO SUPPORT THE "OWNERSHIP & PROMOTION" RULE ---
+    owner: Optional[Literal["user", "autofill"]] = None
 
 class InterviewStageUpdate(BaseModel):
     name: Optional[str] = None

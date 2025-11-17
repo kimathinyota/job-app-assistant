@@ -1409,6 +1409,231 @@ class Registry:
         self._update("coverletters", cover)
         return {"status": "success", "id": para_id, "message": "Paragraph deleted."}
 
+
+    def autofill_cover_letter(self, cover_id: str, strategy: str = "standard", mode: str = "reset"):
+        """
+        Intelligently populates a cover letter with a theme-based, evidence-driven outline.
+        Implements the "Ownership & Re-Classification Engine"
+        
+        This is a non-destructive operation that:
+        1. Preserves all 'user' owned Paragraphs and Ideas.
+        2. Re-classifies 'user' Ideas into the new structure.
+        3. Prevents duplicate AI Ideas by checking for 'user' claimed evidence.
+        
+        NOTE: This logic assumes 'owner: Literal["user", "autofill"]'
+        and 'classification: Literal["professional", "personal", "company", "unclassified"]'
+        have been added to the Idea model.
+        And 'owner' has been added to the Paragraph model.
+        """
+        cover = self.get_cover_letter(cover_id)
+        if not cover:
+            raise ValueError("Cover letter not found")
+
+        # 1. FETCH CONTEXT
+        mapping = self.get_mapping(cover.mapping_id)
+        job = self.get_job(cover.job_id)
+        if not mapping or not job:
+            raise ValueError("Missing mapping or job data")
+
+        features_map = {f.id: f for f in job.features}
+        
+        # ------------------------------------------------------------------
+        # STEP 1: FIND ALL "SURVIVORS" (USER-OWNED CONTENT)
+        # ------------------------------------------------------------------
+        
+        # We must assume 'owner' field exists, otherwise this fails
+        survivor_paras = [p for p in cover.paragraphs if getattr(p, 'owner', 'user') == "user"]
+        survivor_ideas = [i for i in cover.ideas if getattr(i, 'owner', 'user') == "user"]
+
+        # ------------------------------------------------------------------
+        # STEP 2: FIND "AVAILABLE EVIDENCE" (Prevents Duplicates)
+        # ------------------------------------------------------------------
+        
+        # Get all pair IDs already claimed by sacred user ideas
+        claimed_pair_ids = set()
+        for idea in survivor_ideas:
+            claimed_pair_ids.update(idea.mapping_pair_ids)
+
+        # Get all pairs from the mapping
+        all_mapping_pairs = mapping.pairs
+        
+        # Filter for pairs the AI is allowed to use
+        available_pairs_for_ai = [
+            pair for pair in all_mapping_pairs
+            if pair.id not in claimed_pair_ids and pair.feature_id in features_map
+        ]
+
+        # ------------------------------------------------------------------
+        # STEP 3: RUN AI CLUSTERING (On "Leftover" Evidence)
+        # ------------------------------------------------------------------
+        
+        ai_themed_clusters = {}
+        for pair in available_pairs_for_ai:
+            ai_themed_clusters.setdefault(pair.feature_id, []).append(pair.id)
+        
+        # This list will hold the *new* AI Idea objects (in memory)
+        new_ai_ideas = []
+        for feature_id, pair_ids in ai_themed_clusters.items():
+            feature = features_map[feature_id]
+            # Create the new AI-owned Idea
+            new_idea = Idea(
+                id=f"idea_{uuid.uuid4().hex[:8]}",
+                owner="autofill", # This is AI-generated
+                title=feature.description,
+                mapping_pair_ids=pair_ids
+            )
+            new_ai_ideas.append(new_idea)
+
+        # ------------------------------------------------------------------
+        # STEP 4: RE-CLASSIFY & MERGE ALL IDEAS (The "Engine")
+        # ------------------------------------------------------------------
+
+        # These are our final buckets
+        final_pro_ideas = []
+        final_per_ideas = []
+        final_com_ideas = []
+
+        # Helper function to classify an Idea (User or AI)
+        def classify_idea(idea: Idea) -> str:
+            # A) Trust explicit classification first
+            classification = getattr(idea, 'classification', 'unclassified')
+            if classification != 'unclassified':
+                return classification
+
+            # B) If no classification, infer from evidence
+            if idea.mapping_pair_ids:
+                # Check the feature type of the first linked pair
+                first_pair_id = idea.mapping_pair_ids[0]
+                pair = next((p for p in all_mapping_pairs if p.id == first_pair_id), None)
+                if pair and pair.feature_id in features_map:
+                    feature = features_map[pair.feature_id]
+                    context_type = getattr(pair, 'context_item_type', None)
+
+                    if feature.type in ["value", "benefit"]:
+                        return "company"
+                    if context_type == "hobbies" or feature.type == "nice_to_have":
+                        return "personal"
+                    if feature.type in ["requirement", "qualification", "responsibility"]:
+                        return "professional"
+            
+            # C) Default for pure-text (no pairs) or unclassified
+            return "professional" # Default to "Professional"
+
+        # --- Merge Loop ---
+        all_ideas_to_place = survivor_ideas + new_ai_ideas
+
+        for idea in all_ideas_to_place:
+            bucket_key = classify_idea(idea)
+            
+            if bucket_key == "company":
+                final_com_ideas.append(idea)
+            elif bucket_key == "personal":
+                final_per_ideas.append(idea)
+            else: # "professional" or "unclassified" default
+                final_pro_ideas.append(idea)
+
+        # 4. HANDLE THE "RESEARCH GAP" (Only if no ideas are in the Company bucket)
+        if not final_com_ideas:
+            # ... (same logic as before to find unmapped values and build annotation text)
+            mapped_feature_ids = set(pair.feature_id for pair in all_mapping_pairs)
+            unmapped_values = [f.description for f in job.features if f.type == "value" and f.id not in mapped_feature_ids]
+            unmapped_benefits = [f.description for f in job.features if f.type == "benefit" and f.id not in mapped_feature_ids]
+            annotation_text = "Click 'Edit' to add your research.\n\n"
+            if unmapped_values: annotation_text += "Unmapped Company Values to consider:\n" + "\n".join(f"* {v}" for v in unmapped_values) + "\n\n"
+            if unmapped_benefits: annotation_text += "Culture Clues (from Benefits) to consider:\n" + "\n".join(f"* {b}" for b in unmapped_benefits) + "\n\n"
+            annotation_text += "Research Links:\n" # ... (add links)
+            
+            gap_idea = Idea(
+                id=f"idea_{uuid.uuid4().hex[:8]}",
+                owner="autofill", title=f"❓ Why {job.company}?",
+                mapping_pair_ids=[], annotation=annotation_text
+            )
+            final_com_ideas.append(gap_idea) # Add the Gap chip
+
+        # ------------------------------------------------------------------
+        # STEP 5: ASSEMBLE FINAL OUTLINE (THE "NON-DESTRUCTIVE" MERGE)
+        # ------------------------------------------------------------------
+        
+        # A) Delete *only* the old AI-generated content
+        ai_para_ids_to_delete = [p.id for p in cover.paragraphs if getattr(p, 'owner', 'user') == "autofill"]
+        ai_idea_ids_to_delete = [i.id for i in cover.ideas if getattr(i, 'owner', 'user') == "autofill"]
+        
+        cover.paragraphs = [p for p in cover.paragraphs if p.id not in ai_para_ids_to_delete]
+        cover.ideas = [i for i in cover.ideas if i.id not in ai_idea_ids_to_delete]
+
+        # B) Add all *new* and *surviving* Ideas to the master list
+        # (Survivors are already in, so just add the new AI ones)
+        cover.ideas.extend(new_ai_ideas)
+
+        # C) Define the new AI Paragraph "Buckets"
+        pro_para_purpose = "My Professional Fit (The 'Why Me')"
+        per_para_purpose = "My Personal Fit (The 'Differentiator')"
+        com_para_purpose = f"My Alignment with {job.company} (The 'Why You')"
+        
+        new_ai_paragraphs = []
+        
+        if final_pro_ideas:
+            new_ai_paragraphs.append(Paragraph(
+                id=f"para_{uuid.uuid4().hex[:8]}", owner="autofill", 
+                purpose=pro_para_purpose, idea_ids=[i.id for i in final_pro_ideas]
+            ))
+        if final_per_ideas:
+            new_ai_paragraphs.append(Paragraph(
+                id=f"para_{uuid.uuid4().hex[:8]}", owner="autofill", 
+                purpose=per_para_purpose, idea_ids=[i.id for i in final_per_ideas]
+            ))
+        if final_com_ideas:
+            new_ai_paragraphs.append(Paragraph(
+                id=f"para_{uuid.uuid4().hex[:8]}", owner="autofill", 
+                purpose=com_para_purpose, idea_ids=[i.id for i in final_com_ideas]
+            ))
+
+        # --- D) Build the final paragraph list based on strategy ---
+        final_paragraphs = []
+        
+        # Add Intro (survivor or new)
+        intro_para = next((p for p in survivor_paras if p.purpose == "Introduction"), None)
+        if not intro_para:
+            intro_para = Paragraph(id=f"para_{uuid.uuid4().hex[:8]}", owner="autofill", purpose="Introduction", idea_ids=[])
+        final_paragraphs.append(intro_para)
+
+        # --- Assemble order based on strategy ---
+        strategy_order_map = {
+            "standard": [pro_para_purpose, per_para_purpose, com_para_purpose],
+            "mission_driven": [com_para_purpose, pro_para_purpose, per_para_purpose],
+            "specialist": [pro_para_purpose, per_para_purpose]
+        }
+        
+        standard_purposes = {pro_para_purpose, per_para_purpose, com_para_purpose, "Introduction", "Conclusion"}
+
+        for purpose_name in strategy_order_map.get(strategy, "standard"):
+            # Check if a user has a sacred paragraph for this *exact* purpose
+            survivor = next((p for p in survivor_paras if p.purpose == purpose_name), None)
+            if survivor:
+                final_paragraphs.append(survivor) # User's paragraph wins
+            else:
+                # Find the new AI paragraph for this purpose
+                new_ai_para = next((p for p in new_ai_paragraphs if p.purpose == purpose_name), None)
+                if new_ai_para:
+                    final_paragraphs.append(new_ai_para)
+        
+        # Append any *other* custom user paragraphs that didn't match
+        for p in survivor_paras:
+            if p.purpose not in standard_purposes:
+                final_paragraphs.append(p)
+
+        # Add Conclusion (survivor or new)
+        outro_para = next((p for p in survivor_paras if p.purpose == "Conclusion"), None)
+        if not outro_para:
+            outro_para = Paragraph(id=f"para_{uuid.uuid4().hex[:8]}", owner="autofill", purpose="Conclusion", idea_ids=[])
+        final_paragraphs.append(outro_para)
+        
+        # Set the final, merged list of paragraphs
+        cover.paragraphs = final_paragraphs
+
+        self.save()
+        return self.get_cover_letter(cover_id)
+
     # ---- Interviews ----
     def create_interview(self, application_id: str):
         interview = Interview.create(application_id=application_id)
