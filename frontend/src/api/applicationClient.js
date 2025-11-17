@@ -88,6 +88,17 @@ export const createCoverLetter = (jobId, baseCvId, mappingId) => {
 };
 export const fetchCoverLetterDetails = (coverId) => apiClient.get(`/coverletter/${coverId}`);
 
+// --- NEW AUTOFILL ENDPOINT ---
+/**
+ * Calls the non-destructive "Re-Classification Engine" on the backend.
+ * @param {string} coverId - The ID of the cover letter
+ * @param {string} strategy - "standard", "mission_driven", or "specialist"
+ * @param {string} mode - "reset" (clears AI content) or "augment" (adds new)
+ */
+export const autofillCoverLetter = (coverId, strategy = 'standard', mode = 'reset') => {
+    return apiClient.post(`/coverletter/${coverId}/autofill?strategy=${strategy}&mode=${mode}`);
+};
+// --- END NEW ENDPOINT ---
 
 export const addCoverLetterIdea = (coverId, title, mappingPairIds, annotation) => { // <-- 1. Add annotation
     let params = `title=${encodeURIComponent(title)}`;

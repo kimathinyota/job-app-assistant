@@ -17,6 +17,8 @@ import { fetchCVDetails } from '../../api/cvClient';
 import Step1_TriageView from './Step1_TriageView';
 import Step2_GenerateCV from './Step2_GenerateCV';
 import Step3_BuildCoverLetter from './Step3_BuildCoverLetter';
+import Step3_ActiveCoverLetter from './Step3_ActiveCoverLetter';
+
 import Step4_Submit from './Step4_Submit';
 import JobPreviewModal from './JobPreviewModal';
 
@@ -221,7 +223,7 @@ const ApplicationWorkspace = () => {
                         />
                     )}
                     {currentStep === 3 && (
-                        <Step3_BuildCoverLetter
+                        <Step3_ActiveCoverLetter
                             application={application}
                             job={job}
                             mapping={mapping}

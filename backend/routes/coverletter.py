@@ -2,12 +2,13 @@
 
 from fastapi import APIRouter, HTTPException, Request, Query # <-- ADD Query
 from backend.core.registry import Registry
-from typing import Optional, List # Ensure List is imported
+from typing import Optional, List, Literal
 # --- 1. IMPORT THE UPDATE MODELS ---
 from backend.core.models import IdeaUpdate, ParagraphUpdate
 
 
 router = APIRouter()
+
 
 @router.post("/")
 def create_cover_letter(job_id: str, base_cv_id: str, mapping_id: str, request: Request):
@@ -114,3 +115,38 @@ def delete_paragraph(cover_id: str, para_id: str, request: Request):
         return registry.delete_cover_letter_paragraph(cover_id, para_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    
+
+@router.post("/{cover_id}/autofill")
+def autofill_cover_letter(
+    cover_id: str, 
+    request: Request,
+    strategy: Literal["standard", "mission_driven", "specialist"] = Query("standard"),
+    mode: Literal["reset", "augment"] = Query("reset")
+):
+    """
+    Auto-generates or re-orchestrates the cover letter outline.
+    Based on the "Ownership & Re-Classification Engine" logic.
+    
+    - strategy: Defines the paragraph order.
+    - mode: 'reset' (default) surgically clears all AI-generated content 
+            and rebuilds it around user content.
+            'augment' (future) would only add new, un-used evidence.
+    """
+    try:
+        registry = request.app.state.registry
+        # All the complex logic is delegated to the registry method
+        # we designed earlier (autofill_cover_letter in registry.py)
+        cover_letter_with_outline = registry.autofill_cover_letter(
+            cover_id, 
+            strategy=strategy, 
+            mode=mode
+        )
+        return cover_letter_with_outline
+    except ValueError as e:
+        # This will catch "Cover letter not found" etc.
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        # General catch-all for any unexpected clustering errors
+        print(f"Error during autofill: {e}")
+        raise HTTPException(status_code=500, detail="An internal error occurred during outline generation.")
