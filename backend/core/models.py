@@ -213,6 +213,7 @@ class DerivedCV(CV):
     selected_experience_ids: List[str] = Field(default_factory=list)
     selected_skill_ids: List[str] = Field(default_factory=list)
     selected_project_ids: List[str] = Field(default_factory=list)
+    is_locked: bool = False  # Snapshot state
 
     @classmethod
     def from_mapping(cls, base_cv: CV, job_id: str, mapping: Mapping) -> DerivedCV:
@@ -327,6 +328,7 @@ class Mapping(BaseEntity):
     job_id: str
     base_cv_id: str
     pairs: List[MappingPair] = Field(default_factory=list)
+    is_locked: bool = False # <--- NEW
 
     # def add_pair(
     #     self,
@@ -369,6 +371,7 @@ class Paragraph(BaseEntity):
 
 
 class CoverLetter(BaseEntity):
+    name: str = "Cover Letter"  # <--- NEW: User-defined name (e.g. "Selection Criteria")
     job_id: str
     base_cv_id: str
     mapping_id: str
@@ -418,10 +421,15 @@ class Application(BaseEntity):
     base_cv_id: str
     mapping_id: Optional[str] = None
     derived_cv_id: Optional[str] = None
+    # CHANGED: Replaces singular cover_letter_id
+    supporting_document_ids: List[str] = Field(default_factory=list)
     cover_letter_id: Optional[str] = None
     interview_id: Optional[str] = None
     status: Literal["draft", "applied", "interview", "offer", "rejected"] = "draft"
     notes: Optional[str] = None
+    # NEW: Snapshot metadata
+    is_locked: bool = False 
+    applied_at: Optional[datetime] = None
 
 
 # You already have BaseEntity and gen_id in your core
@@ -638,6 +646,9 @@ class ApplicationStatus(BaseModel):
 class ApplicationUpdate(BaseModel):
     status: Optional[Literal["draft", "applied", "interview", "offer", "rejected"]] = None
     notes: Optional[str] = None
+    supporting_document_ids: List[str] = Field(default_factory=list)
+    is_locked: bool = False 
+    applied_at: Optional[datetime] = None
     cover_letter_id: Optional[str] = None # <-- ADD THIS LINE
 
 class MappingUpdate(BaseModel):
@@ -753,6 +764,9 @@ class AppSuiteData(BaseModel):
     """
     jobs: List[JobDescription]
     applications: List[Application]
+
+class CoverLetterUpdate(BaseModel):
+    name: Optional[str] = None # Allow renaming
 
 # ---------------------------------------------------------------------
 # AI Prompt Generation Models

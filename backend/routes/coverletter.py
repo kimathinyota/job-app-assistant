@@ -117,6 +117,17 @@ def delete_paragraph(cover_id: str, para_id: str, request: Request):
         raise HTTPException(status_code=404, detail=str(e))
     
 
+@router.patch("/{cover_id}/metadata")
+def update_cover_letter_metadata(cover_id: str, request: Request, name: str = Query(...)):
+    """Rename the document."""
+    try:
+        registry = request.app.state.registry
+        return registry.rename_cover_letter(cover_id, name)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+
 @router.post("/{cover_id}/autofill")
 def autofill_cover_letter(
     cover_id: str, 

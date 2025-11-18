@@ -12,7 +12,7 @@ import CVManagerPage from './components/CVManagerPage';
 import AppTrackerPage from './components/AppTrackerPage';
 import GoalTrackerPage from './components/GoalTrackerPage';
 import ApplicationWorkspace from './components/applications/ApplicationWorkspace';
-
+import ApplicationDashboard from './components/applications/ApplicationDashboard';
 // This component wraps pages that need the standard container
 const PageWrapper = ({ children }) => (
   <div className="container-xxl py-4">
@@ -37,7 +37,7 @@ function App() {
         />
         <Route 
           path="/applications/:applicationId" 
-          element={<ApplicationWorkspace />} 
+          element={<ApplicationDashboard />} 
         />
         
         {/* --- UPDATED CV ROUTES --- */}

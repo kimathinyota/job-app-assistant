@@ -1318,10 +1318,64 @@ class Registry:
     # --- END NEW METHOD ---
 
     # ---- Cover Letters ----
-    def create_cover_letter(self, job_id: str, base_cv_id: str, mapping_id: str):
-        cover = CoverLetter.create(job_id=job_id, base_cv_id=base_cv_id, mapping_id=mapping_id)
+    def create_cover_letter(self, job_id: str, base_cv_id: str, mapping_id: str, name: str = "Cover Letter"):
+        cover = CoverLetter.create(name=name, job_id=job_id, base_cv_id=base_cv_id, mapping_id=mapping_id)
         return self._insert("coverletters", cover)
 
+    def rename_cover_letter(self, cover_id: str, new_name: str):
+        cover = self.get_cover_letter(cover_id)
+        if not cover: raise ValueError("Document not found")
+        cover.name = new_name
+        cover.touch()
+        self._update("coverletters", cover)
+        return cover
+    
+    def add_document_to_application(self, app_id: str, doc_id: str):
+        app = self.get_application(app_id)
+        if doc_id not in app.supporting_document_ids:
+            app.supporting_document_ids.append(doc_id)
+            self._update("applications", app)
+        return app
+
+    def submit_application(self, app_id: str):
+        """
+        Promotes an application to 'Applied' and locks all related assets
+        to create a pseudo-snapshot.
+        """
+        app = self.get_application(app_id)
+        if not app: raise ValueError("Application not found")
+
+        # 1. Lock the Application
+        app.status = "applied"
+        app.is_locked = True
+        app.applied_at = datetime.utcnow()
+        
+        # 2. Lock the Mapping
+        if app.mapping_id:
+            mapping = self.get_mapping(app.mapping_id)
+            if mapping:
+                mapping.is_locked = True
+                self._update("mappings", mapping)
+
+        # 3. Lock the CV
+        if app.derived_cv_id:
+            cv = self.get_cv(app.derived_cv_id)
+            if cv: # Assuming DerivedCV
+                cv.is_locked = True
+                self._update("cvs", cv)
+
+        # 4. Lock all Supporting Docs
+        for doc_id in app.supporting_document_ids:
+            doc = self.get_cover_letter(doc_id)
+            if doc:
+                doc.is_locked = True
+                self._update("coverletters", doc)
+
+        self._update("applications", app)
+        return app
+    
+
+    
     def delete_cover_letter(self, cover_id: str):
         return self._delete("coverletters", cover_id)
 
