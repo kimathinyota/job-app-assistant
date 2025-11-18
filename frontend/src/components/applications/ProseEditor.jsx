@@ -6,11 +6,12 @@ const ProseEditor = ({
     paragraph, 
     ideas, 
     pairMap,
-    fullCV, 
-    onSave 
+    fullCV,
+    jobFeatures, // <--- Make sure this prop is passed!
+    onSave,
+    onShowPreview 
 }) => {
     
-    // 1. Format Strategy Arguments
     const strategyArgs = useMemo(() => {
         return ideas.map(idea => ({
             id: idea.id,
@@ -22,34 +23,34 @@ const ProseEditor = ({
                     id: `ev-${p.id}`, 
                     label: p.context_item_text,
                     detail: "Evidence",
-                    isStrategy: true // Mark as strategy
+                    isStrategy: true 
                 }))
         }));
     }, [ideas, pairMap]);
 
-    // 2. Identify "Strategic" CV Items (for highlighting in general lists)
-    const strategyItemIds = useMemo(() => {
-        const ids = new Set();
-        ideas.forEach(idea => {
-            idea.mapping_pair_ids.forEach(pid => {
-                const pair = pairMap.get(pid);
-                if(pair && pair.context_item_id) ids.add(pair.context_item_id);
-            });
+    // --- NEW: Build Linkable Items for Codex Sections ---
+    const linkableItems = useMemo(() => {
+        const items = [];
+        // 1. Requirements
+        (jobFeatures || []).forEach(f => {
+            if (f.type === 'requirement' || f.type === 'qualification') {
+                items.push({ id: f.id, label: f.description, type: 'requirement' });
+            }
         });
-        return ids;
-    }, [ideas, pairMap]);
+        // 2. Strategy Arguments
+        ideas.forEach(idea => {
+            items.push({ id: idea.id, label: idea.title, type: 'strategy' });
+        });
+        return items;
+    }, [jobFeatures, ideas]);
 
-    // 3. Format Full CV Categories with "Strategy" Flags
     const cvCategories = useMemo(() => {
         if (!fullCV) return {};
-        
         const format = (items, labelFn, detailFn) => (items || []).map(i => ({
             id: i.id,
             label: labelFn(i),
             detail: detailFn ? detailFn(i) : null,
-            // The Magic: Check if this item is used in our strategy
-            isStrategy: strategyItemIds.has(i.id)
-        })).sort((a, b) => (b.isStrategy ? 1 : 0) - (a.isStrategy ? 1 : 0)); // Sort strategy items to top
+        })).sort((a, b) => a.label.localeCompare(b.label));
 
         return {
             Experience: format(fullCV.experiences, i => `${i.title} @ ${i.company}`, i => `${i.start_date} - ${i.end_date}`),
@@ -58,23 +59,7 @@ const ProseEditor = ({
             Achievements: format(fullCV.achievements, i => i.text.substring(0,40)+'...', i => "Achievement"),
             Hobbies: format(fullCV.hobbies, i => i.name, i => null),
         };
-    }, [fullCV, strategyItemIds]);
-
-    // 4. Generate "Smart Hints"
-    const hints = useMemo(() => {
-        const unmentioned = [];
-        const currentText = (paragraph.draft_text || "").toLowerCase();
-        
-        ideas.forEach(idea => {
-            // Check if the main idea title is mentioned
-            // This is a naive check; a real one would check for chips
-            // But for a "Hint", this is sufficient encouragement
-            if (!currentText.includes(idea.title.toLowerCase())) {
-                unmentioned.push(`Consider mentioning your "${idea.title}" strategy.`);
-            }
-        });
-        return unmentioned;
-    }, [ideas, paragraph.draft_text]);
+    }, [fullCV]);
 
     return (
         <div className="h-100">
@@ -84,7 +69,8 @@ const ProseEditor = ({
                 placeholder={`Draft your "${paragraph.purpose}" section...`}
                 strategyArgs={strategyArgs}
                 cvCategories={cvCategories}
-                hints={hints} // <--- Pass hints
+                linkableItems={linkableItems} // <--- Pass the new prop
+                onPreview={onShowPreview}
             />
         </div>
     );

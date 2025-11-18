@@ -2,7 +2,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom'; 
 import {
-    fetchApplicationDetails, fetchJobDetails, fetchMappingDetails, // Added these imports
     fetchCoverLetterDetails,
     updateCoverLetterIdea,
     updateCoverLetterParagraph,
@@ -10,9 +9,12 @@ import {
     deleteCoverLetterIdea,
     addCoverLetterParagraph,
     autofillCoverLetter,
-    generateCoverLetterPrompt
+    generateCoverLetterPrompt,
+    fetchApplicationDetails, 
+    fetchJobDetails,         
+    fetchMappingDetails      
 } from '../../api/applicationClient.js';
-import { fetchCVDetails } from '../../api/cvClient.js'; // Added this import
+import { fetchCVDetails } from '../../api/cvClient.js'; 
 
 
 import PromptModal from './PromptModal.jsx';
@@ -49,14 +51,22 @@ const SectionDivider = ({ index, onInsert, disabled }) => {
     );
 };
 
-// --- MAIN COMPONENT (Now Self-Contained) ---
-const SupportingDocStudio = () => {
-    const { applicationId, documentId } = useParams(); 
+const SupportingDocStudio = ({
+    documentId: propDocId, 
+    job: propJob,
+    mapping: propMapping,
+    fullCV: propCV,
+    isLocked: propIsLocked, 
+    onBack
+}) => {
+    const params = useParams();
     const navigate = useNavigate();
 
-    // --- STATE ---
-    const [data, setData] = useState(null); // Holds { app, job, cv, mapping }
+    const effectiveDocId = propDocId || params.documentId;
+    const applicationId = params.applicationId; 
+    
     const [doc, setDoc] = useState(null);
+    const [data, setData] = useState(null); 
     const [isLoading, setIsLoading] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [strategy, setStrategy] = useState('standard');
@@ -64,77 +74,83 @@ const SupportingDocStudio = () => {
     const [docName, setDocName] = useState("");
     const [error, setError] = useState(null);
     
-    // Modal States
     const [clPromptJson, setClPromptJson] = useState('');
     const [isPromptModalOpen, setIsPromptModalOpen] = useState(false);
     const [previewItem, setPreviewItem] = useState(null);
     const [activeId, setActiveId] = useState(null);
 
-    // --- 1. LOAD ALL DATA ---
-    const loadData = useCallback(async (silent = false) => {
+    const sensors = useSensors(
+        useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+        useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+    );
+
+    const activeJob = propJob || data?.job;
+    const activeCV = propCV || data?.cv;
+    const activeMapping = propMapping || data?.mapping;
+    const activeIsLocked = propIsLocked !== undefined ? propIsLocked : data?.app?.is_locked;
+
+    const loadDoc = useCallback(async (silent = false) => {
+        if (!effectiveDocId || effectiveDocId === "undefined" || effectiveDocId === "null") return;
         if (!silent) setIsLoading(true);
         try {
-            // A. Fetch the Application Context (for Job/CV/Mapping IDs)
-            const appRes = await fetchApplicationDetails(applicationId);
-            const app = appRes.data;
+            const res = await fetchCoverLetterDetails(effectiveDocId);
+            const docData = res.data;
+            
+            let contextData = {};
 
-            // B. Parallel Fetch Context & The Document
-            // NOTE: We must handle potential nulls if IDs are missing (though unlikely for a valid app)
-            const [jobRes, cvData, mappingRes, docRes] = await Promise.all([
-                fetchJobDetails(app.job_id),
-                fetchCVDetails(app.base_cv_id), // Returns data directly
-                fetchMappingDetails(app.mapping_id),
-                fetchCoverLetterDetails(documentId)
-            ]);
+            if (applicationId) {
+                const appRes = await fetchApplicationDetails(applicationId);
+                const app = appRes.data;
 
-            const loadedDoc = docRes.data;
-
-            // C. Smart Start (Autofill if empty)
-            if (loadedDoc.paragraphs.length === 0 && !app.is_locked) {
-                const filled = await autofillCoverLetter(documentId, 'standard');
+                const [jobRes, cvData, mappingRes] = await Promise.all([
+                    fetchJobDetails(app.job_id),
+                    fetchCVDetails(app.base_cv_id),
+                    fetchMappingDetails(app.mapping_id)
+                ]);
+                
+                contextData = {
+                    app,
+                    job: jobRes.data,
+                    cv: cvData, 
+                    mapping: mappingRes.data
+                };
+                setData(contextData);
+            }
+            
+            if (docData.paragraphs.length === 0 && !contextData.app?.is_locked) {
+                const filled = await autofillCoverLetter(effectiveDocId, 'standard');
                 setDoc(filled.data);
                 setDocName(filled.data.name);
             } else {
-                setDoc(loadedDoc);
-                setDocName(loadedDoc.name);
+                setDoc(docData);
+                setDocName(docData.name);
             }
-
-            setData({ 
-                app, 
-                job: jobRes.data, 
-                cv: cvData, 
-                mapping: mappingRes.data 
-            });
-
-        } catch (err) {
+        } catch (err) { 
             console.error(err);
-            setError("Failed to load document workspace.");
-        } finally {
-            setIsLoading(false);
+            setError("Failed to load document data.");
+        } finally { 
+            setIsLoading(false); 
         }
-    }, [applicationId, documentId]);
+    }, [effectiveDocId, applicationId]);
 
-    useEffect(() => { loadData(); }, [loadData]);
+    useEffect(() => { loadDoc(); }, [loadDoc]);
 
-    // --- 2. MEMOIZED LOOKUPS (Dependent on fetched data) ---
     const cvLookups = useMemo(() => {
         const map = new Map();
-        if (!data?.cv) return map;
+        if (!activeCV) return map;
         const register = (arr, type, nameFn) => (arr || []).forEach(item => map.set(item.id, { ...item, _displayName: nameFn(item), _type: type }));
-        
-        register(data.cv.experiences, 'experiences', i => `${i.title} @ ${i.company}`);
-        register(data.cv.projects, 'projects', i => i.title);
-        register(data.cv.education, 'education', i => `${i.degree} @ ${i.institution}`);
-        register(data.cv.hobbies, 'hobbies', i => i.name);
-        register(data.cv.skills, 'skills', i => i.name);
-        register(data.cv.achievements, 'achievements', i => i.text.substring(0, 50) + "...");
+        register(activeCV.experiences, 'experiences', i => `${i.title} @ ${i.company}`);
+        register(activeCV.projects, 'projects', i => i.title);
+        register(activeCV.education, 'education', i => `${i.degree} @ ${i.institution}`);
+        register(activeCV.hobbies, 'hobbies', i => i.name);
+        register(activeCV.skills, 'skills', i => i.name);
+        register(activeCV.achievements, 'achievements', i => i.text.substring(0, 50) + "...");
         return map;
-    }, [data?.cv]);
+    }, [activeCV]);
 
     const { ideaMap, pairMap } = useMemo(() => {
         const ideas = doc?.ideas || [];
-        const pairs = data?.mapping?.pairs || [];
-
+        const pairs = activeMapping?.pairs || []; 
         const iMap = new Map(ideas.map(i => [i.id, i]));
         const pMap = new Map(pairs.map(p => {
             const cvItem = cvLookups.get(p.context_item_id);
@@ -145,25 +161,76 @@ const SupportingDocStudio = () => {
             }];
         }));
         return { ideaMap: iMap, pairMap: pMap };
-    }, [doc, data?.mapping, cvLookups]);
+    }, [doc, activeMapping, cvLookups]);
 
-    const isLocked = data?.app?.is_locked || false;
-    const sensors = useSensors(
-        useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-        useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
-    );
+    // --- FIX: PREVIEW HANDLER ---
+    const handleShowPreview = (id, typeHint) => {
+        if (!activeCV) return;
 
-    // --- 3. HANDLERS ---
+        let targetId = id;
+        let targetType = typeHint;
+
+        // 1. Resolve "Evidence ID" (ev-...) to "CV Item ID" (exp_...)
+        if (typeof id === 'string' && id.startsWith('ev-')) {
+            const pairId = id.replace('ev-', '');
+            const pair = pairMap.get(pairId);
+            if (pair) {
+                targetId = pair.context_item_id;
+                // Also refine the type hint from the pair data
+                if (!targetType || targetType === 'other') {
+                     targetType = pair.context_item_type;
+                }
+            } else {
+                console.warn("Could not resolve evidence pair:", pairId);
+                return;
+            }
+        }
+        
+        // 2. Find the actual object in the CV
+        const collections = {
+            experiences: activeCV.experiences || [],
+            education: activeCV.education || [],
+            projects: activeCV.projects || [],
+            hobbies: activeCV.hobbies || [],
+            skills: activeCV.skills || [],
+            achievements: activeCV.achievements || []
+        };
+
+        let foundItem = null;
+
+        // A. Try Type Hint first
+        if (targetType && collections[targetType]) {
+            foundItem = collections[targetType].find(i => i.id === targetId);
+        }
+
+        // B. Fallback: Brute Force Search
+        if (!foundItem) {
+            for (const [key, list] of Object.entries(collections)) {
+                const match = list.find(i => i.id === targetId);
+                if (match) {
+                    foundItem = match;
+                    targetType = key;
+                    break;
+                }
+            }
+        }
+
+        if (foundItem) {
+            setPreviewItem({ item: foundItem, type: targetType });
+        } else {
+            console.warn("Could not find CV item:", targetId);
+        }
+    };
 
     const handleRename = async () => {
-        if(isLocked) return;
+        if(activeIsLocked) return;
         try {
-            await client.patch(`/coverletter/${documentId}`, { name: docName });
+            await client.patch(`/coverletter/${effectiveDocId}`, { name: docName });
         } catch(err) { console.error("Failed to rename"); }
     };
 
     const handleInsertParagraph = async (index) => {
-        if(isLocked) return;
+        if(activeIsLocked) return;
         setIsSubmitting(true);
         try {
             const res = await addCoverLetterParagraph(doc.id, [], "Untitled Section", "", "user");
@@ -188,7 +255,7 @@ const SupportingDocStudio = () => {
     };
 
     const handleAddArgument = async (paraId, classification) => {
-        if (isSubmitting || isLocked) return;
+        if (isSubmitting || activeIsLocked) return;
         setIsSubmitting(true);
         try {
             const newIdeaRes = await addCoverLetterIdea(doc.id, "New Argument", [], "", classification);
@@ -196,28 +263,28 @@ const SupportingDocStudio = () => {
             const para = doc.paragraphs.find(p => p.id === paraId);
             const newIdeaIds = [...para.idea_ids, newIdea.id];
             await updateCoverLetterParagraph(doc.id, paraId, { idea_ids: newIdeaIds });
-            await loadData(true); // Silent reload
+            await loadDoc(true);
         } catch (err) { console.error(err); } 
         finally { setIsSubmitting(false); }
     };
 
     const handleDeleteIdea = async (idea, para) => {
         if (!window.confirm(`Delete argument: "${idea.title}"?`)) return;
-        if (isSubmitting || isLocked) return;
+        if (isSubmitting || activeIsLocked) return;
         setIsSubmitting(true);
         try {
             const newIdeaIds = para.idea_ids.filter(id => id !== idea.id);
             await updateCoverLetterParagraph(doc.id, para.id, { idea_ids: newIdeaIds });
             await deleteCoverLetterIdea(doc.id, idea.id);
-            await loadData(true);
+            await loadDoc(true);
         } catch (err) { console.error(err); } 
         finally { setIsSubmitting(false); }
     };
 
     const handleRevertIdea = async (id) => {
-        if (isLocked) return;
+        if (activeIsLocked) return;
         await updateCoverLetterIdea(doc.id, id, { owner: 'autofill' });
-        loadData(true);
+        loadDoc(true);
     };
 
     const handleDragEnd = (event) => {
@@ -234,37 +301,35 @@ const SupportingDocStudio = () => {
         }
     };
 
-    // --- 7. RENDER ---
+    if (!effectiveDocId) return <div className="alert alert-danger m-4">Document ID missing.</div>;
     if (isLoading) return <div className="vh-100 d-flex align-items-center justify-content-center"><Loader2 className="animate-spin text-primary" /></div>;
-    if (!doc || !data) return <div className="alert alert-danger m-4">{error || "Failed to load data."}</div>;
+    if (!doc) return <div className="alert alert-warning m-4">Initializing document...</div>;
 
     const sortedParagraphs = [...(doc?.paragraphs || [])].sort((a, b) => (a.order || 0) - (b.order || 0));
 
     return (
         <div className="container-xl py-4" style={{ maxWidth: '1100px' }}>
             
-            {/* Locked Banner */}
-            {isLocked && (
+            {activeIsLocked && (
                 <div className="alert alert-warning d-flex align-items-center gap-2 mb-4 shadow-sm border-warning">
                     <Lock size={16} />
                     <strong>Snapshot Mode:</strong> This document is locked because the application has been submitted.
                 </div>
             )}
 
-            {/* Header */}
             <div className="d-flex flex-wrap justify-content-between align-items-end mb-4 position-sticky top-0 bg-white pt-3 pb-3 border-bottom z-3" style={{backdropFilter: 'blur(12px)', background: 'rgba(255,255,255,0.85)'}}>
                 <div className="mb-2 mb-lg-0 flex-grow-1">
                     <div className="d-flex align-items-center gap-2 text-primary mb-1">
                         <BrainCircuit size={20} />
                         <button 
-                            onClick={() => navigate(`/application/${applicationId}`)} 
+                            onClick={onBack ? onBack : () => navigate(`/application/${applicationId}`)} 
                             className="btn btn-link p-0 text-primary small fw-bold text-uppercase tracking-wide text-decoration-none d-flex align-items-center gap-1"
                         >
                             <ArrowLeft size={14}/> Back to Dashboard
                         </button>
                     </div>
                     <div className="d-flex align-items-center gap-2">
-                        {isLocked ? (
+                        {activeIsLocked ? (
                             <h2 className="fw-bold text-dark mb-0 tracking-tight">{docName}</h2>
                         ) : (
                             <input 
@@ -276,18 +341,15 @@ const SupportingDocStudio = () => {
                                 onBlur={handleRename}
                             />
                         )}
-                        {!isLocked && <Edit3 size={16} className="text-muted opacity-50" />}
+                        {!activeIsLocked && <Edit3 size={16} className="text-muted opacity-50" />}
                     </div>
                 </div>
                 
-                {!isLocked && (
+                {!activeIsLocked && (
                     <div className="d-flex gap-2 flex-wrap align-items-center">
-                        <button className={`btn btn-sm d-flex align-items-center gap-2 rounded-pill px-3 ${isReorderMode ? 'btn-dark' : 'btn-light text-muted'}`} onClick={() => setIsReorderMode(!isReorderMode)}>
-                            <Layout size={16} /> <span className="fw-medium">{isReorderMode ? 'Done' : 'Organize'}</span>
-                        </button>
                          <button className="btn btn-sm btn-primary rounded-pill d-flex align-items-center gap-2 px-3 shadow-sm hover-lift" onClick={async () => {
                             setIsSubmitting(true);
-                            const res = await generateCoverLetterPrompt(data.mapping.id);
+                            const res = await generateCoverLetterPrompt(activeMapping.id);
                             setClPromptJson(JSON.stringify(res.data, null, 2));
                             setIsPromptModalOpen(true);
                             setIsSubmitting(false);
@@ -299,8 +361,7 @@ const SupportingDocStudio = () => {
                 )}
             </div>
             
-            {/* Strategy Selector */}
-            {!isLocked && (
+            {!activeIsLocked && (
                 <div className="p-4 mb-5 rounded-4 bg-light-subtle border border-light shadow-sm position-relative overflow-hidden">
                      <div className="d-flex flex-wrap align-items-center gap-3 position-relative z-1">
                         <div className="d-flex align-items-center justify-content-center bg-white rounded-circle shadow-sm text-primary" style={{width: 48, height: 48}}>
@@ -328,11 +389,10 @@ const SupportingDocStudio = () => {
                 </div>
             )}
 
-            {/* Workspace */}
-            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={(e) => setActiveId(e.active.id)} onDragEnd={(e) => !isLocked && handleDragEnd(e)}>
-                <SortableContext items={sortedParagraphs.map(p => p.id)} strategy={verticalListSortingStrategy} disabled={!isReorderMode || isLocked}>
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={(e) => setActiveId(e.active.id)} onDragEnd={(e) => !activeIsLocked && handleDragEnd(e)}>
+                <SortableContext items={sortedParagraphs.map(p => p.id)} strategy={verticalListSortingStrategy} disabled={!isReorderMode || activeIsLocked}>
                     
-                    <SectionDivider index={0} onInsert={handleInsertParagraph} disabled={isLocked} />
+                    <SectionDivider index={0} onInsert={handleInsertParagraph} disabled={activeIsLocked} />
 
                     <div className="d-flex flex-column">
                         {sortedParagraphs.map((para, index) => (
@@ -340,8 +400,8 @@ const SupportingDocStudio = () => {
                                 <div className="mb-0">
                                     <ParagraphStudio
                                         paragraph={para}
-                                        jobFeatures={data.job.features}
-                                        fullCV={data.cv}
+                                        jobFeatures={activeJob?.features || []}
+                                        fullCV={activeCV}
                                         ideaMap={ideaMap}
                                         pairMap={pairMap}
                                         isSubmitting={isSubmitting}
@@ -350,11 +410,11 @@ const SupportingDocStudio = () => {
                                         onAddArgument={(pid, classif) => handleAddArgument(pid, classif)} 
                                         onDeleteIdea={(idea, p) => handleDeleteIdea(idea, p)}
                                         onRevertIdea={(id) => handleRevertIdea(id)}
-                                        onShowPreview={setPreviewItem}
-                                        readOnly={isLocked} 
+                                        onShowPreview={handleShowPreview} 
+                                        readOnly={activeIsLocked} 
                                     />
                                 </div>
-                                <SectionDivider index={index + 1} onInsert={handleInsertParagraph} disabled={isLocked} />
+                                <SectionDivider index={index + 1} onInsert={handleInsertParagraph} disabled={activeIsLocked} />
                             </React.Fragment>
                         ))}
                     </div>
@@ -365,7 +425,19 @@ const SupportingDocStudio = () => {
             </DndContext>
 
             <PromptModal isOpen={isPromptModalOpen} jsonString={clPromptJson} onClose={() => setIsPromptModalOpen(false)} />
-            {previewItem && <CVItemPreviewModal isOpen={!!previewItem} onClose={() => setPreviewItem(null)} itemToPreview={previewItem} />}
+            
+            {previewItem && (
+                <CVItemPreviewModal 
+                    isOpen={!!previewItem} 
+                    onClose={() => setPreviewItem(null)} 
+                    itemToPreview={previewItem} 
+                    allSkills={activeCV?.skills}
+                    allAchievements={activeCV?.achievements}
+                    allExperiences={activeCV?.experiences}
+                    allEducation={activeCV?.education}
+                    allHobbies={activeCV?.hobbies}
+                />
+            )}
 
             <style>{`
                 .section-divider-zone:hover .divider-line { opacity: 1 !important; }
