@@ -4,7 +4,7 @@ import React from 'react';
 import IntelligentEditorBase from './IntelligentEditorBase.jsx';
 
 const AnnotationEditor = ({ initialValue, onSave, fullCV, onShowPreview }) => {
-s
+
     return (
         <IntelligentEditorBase
             initialValue={initialValue}
