@@ -7,37 +7,52 @@ const ProseEditor = ({
     ideas, 
     pairMap,
     fullCV,
-    jobFeatures, // <--- Make sure this prop is passed!
+    jobFeatures,
     onSave,
     onShowPreview 
 }) => {
     
     const strategyArgs = useMemo(() => {
-        return ideas.map(idea => ({
-            id: idea.id,
-            title: idea.title,
-            evidence: idea.mapping_pair_ids
-                .map(pid => pairMap.get(pid))
-                .filter(Boolean)
-                .map(p => ({ 
-                    id: `ev-${p.id}`, 
-                    label: p.context_item_text,
-                    detail: "Evidence",
-                    isStrategy: true 
-                }))
-        }));
-    }, [ideas, pairMap]);
+        return ideas.map(idea => {
+            let linkedReq = null;
+            
+            if (idea.mapping_pair_ids && jobFeatures) {
+                for (const pid of idea.mapping_pair_ids) {
+                    const pair = pairMap.get(pid);
+                    
+                    // --- FIX: Use 'feature_id' instead of 'job_feature_id' ---
+                    if (pair && pair.feature_id) { 
+                        linkedReq = jobFeatures.find(f => f.id === pair.feature_id);
+                        if (linkedReq) break; 
+                    }
+                }
+            }
 
-    // --- NEW: Build Linkable Items for Codex Sections ---
+            return {
+                id: idea.id,
+                title: idea.title,
+                requirementId: linkedReq?.id,
+                requirementLabel: linkedReq?.description, 
+                evidence: idea.mapping_pair_ids
+                    .map(pid => pairMap.get(pid))
+                    .filter(Boolean)
+                    .map(p => ({ 
+                        id: `ev-${p.id}`, 
+                        label: p.context_item_text,
+                        detail: "Evidence",
+                        isStrategy: true 
+                    }))
+            };
+        });
+    }, [ideas, pairMap, jobFeatures]);
+
     const linkableItems = useMemo(() => {
         const items = [];
-        // 1. Requirements
         (jobFeatures || []).forEach(f => {
             if (f.type === 'requirement' || f.type === 'qualification') {
                 items.push({ id: f.id, label: f.description, type: 'requirement' });
             }
         });
-        // 2. Strategy Arguments
         ideas.forEach(idea => {
             items.push({ id: idea.id, label: idea.title, type: 'strategy' });
         });
@@ -69,7 +84,7 @@ const ProseEditor = ({
                 placeholder={`Draft your "${paragraph.purpose}" section...`}
                 strategyArgs={strategyArgs}
                 cvCategories={cvCategories}
-                linkableItems={linkableItems} // <--- Pass the new prop
+                linkableItems={linkableItems} 
                 onPreview={onShowPreview}
             />
         </div>

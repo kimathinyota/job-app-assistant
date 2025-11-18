@@ -10,8 +10,8 @@ import Link from '@tiptap/extension-link';
 import { 
     Bold, Italic, List, ListOrdered, Quote, 
     Briefcase, GraduationCap, Cpu, Heart, Trophy, 
-    Lightbulb, ChevronDown, Type, Sparkles, Info, Ghost, CheckCircle2, Trash2, Eye, 
-    SquareDashedBottom, Link2, X, ChevronRight
+    Lightbulb, ChevronDown, Type, Sparkles, Info, Ghost, CheckCircle2, Trash2, Eye, EyeOff,
+    SquareDashedBottom, Link2, X, ChevronRight, LayoutTemplate, FileText, Copy
 } from 'lucide-react';
 import tippy from 'tippy.js';
 import 'tippy.js/dist/tippy.css';
@@ -24,6 +24,102 @@ const EditorActionContext = createContext({
     cvCategories: {},
     linkableItems: [] 
 });
+
+// --- PREVIEW SIDE PANEL (Modern Offcanvas) ---
+const PreviewSidePanel = ({ isOpen, onClose, content }) => {
+    const showClass = isOpen ? 'show' : '';
+    const visibility = isOpen ? 'visible' : 'hidden';
+
+    const handleCopy = async () => {
+        if (!content) return;
+        try {
+            const blobHtml = new Blob([content], { type: "text/html" });
+            const blobText = new Blob([content.replace(/<[^>]+>/g, '')], { type: "text/plain" });
+            const data = [new ClipboardItem({ "text/html": blobHtml, "text/plain": blobText })];
+            await navigator.clipboard.write(data);
+            alert("Copied formatted text! You can now paste into Word or Google Docs.");
+        } catch (err) {
+            console.error("Copy failed: ", err);
+            alert("Clipboard access denied. Please manually copy the text.");
+        }
+    };
+
+    return createPortal(
+        <>
+            {/* Backdrop */}
+            {isOpen && (
+                <div 
+                    className="offcanvas-backdrop fade show" 
+                    onClick={onClose}
+                    style={{ zIndex: 1045 }} 
+                ></div>
+            )}
+
+            {/* Side Panel */}
+            <div 
+                className={`offcanvas offcanvas-end ${showClass} shadow-lg border-start d-flex flex-column`} 
+                tabIndex="-1" 
+                style={{ visibility, width: '600px', zIndex: 1050 }}
+            >
+                <div className="offcanvas-header border-bottom p-4 bg-light">
+                    <div className="d-flex align-items-center gap-3">
+                        <div className="bg-primary text-white p-2 rounded-circle d-flex align-items-center justify-content-center" style={{width: 40, height: 40}}>
+                            <FileText size={20} />
+                        </div>
+                        <div>
+                            <h5 className="offcanvas-title fw-bold text-dark m-0" style={{lineHeight: 1.2}}>Document Preview</h5>
+                            <span className="text-muted small">Clean version (Ghost text removed)</span>
+                        </div>
+                    </div>
+                    <button 
+                        type="button" 
+                        className="btn btn-icon btn-sm btn-light rounded-circle" 
+                        onClick={onClose}
+                    >
+                        <X size={20} />
+                    </button>
+                </div>
+                
+                <div className="offcanvas-body p-0 bg-light-subtle custom-scroll">
+                    {/* Document Paper View */}
+                    <div className="p-4 p-md-5 min-h-100">
+                        {content ? (
+                            <div 
+                                className="bg-white shadow-sm p-5 mx-auto border" 
+                                style={{
+                                    fontFamily: '"Times New Roman", Times, serif', 
+                                    fontSize: '12pt', 
+                                    lineHeight: '1.6', 
+                                    color: '#000',
+                                    minHeight: '800px',
+                                    maxWidth: '100%'
+                                }}
+                            >
+                                <div dangerouslySetInnerHTML={{ __html: content }} />
+                            </div>
+                        ) : (
+                            <div className="h-100 d-flex flex-column align-items-center justify-content-center text-muted opacity-50">
+                                <Ghost size={48} className="mb-3" />
+                                <p>No visible content yet.</p>
+                                <span className="small">Start typing or unhide sections to see them here.</span>
+                            </div>
+                        )}
+                    </div>
+                </div>
+                
+                <div className="offcanvas-footer p-3 border-top bg-white d-flex gap-2 justify-content-end">
+                    <button className="btn btn-outline-secondary" onClick={onClose}>
+                        Close
+                    </button>
+                    <button className="btn btn-primary d-flex align-items-center gap-2" onClick={handleCopy} disabled={!content}>
+                        <Copy size={16}/> Copy to Clipboard
+                    </button>
+                </div>
+            </div>
+        </>,
+        document.body
+    );
+};
 
 // --- PORTAL DROPDOWN ---
 const PortalDropdown = ({ isOpen, onClose, rect, children }) => {
@@ -64,14 +160,12 @@ const HierarchicalLinkMenu = ({ cvCategories, linkableItems, onSelect, onClose }
 
     return (
         <div className="bg-white shadow-lg border rounded-3 overflow-hidden d-flex" style={{height: '250px', width: '400px'}}>
-            {/* Level 1 */}
             <div className="w-40 border-end bg-light overflow-auto custom-scroll">
                 {categories.map(cat => (
                     <button
                         key={cat.id}
                         className={`w-100 btn btn-sm text-start d-flex align-items-center justify-content-between px-3 py-2 border-0 rounded-0 ${activeCategory === cat.id ? 'bg-white text-primary fw-bold shadow-inset' : 'text-muted hover-bg-white'}`}
                         onMouseEnter={() => setActiveCategory(cat.id)}
-                        // Prevent focus loss here too for better UX
                         onMouseDown={(e) => e.preventDefault()}
                     >
                         <div className="d-flex align-items-center gap-2">
@@ -81,7 +175,6 @@ const HierarchicalLinkMenu = ({ cvCategories, linkableItems, onSelect, onClose }
                     </button>
                 ))}
             </div>
-            {/* Level 2 */}
             <div className="w-60 overflow-auto custom-scroll bg-white">
                 {!activeCategory ? (
                     <div className="h-100 d-flex align-items-center justify-content-center text-muted small fst-italic p-3 text-center">
@@ -121,7 +214,8 @@ const GhostText = Mark.create({
 const GhostSection = Node.create({
     name: 'ghostSection',
     group: 'block',
-    content: 'inline*', 
+    // Allows nesting of blocks and sections
+    content: '(paragraph | blockquote | bulletList | orderedList | ghostSection)+', 
     defining: true, 
     
     addAttributes() {
@@ -129,6 +223,7 @@ const GhostSection = Node.create({
             label: { default: 'New Strategy Section' },
             linkedId: { default: null },
             linkedType: { default: null },
+            isVisible: { default: false }, 
         };
     },
 
@@ -140,35 +235,39 @@ const GhostSection = Node.create({
 
     addNodeView() { return ReactNodeViewRenderer(GhostSectionComponent); },
 
-    // --- STRICT KEYBOARD HANDLING ---
     addKeyboardShortcuts() {
         return {
             Backspace: () => {
-                const { selection } = this.editor.state;
+                const { state } = this.editor;
+                const { selection } = state;
                 const { empty, $anchor } = selection;
                 
-                // 1. Are we inside a Ghost Section?
-                if ($anchor.parent.type.name !== this.name) {
-                    return false; 
+                if (!empty) return false;
+
+                let ghostSectionNode = null;
+                for (let d = $anchor.depth; d > 0; d--) {
+                    const node = $anchor.node(d);
+                    if (node.type.name === this.name) {
+                        ghostSectionNode = node;
+                        break;
+                    }
                 }
 
-                // 2. Is the cursor at the very start of the section?
-                const isAtStart = $anchor.parentOffset === 0;
+                if (!ghostSectionNode) return false;
 
-                // 3. Does the section have text content?
-                const hasContent = $anchor.parent.content.size > 0;
+                const parent = $anchor.parent;
+                const isFirstChild = ghostSectionNode.firstChild === parent;
+                const isAtStartOfParent = $anchor.parentOffset === 0;
 
-                if (empty && isAtStart) {
-                    // If there is text, STOP the deletion.
-                    if (hasContent) {
+                if (isFirstChild && isAtStartOfParent) {
+                    if (ghostSectionNode.textContent.trim().length > 0) {
                         return true; 
                     }
-                    // If it is empty, ALLOW deletion 
                     return false; 
                 }
-
                 return false;
             },
+            // Enter shortcut removed to allow normal Tiptap newline insertion
         };
     },
 
@@ -178,7 +277,7 @@ const GhostSection = Node.create({
                 find: /^>>>\s$/, 
                 handler: ({ state, range }) => {
                     const { tr } = state;
-                    tr.replaceWith(range.from - 1, range.to, this.type.create());
+                    tr.replaceWith(range.from - 1, range.to, this.type.create({}, state.schema.nodes.paragraph.create()));
                 },
             }),
         ];
@@ -217,9 +316,24 @@ const GhostSectionComponent = (props) => {
         setIsEditing(false);
     };
 
+    const toggleVisibility = () => {
+        updateAttributes({ isVisible: !node.attrs.isVisible });
+    };
+
     return (
         <NodeViewWrapper className="ghost-section-wrapper my-4">
-            <div className={`ghost-header d-flex align-items-center gap-2 p-2 rounded-top border border-dashed ${node.attrs.linkedId ? 'border-primary bg-primary-subtle text-primary' : 'border-purple bg-purple-subtle text-purple'}`}>
+            <div className={`ghost-header d-flex align-items-center gap-2 p-2 rounded-top border border-dashed 
+                ${node.attrs.linkedId ? 'border-primary bg-primary-subtle text-primary' : 'border-purple bg-purple-subtle text-purple'}
+                ${node.attrs.isVisible ? 'border-bottom-0 border-solid shadow-sm' : ''} 
+            `}>
+                <button 
+                    className="btn btn-sm btn-link p-0 text-inherit hover-opacity-100 opacity-75" 
+                    onClick={toggleVisibility}
+                    title={node.attrs.isVisible ? "Header is VISIBLE in preview" : "Header is HIDDEN in preview (Structure only)"}
+                >
+                    {node.attrs.isVisible ? <Eye size={14}/> : <EyeOff size={14} />}
+                </button>
+
                 {node.attrs.linkedId ? <Link2 size={14}/> : <SquareDashedBottom size={14}/>}
 
                 {isEditing ? (
@@ -259,7 +373,10 @@ const GhostSectionComponent = (props) => {
                 </div>
             </div>
 
-            <NodeViewContent className={`ghost-content content-div p-3 border-start border-end border-bottom border-dashed rounded-bottom bg-white ${node.attrs.linkedId ? 'border-primary-light' : 'border-purple-light'}`} />
+            <NodeViewContent className={`ghost-content content-div p-3 border-start border-end border-bottom rounded-bottom bg-white 
+                ${node.attrs.linkedId ? 'border-primary-light' : 'border-purple-light'}
+                ${node.attrs.isVisible ? 'border-solid' : 'border-dashed'}
+            `} />
 
             <style>{`
                 .border-purple { border-color: #8b5cf6 !important; }
@@ -270,6 +387,10 @@ const GhostSectionComponent = (props) => {
                 .cursor-text { cursor: text; }
                 .shadow-inset { box-shadow: inset 0 0 0 1px rgba(0,0,0,0.1); }
                 .w-40 { width: 40%; } .w-60 { width: 60%; }
+                .ghost-content p { margin-bottom: 0.75rem; }
+                .ghost-content p:last-child { margin-bottom: 0; }
+                .border-solid { border-style: solid !important; }
+                .border-dashed { border-style: dashed !important; }
                 @media print { .ghost-section-wrapper { display: none; } }
             `}</style>
         </NodeViewWrapper>
@@ -378,7 +499,7 @@ const ToolbarDropdown = ({ icon: Icon, label, tooltip, items, colorClass = "text
             <button 
                 ref={buttonRef}
                 onClick={() => { if (buttonRef.current) { setRect(buttonRef.current.getBoundingClientRect()); setIsOpen(!isOpen); } }}
-                onMouseDown={(e) => e.preventDefault()} // FIX: Prevent Focus Loss
+                onMouseDown={(e) => e.preventDefault()} 
                 className={`btn btn-sm d-flex align-items-center gap-2 px-2 py-1 transition-all position-relative ${isOpen ? 'bg-light-subtle shadow-inset' : 'hover-bg-white'}`}
                 style={{border: '1px solid transparent', borderRadius: '6px', height: '32px', whiteSpace: 'nowrap'}}
             >
@@ -411,6 +532,7 @@ const ToolbarDropdown = ({ icon: Icon, label, tooltip, items, colorClass = "text
 // ============================================================================
 const RichTextEditor = ({ initialContent, onUpdate, placeholder, strategyArgs = [], cvCategories = {}, linkableItems = [], hints = [], onPreview }) => {
     const [evidenceStats, setEvidenceStats] = useState({ used: 0, total: 0 });
+    const [previewContent, setPreviewContent] = useState(null);
 
     const calculateEvidenceStats = (doc, strategies) => {
         if (!doc || !strategies.length) return { used: 0, total: 0 };
@@ -485,7 +607,166 @@ const RichTextEditor = ({ initialContent, onUpdate, placeholder, strategyArgs = 
     const insertChip = (item) => editor?.chain().focus().insertContent({ type: 'mention', attrs: { id: item.id, label: item.label, context: item.context } }).insertContent(' ').run();
     
     const insertGhostSection = () => {
-        editor?.chain().focus().insertContent({ type: 'ghostSection', attrs: { label: 'New Strategy Section' } }).run();
+        editor?.chain().focus().insertContent({ 
+            type: 'ghostSection', 
+            attrs: { label: 'New Strategy Section' }, 
+            content: [{ type: 'paragraph' }] 
+        }).run();
+    };
+
+    const insertQuickLayout = () => {
+        if (strategyArgs.length === 0) return;
+
+        const instructions = {
+            type: 'paragraph',
+            content: [{ 
+                type: 'text', 
+                text: 'Quick Layout: Draft your response for each requirement below. Use the pre-filled evidence context as a guide.',
+                marks: [{ type: 'italic' }, { type: 'ghostText' }]
+            }]
+        };
+
+        const layoutNodes = strategyArgs.map(arg => {
+            const sectionLabel = arg.requirementLabel || arg.title || 'New Section';
+            const linkedId = arg.requirementId || null;
+            const linkedType = arg.requirementId ? 'requirement' : null;
+
+            const evidenceParagraphs = (arg.evidence && arg.evidence.length > 0) 
+                ? arg.evidence.map(ev => ({
+                    type: 'paragraph',
+                    content: [
+                        {
+                            type: 'mention',
+                            attrs: { id: ev.id, label: ev.label || 'Evidence', isGhost: true, context: 'Context' }
+                        },
+                        {
+                            type: 'text',
+                            text: ' ', 
+                        },
+                        {
+                            type: 'text',
+                            text: `(${ev.detail || ''})`, 
+                            marks: [{ type: 'ghostText' }] 
+                        },
+                        {
+                            type: 'text',
+                            text: ': ',
+                            marks: [{ type: 'ghostText' }] 
+                        },
+                        {
+                            type: 'text',
+                            text: ' ' 
+                        }
+                    ]
+                }))
+                : [{ type: 'paragraph' }]; 
+
+            return {
+                type: 'ghostSection',
+                attrs: { 
+                    label: sectionLabel, 
+                    linkedId: linkedId, 
+                    linkedType: linkedType,
+                    isVisible: false 
+                },
+                content: evidenceParagraphs
+            };
+        });
+
+        editor.chain().focus().insertContent([
+            instructions, 
+            ...layoutNodes,
+            { type: 'paragraph' }
+        ]).run();
+    };
+
+    // --- CLEAN HTML GENERATOR (Updated Hierarchy Logic) ---
+    const generateCleanHTML = () => {
+        if (!editor) return "";
+        const json = editor.getJSON();
+
+        // Map depth (from 1 to 4+) to the appropriate H tag and style
+        const getHeadingData = (currentDepth) => {
+            // H-Tag number is derived from the depth, capping at 4
+            const tagNumber = Math.min(currentDepth, 4); 
+            const tag = `h${tagNumber}`;
+            
+            // Define styles for a minimal, professional look (Times New Roman, 12pt base)
+            let style = 'font-weight: bold; margin-bottom: 0.5em;';
+            
+            // Sizes get smaller as the hierarchy number increases (i.e., deeper nesting)
+            switch (tag) {
+                case 'h1': style += 'font-size: 14pt; margin-top: 1.6em;'; break; // Largest/Most Important
+                case 'h2': style += 'font-size: 13pt; margin-top: 1.4em;'; break;
+                case 'h3': style += 'font-size: 12pt; margin-top: 1.2em;'; break;
+                case 'h4': 
+                default:   style += 'font-size: 11pt; margin-top: 1em;'; break; // Smallest/Least Important
+            }
+
+            return { tag, style };
+        };
+
+        const processNode = (node, depth = 0) => {
+            if (!node) return "";
+            
+            // 1. Handle Text
+            if (node.type === "text") {
+                if (node.marks && node.marks.some(m => m.type === "ghostText")) {
+                    return ""; 
+                }
+                let text = node.text;
+                if (node.marks) {
+                    node.marks.forEach(m => {
+                        if (m.type === 'bold') text = `<b>${text}</b>`;
+                        if (m.type === 'italic') text = `<i>${text}</i>`;
+                    });
+                }
+                return text;
+            }
+
+            // 2. Handle Ghost Sections 
+            if (node.type === "ghostSection") {
+                if (node.attrs && node.attrs.isVisible) {
+                    const { tag, style } = getHeadingData(depth + 1); 
+                    
+                    // Recursively process children
+                    const childrenHtml = node.content ? node.content.map(n => processNode(n, depth + 1)).join("") : "";
+                    
+                    return `<${tag} style="${style}">${node.attrs.label}</${tag}>${childrenHtml}`;
+                }
+                // If invisible, just process children's HTML (depth maintained)
+                return node.content ? node.content.map(n => processNode(n, depth)).join("") : ""; 
+            }
+
+            // 3. Handle Mentions
+            if (node.type === "mention") {
+                if (node.attrs && node.attrs.isGhost) return ""; 
+                return node.attrs.label || "";
+            }
+
+            // 4. Paragraphs
+            if (node.type === "paragraph") {
+                // Process children at the same block depth
+                const childrenHtml = node.content ? node.content.map(n => processNode(n, depth)).join("") : "";
+                if (!childrenHtml.trim()) return ""; 
+                return `<p>${childrenHtml}</p>`;
+            }
+            
+            // 5. Default traversal for lists, etc.
+            if (node.content) {
+                // Process children at the same block depth
+                return node.content.map(n => processNode(n, depth)).join("");
+            }
+            return "";
+        };
+
+        // Process top-level content (depth 0)
+        return (json.content || []).map(n => processNode(n, 0)).join("");
+    };
+
+    const handlePreview = () => {
+        const cleanHtml = generateCleanHTML();
+        setPreviewContent(cleanHtml);
     };
 
     const toggleGhostContext = () => {
@@ -494,7 +775,6 @@ const RichTextEditor = ({ initialContent, onUpdate, placeholder, strategyArgs = 
 
     const ToolbarDivider = () => <div className="vr mx-2 opacity-25 h-50 my-auto flex-shrink-0"></div>;
     
-    // --- FIX: ToolbarBtn ---
     const ToolbarBtn = ({ action, icon: Icon, isActive, tooltip }) => {
         const btnRef = useRef(null);
         useEffect(() => { if(btnRef.current) tippy(btnRef.current, { content: tooltip, theme: 'light-border', animation: 'shift-away' }); }, [tooltip]);
@@ -503,7 +783,7 @@ const RichTextEditor = ({ initialContent, onUpdate, placeholder, strategyArgs = 
             <button 
                 ref={btnRef} 
                 onClick={action} 
-                onMouseDown={(e) => e.preventDefault()} // <--- THIS FIXES THE DOUBLE CLICK ISSUE
+                onMouseDown={(e) => e.preventDefault()} 
                 className={`btn btn-sm border-0 d-flex align-items-center justify-content-center flex-shrink-0 transition-all ${isActive ? 'text-purple bg-purple-subtle' : 'text-muted hover-text-dark hover-bg-light'}`} 
                 style={{width: '32px', height: '32px', borderRadius: '6px'}} 
                 type="button"
@@ -522,6 +802,8 @@ const RichTextEditor = ({ initialContent, onUpdate, placeholder, strategyArgs = 
         <EditorActionContext.Provider value={{ onPreview, cvCategories, linkableItems }}>
             <div className="d-flex flex-column h-100 border rounded-3 bg-white focus-within-shadow transition-all" style={{minHeight: '400px'}}>
                 
+                <PreviewSidePanel isOpen={previewContent !== null} onClose={() => setPreviewContent(null)} content={previewContent} />
+
                 {hints.length > 0 && (
                     <div className="bg-blue-50 border-bottom px-3 py-2 d-flex align-items-start gap-2 animate-fade-in">
                         <Sparkles size={14} className="text-primary mt-1 flex-shrink-0" />
@@ -552,16 +834,39 @@ const RichTextEditor = ({ initialContent, onUpdate, placeholder, strategyArgs = 
                 {/* BOTTOM TOOLBAR (CODEX + FORMATTING) */}
                 <div className="d-flex align-items-center gap-1 px-2 py-1 border-bottom bg-white overflow-x-auto hide-scrollbar">
                     
+                    <button 
+                        className="btn btn-sm btn-white border shadow-sm text-primary d-flex align-items-center gap-2 px-3 me-2 hover-bg-primary-subtle" 
+                        style={{color: '#0d6efd', borderColor: 'rgba(13, 110, 253, 0.3)'}}
+                        onClick={handlePreview}
+                        onMouseDown={(e) => e.preventDefault()} 
+                        title="Preview Document (Clean)"
+                    >
+                        <Eye size={14} /> <span className="small fw-bold">Preview</span>
+                    </button>
+                    
+                    <ToolbarDivider />
+
                     {/* Codex Actions */}
                     <button 
-                        className="btn btn-sm btn-white border shadow-sm text-purple d-flex align-items-center gap-2 px-2 me-2 hover-bg-purple-subtle" 
+                        className="btn btn-sm btn-white border shadow-sm text-purple d-flex align-items-center gap-2 px-2 me-1 hover-bg-purple-subtle" 
                         onClick={insertGhostSection}
-                        onMouseDown={(e) => e.preventDefault()} // Applied here too for snappiness
+                        onMouseDown={(e) => e.preventDefault()} 
                         title="Insert Strategy Section (Type '>>> ')"
                         style={{color: '#7c3aed', borderColor: 'rgba(124, 58, 237, 0.3)'}}
                     >
                         <SquareDashedBottom size={14} /> <span className="small fw-bold d-none d-md-inline">Section</span>
                     </button>
+
+                    <button 
+                        className="btn btn-sm btn-white border shadow-sm text-purple d-flex align-items-center gap-2 px-2 me-2 hover-bg-purple-subtle" 
+                        onClick={insertQuickLayout}
+                        onMouseDown={(e) => e.preventDefault()} 
+                        title="Quick Layout: Insert Requirement Sections"
+                        style={{color: '#7c3aed', borderColor: 'rgba(124, 58, 237, 0.3)'}}
+                    >
+                        <LayoutTemplate size={14} /> <span className="small fw-bold d-none d-md-inline">Layout</span>
+                    </button>
+
                     <ToolbarBtn 
                         icon={Ghost} 
                         action={toggleGhostContext} 
@@ -621,10 +926,16 @@ const RichTextEditor = ({ initialContent, onUpdate, placeholder, strategyArgs = 
                     .stroke-success { stroke: var(--bs-success); }
                     
                     .hover-bg-purple-subtle:hover { background-color: #f5f3ff !important; }
+                    .hover-bg-primary-subtle:hover { background-color: #cfe2ff !important; }
                     .text-purple { color: #7c3aed !important; }
                     .bg-purple-subtle { background-color: #f5f3ff !important; color: #7c3aed !important; }
                     .shadow-inset { box-shadow: inset 0 0 0 1px rgba(0,0,0,0.1); }
                     .w-40 { width: 40%; } .w-60 { width: 60%; }
+                    .ghost-content p { margin-bottom: 0.75rem; }
+                    .ghost-content p:last-child { margin-bottom: 0; }
+                    .border-solid { border-style: solid !important; }
+                    .border-dashed { border-style: dashed !important; }
+                    @media print { .ghost-section-wrapper { display: none; } }
                 `}</style>
             </div>
         </EditorActionContext.Provider>
