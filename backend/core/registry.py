@@ -1336,6 +1336,8 @@ class Registry:
             app.supporting_document_ids.append(doc_id)
             self._update("applications", app)
         return app
+    
+    
 
     def submit_application(self, app_id: str):
         """

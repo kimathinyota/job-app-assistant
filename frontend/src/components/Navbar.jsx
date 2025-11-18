@@ -56,14 +56,14 @@ const Navbar = () => {
         <Link to="/" className="d-flex align-items-center text-decoration-none">
             <img 
                 src={isDarkMode ? logoDark : logoLight} 
-                alt="RoleCraft Logo" 
+                alt="RoleCase Logo" 
                 width="32" 
                 height="32"
                 className="me-2"
             />
             <div className="d-flex flex-column">
                 <span className="fw-bold lh-1" style={{ color: 'var(--brand-text)' }}>
-                    RoleCraft
+                    RoleCase
                 </span>
                 <span className="text-uppercase fw-bold" style={{ fontSize: '0.65rem', color: 'var(--brand-text-muted)' }}>
                     Career OS

@@ -13,6 +13,11 @@ import AppTrackerPage from './components/AppTrackerPage';
 import GoalTrackerPage from './components/GoalTrackerPage';
 import ApplicationWorkspace from './components/applications/ApplicationWorkspace';
 import ApplicationDashboard from './components/applications/ApplicationDashboard';
+import SupportingDocStudio from './components/applications/SupportingDocStudio';
+
+import MappingManager from './components/applications/MappingManager';
+import TailoredCVManager from './components/applications/TailoredCVManager';
+
 // This component wraps pages that need the standard container
 const PageWrapper = ({ children }) => (
   <div className="container-xxl py-4">
@@ -65,7 +70,15 @@ function App() {
           path="/goals" 
           element={<PageWrapper><GoalTrackerPage /></PageWrapper>} 
         />
+
+        {/* THE NEW DASHBOARD ROUTES */}
+        <Route path="/application/:applicationId" element={<ApplicationDashboard />} />
+        <Route path="/application/:applicationId/mapping" element={<MappingManager />} />
+        <Route path="/application/:applicationId/cv" element={<TailoredCVManager />} />
+        <Route path="/application/:applicationId/doc/:documentId" element={<SupportingDocStudio />} />
       </Routes>
+
+
     </Layout>
   );
 }

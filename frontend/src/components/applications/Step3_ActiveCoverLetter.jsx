@@ -1,37 +1,35 @@
-// frontend/src/components/applications/Step3_ActiveCoverLetter.jsx
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
-    generateCoverLetterPrompt,
-    createCoverLetter,
     fetchCoverLetterDetails,
-    addCoverLetterIdea,
     updateCoverLetterIdea,
+    updateCoverLetterParagraph,
+    addCoverLetterIdea,
     deleteCoverLetterIdea,
     addCoverLetterParagraph,
-    updateCoverLetterParagraph,
-    autofillCoverLetter
+    autofillCoverLetter,
+    generateCoverLetterPrompt
 } from '../../api/applicationClient.js';
 
 import PromptModal from './PromptModal.jsx';
 import CVItemPreviewModal from './CVItemPreviewModal.jsx';
 import ParagraphStudio from './ParagraphStudio.jsx';
-
-import {
-    Wand2, FileText, ArrowRight, ArrowLeft, Loader2, BrainCircuit,
-    Sparkles, Plus, Layout, GripVertical
+import { 
+    Wand2, Loader2, BrainCircuit, Sparkles, Plus, 
+    Layout, GripVertical, Lock, Edit3 
 } from 'lucide-react';
 
-import {
-    DndContext, closestCenter, KeyboardSensor, PointerSensor,
-    useSensor, useSensors, DragOverlay
+import { 
+    DndContext, closestCenter, KeyboardSensor, PointerSensor, 
+    useSensor, useSensors, DragOverlay 
 } from '@dnd-kit/core';
-import {
-    arrayMove, SortableContext, sortableKeyboardCoordinates,
-    verticalListSortingStrategy
+import { 
+    arrayMove, SortableContext, sortableKeyboardCoordinates, 
+    verticalListSortingStrategy 
 } from '@dnd-kit/sortable';
 
-// --- HOVER DIVIDER (Invisible Touch Targets) ---
-const SectionDivider = ({ index, onInsert }) => {
+// --- HOVER DIVIDER ---
+const SectionDivider = ({ index, onInsert, disabled }) => {
+    if (disabled) return <div style={{height: '24px'}}></div>;
     return (
         <div className="position-relative section-divider-zone" style={{ height: '24px', zIndex: 5 }}>
             <div className="divider-line position-absolute top-50 start-0 w-100" style={{height: '2px', background: '#e2e8f0', opacity: 0, transition: 'opacity 0.2s'}}></div>
@@ -47,21 +45,22 @@ const SectionDivider = ({ index, onInsert }) => {
     );
 };
 
-const Step3_ActiveCoverLetter = ({
-    application,
-    mapping,
-    onPrev,
-    onNext,
+const SupportingDocStudio = ({
+    documentId, 
     job,
-    onCoverLetterCreated,
-    fullCV
+    mapping,
+    fullCV,
+    isLocked = false, 
+    onBack
 }) => {
-    const [coverLetter, setCoverLetter] = useState(null);
+    // --- 1. STATE HOOKS ---
+    const [doc, setDoc] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [error, setError] = useState(null);
     const [strategy, setStrategy] = useState('standard');
     const [isReorderMode, setIsReorderMode] = useState(false);
+    const [docName, setDocName] = useState("");
+    const [error, setError] = useState(null);
 
     // Modal States
     const [clPromptJson, setClPromptJson] = useState('');
@@ -69,11 +68,18 @@ const Step3_ActiveCoverLetter = ({
     const [previewItem, setPreviewItem] = useState(null);
     const [activeId, setActiveId] = useState(null);
 
-    // --- Data Maps ---
+    // --- 2. DND SENSORS (Move up to ensure consistent call order) ---
+    const sensors = useSensors(
+        useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+        useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+    );
+
+    // --- 3. MEMO HOOKS (Safe Data Processing) ---
     const cvLookups = useMemo(() => {
         const map = new Map();
         if (!fullCV) return map;
         const register = (arr, type, nameFn) => (arr || []).forEach(item => map.set(item.id, { ...item, _displayName: nameFn(item), _type: type }));
+        
         register(fullCV.experiences, 'experiences', i => `${i.title} @ ${i.company}`);
         register(fullCV.projects, 'projects', i => i.title);
         register(fullCV.education, 'education', i => `${i.degree} @ ${i.institution}`);
@@ -84,8 +90,13 @@ const Step3_ActiveCoverLetter = ({
     }, [fullCV]);
 
     const { ideaMap, pairMap } = useMemo(() => {
-        const iMap = new Map(coverLetter?.ideas.map(i => [i.id, i]));
-        const pMap = new Map(mapping?.pairs.map(p => {
+        // FIX: Safely handle null doc/mapping with "|| []"
+        const ideas = doc?.ideas || [];
+        const pairs = mapping?.pairs || [];
+
+        const iMap = new Map(ideas.map(i => [i.id, i]));
+        
+        const pMap = new Map(pairs.map(p => {
             const cvItem = cvLookups.get(p.context_item_id);
             return [p.id, {
                 ...p,
@@ -94,40 +105,47 @@ const Step3_ActiveCoverLetter = ({
             }];
         }));
         return { ideaMap: iMap, pairMap: pMap };
-    }, [coverLetter?.ideas, mapping?.pairs, cvLookups]);
+    }, [doc, mapping, cvLookups]);
 
-    // --- Handlers ---
-    const loadCoverLetter = useCallback(async () => {
-        setIsLoading(true);
+    // --- 4. LOAD DATA ---
+    const loadDoc = useCallback(async (silent = false) => {
+        if (!silent) setIsLoading(true);
         try {
-            let clData;
-            if (application.cover_letter_id) {
-                clData = (await fetchCoverLetterDetails(application.cover_letter_id)).data;
+            const res = await fetchCoverLetterDetails(documentId);
+            const data = res.data;
+            if (data.paragraphs.length === 0 && !isLocked) {
+                const filled = await autofillCoverLetter(documentId, 'standard');
+                setDoc(filled.data);
+                setDocName(filled.data.name);
             } else {
-                if (!application.job_id || !application.base_cv_id || !application.mapping_id) return;
-                const res = await createCoverLetter(application.job_id, application.base_cv_id, application.mapping_id);
-                clData = res.data;
-                if (onCoverLetterCreated) onCoverLetterCreated(clData.id);
+                setDoc(data);
+                setDocName(data.name);
             }
-            
-            if (clData.paragraphs.length === 0) {
-                const filled = await autofillCoverLetter(clData.id, 'standard');
-                setCoverLetter(filled.data);
-            } else {
-                setCoverLetter(clData);
-            }
-        } catch (err) { setError("Failed to load data."); } 
-        finally { setIsLoading(false); }
-    }, [application, onCoverLetterCreated]);
+        } catch (err) { 
+            console.error(err);
+            setError("Failed to load document.");
+        } finally { 
+            setIsLoading(false); 
+        }
+    }, [documentId, isLocked]);
 
-    useEffect(() => { loadCoverLetter(); }, [loadCoverLetter]);
+    useEffect(() => { loadDoc(); }, [loadDoc]);
+
+    // --- 5. HANDLERS ---
+    const handleRename = async () => {
+        if(isLocked) return;
+        try {
+            await client.patch(`/coverletter/${documentId}/metadata?name=${encodeURIComponent(docName)}`);
+        } catch(err) { console.error("Failed to rename"); }
+    };
 
     const handleInsertParagraph = async (index) => {
+        if(isLocked) return;
         setIsSubmitting(true);
         try {
-            const res = await addCoverLetterParagraph(coverLetter.id, [], "Untitled Section", "", "user");
+            const res = await addCoverLetterParagraph(doc.id, [], "Untitled Section", "", "user");
             const newPara = res.data;
-            setCoverLetter(prev => {
+            setDoc(prev => {
                 const oldParas = [...prev.paragraphs];
                 oldParas.splice(index, 0, newPara);
                 const reordered = oldParas.map((p, idx) => ({ ...p, order: idx }));
@@ -138,30 +156,63 @@ const Step3_ActiveCoverLetter = ({
                 });
                 return { ...prev, paragraphs: reordered };
             });
-        } catch (err) { alert("Failed to add section"); }
-        finally { setIsSubmitting(false); }
+        } finally { setIsSubmitting(false); }
     };
 
     const handleGlobalUpdate = async (type, id, updates) => {
         if (type === 'idea') {
-            setCoverLetter(prev => ({ ...prev, ideas: prev.ideas.map(i => i.id === id ? { ...i, ...updates } : i) }));
-            await updateCoverLetterIdea(coverLetter.id, id, updates);
+            setDoc(prev => ({ ...prev, ideas: prev.ideas.map(i => i.id === id ? { ...i, ...updates } : i) }));
+            await updateCoverLetterIdea(doc.id, id, updates);
         } else if (type === 'paragraph') {
-             setCoverLetter(prev => ({ ...prev, paragraphs: prev.paragraphs.map(p => p.id === id ? { ...p, ...updates } : p) }));
-            await updateCoverLetterParagraph(coverLetter.id, id, updates);
+             setDoc(prev => ({ ...prev, paragraphs: prev.paragraphs.map(p => p.id === id ? { ...p, ...updates } : p) }));
+            await updateCoverLetterParagraph(doc.id, id, updates);
         }
     };
 
-    const sensors = useSensors(
-        useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-        useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
-    );
+    const handleAddArgument = async (paraId, classification) => {
+        if (isSubmitting || isLocked) return;
+        setIsSubmitting(true);
+        try {
+            const newIdeaRes = await addCoverLetterIdea(doc.id, "New Argument", [], "", classification);
+            const newIdea = newIdeaRes.data;
+            const para = doc.paragraphs.find(p => p.id === paraId);
+            const newIdeaIds = [...para.idea_ids, newIdea.id];
+            await updateCoverLetterParagraph(doc.id, paraId, { idea_ids: newIdeaIds });
+            await loadDoc(true);
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    const handleDeleteIdea = async (idea, para) => {
+        if (!window.confirm(`Delete argument: "${idea.title}"?`)) return;
+        if (isSubmitting || isLocked) return;
+        setIsSubmitting(true);
+        try {
+            const newIdeaIds = para.idea_ids.filter(id => id !== idea.id);
+            await updateCoverLetterParagraph(doc.id, para.id, { idea_ids: newIdeaIds });
+            await deleteCoverLetterIdea(doc.id, idea.id);
+            await loadDoc(true);
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    const handleRevertIdea = async (id) => {
+        if (isLocked) return;
+        await updateCoverLetterIdea(doc.id, id, { owner: 'autofill' });
+        loadDoc(true);
+    };
 
     const handleDragEnd = (event) => {
         const { active, over } = event;
         setActiveId(null);
         if (active.id !== over.id) {
-            setCoverLetter((items) => {
+            setDoc((items) => {
                 const oldIndex = items.paragraphs.findIndex(p => p.id === active.id);
                 const newIndex = items.paragraphs.findIndex(p => p.id === over.id);
                 const newOrder = arrayMove(items.paragraphs, oldIndex, newIndex);
@@ -171,79 +222,103 @@ const Step3_ActiveCoverLetter = ({
         }
     };
 
+    // --- 6. RENDER ---
     if (isLoading) return <div className="vh-100 d-flex align-items-center justify-content-center"><Loader2 className="animate-spin text-primary" /></div>;
-    if (!coverLetter) return <div className="alert alert-warning">Initializing...</div>;
+    if (!doc) return <div className="alert alert-warning m-4">Initializing document...</div>;
 
-    const sortedParagraphs = [...(coverLetter?.paragraphs || [])].sort((a, b) => (a.order || 0) - (b.order || 0));
+    const sortedParagraphs = [...(doc?.paragraphs || [])].sort((a, b) => (a.order || 0) - (b.order || 0));
 
     return (
         <div className="container-xl py-4" style={{ maxWidth: '1100px' }}>
             
-            {/* --- RESPONSIVE HEADER --- */}
+            {/* --- LOCKED BANNER --- */}
+            {isLocked && (
+                <div className="alert alert-warning d-flex align-items-center gap-2 mb-4 shadow-sm border-warning">
+                    <Lock size={16} />
+                    <strong>Snapshot Mode:</strong> This document is locked because the application has been submitted.
+                </div>
+            )}
+
+            {/* --- HEADER --- */}
             <div className="d-flex flex-wrap justify-content-between align-items-end mb-4 position-sticky top-0 bg-white pt-3 pb-3 border-bottom z-3" style={{backdropFilter: 'blur(12px)', background: 'rgba(255,255,255,0.85)'}}>
-                <div className="mb-2 mb-lg-0">
+                <div className="mb-2 mb-lg-0 flex-grow-1">
                     <div className="d-flex align-items-center gap-2 text-primary mb-1">
                         <BrainCircuit size={20} />
-                        <span className="fw-bold small text-uppercase tracking-wide">AI Studio</span>
+                        <button onClick={onBack} className="btn btn-link p-0 text-primary small fw-bold text-uppercase tracking-wide text-decoration-none">
+                            Back to Dashboard
+                        </button>
                     </div>
-                    <h2 className="fw-bold text-dark mb-0 tracking-tight" style={{letterSpacing: '-0.03em'}}>Cover Letter Strategy</h2>
+                    <div className="d-flex align-items-center gap-2">
+                        {isLocked ? (
+                            <h2 className="fw-bold text-dark mb-0 tracking-tight">{docName}</h2>
+                        ) : (
+                            <input 
+                                type="text" 
+                                className="form-control form-control-lg border-0 px-0 fw-bold text-dark shadow-none bg-transparent"
+                                style={{fontSize: '2rem', letterSpacing: '-0.03em'}}
+                                value={docName}
+                                onChange={(e) => setDocName(e.target.value)}
+                                onBlur={handleRename}
+                            />
+                        )}
+                        {!isLocked && <Edit3 size={16} className="text-muted opacity-50" />}
+                    </div>
                 </div>
-                <div className="d-flex gap-2 flex-wrap align-items-center">
-                     <button 
-                        className={`btn btn-sm d-flex align-items-center gap-2 transition-all rounded-pill px-3 ${isReorderMode ? 'btn-dark' : 'btn-light text-muted'}`}
-                        onClick={() => setIsReorderMode(!isReorderMode)}
-                    >
-                        <Layout size={16} /> <span className="fw-medium">{isReorderMode ? 'Done Organizing' : 'Organize'}</span>
-                    </button>
-                    <div className="vr h-50 my-auto opacity-25 d-none d-sm-block"></div>
-                    <button className="btn btn-sm btn-outline-dark rounded-pill d-flex align-items-center gap-2 px-3" onClick={() => {/* Copy Logic */}}>
-                        <FileText size={16} /> <span className="fw-medium">Copy</span>
-                    </button>
-                    <button className="btn btn-sm btn-primary rounded-pill d-flex align-items-center gap-2 px-3 shadow-sm hover-lift" onClick={async () => {
-                        setIsSubmitting(true);
-                        const res = await generateCoverLetterPrompt(mapping.id);
-                        setClPromptJson(JSON.stringify(res.data, null, 2));
-                        setIsPromptModalOpen(true);
-                        setIsSubmitting(false);
-                    }} disabled={isSubmitting}>
-                        {isSubmitting ? <Loader2 size={16} className="animate-spin"/> : <Wand2 size={16}/>} 
-                        <span className="fw-bold">Generate</span>
-                    </button>
-                </div>
+                
+                {/* Actions */}
+                {!isLocked && (
+                    <div className="d-flex gap-2 flex-wrap align-items-center">
+                        <button className={`btn btn-sm d-flex align-items-center gap-2 rounded-pill px-3 ${isReorderMode ? 'btn-dark' : 'btn-light text-muted'}`} onClick={() => setIsReorderMode(!isReorderMode)}>
+                            <Layout size={16} /> <span className="fw-medium">{isReorderMode ? 'Done' : 'Organize'}</span>
+                        </button>
+                         <button className="btn btn-sm btn-primary rounded-pill d-flex align-items-center gap-2 px-3 shadow-sm hover-lift" onClick={async () => {
+                            setIsSubmitting(true);
+                            const res = await generateCoverLetterPrompt(mapping.id);
+                            setClPromptJson(JSON.stringify(res.data, null, 2));
+                            setIsPromptModalOpen(true);
+                            setIsSubmitting(false);
+                        }} disabled={isSubmitting}>
+                            {isSubmitting ? <Loader2 size={16} className="animate-spin"/> : <Wand2 size={16}/>} 
+                            <span className="fw-bold">Generate AI Prompt</span>
+                        </button>
+                    </div>
+                )}
             </div>
-
+            
             {/* --- STRATEGY SELECTOR --- */}
-            <div className="p-4 mb-5 rounded-4 bg-light-subtle border border-light shadow-sm position-relative overflow-hidden">
-                 <div className="d-flex flex-wrap align-items-center gap-3 position-relative z-1">
-                    <div className="d-flex align-items-center justify-content-center bg-white rounded-circle shadow-sm text-primary" style={{width: 48, height: 48}}>
-                        <Sparkles size={24} />
-                    </div>
-                    <div className="flex-grow-1">
-                        <label className="small text-muted fw-bold text-uppercase mb-1">Narrative Strategy</label>
-                        <select 
-                            className="form-select border-0 bg-white shadow-sm fw-semibold py-2" 
-                            style={{borderRadius: '12px', cursor: 'pointer'}}
-                            value={strategy} 
-                            onChange={async (e) => {
-                                setIsSubmitting(true);
-                                await autofillCoverLetter(coverLetter.id, e.target.value, 'reset').then(res => setCoverLetter(res.data));
-                                setStrategy(e.target.value);
-                                setIsSubmitting(false);
-                            }}
-                        >
-                            <option value="standard">Standard (Pro → Personal → Company)</option>
-                            <option value="mission_driven">Mission-Driven (Company → Pro → Personal)</option>
-                            <option value="specialist">Specialist (Focus on Hard Skills)</option>
-                        </select>
+            {!isLocked && (
+                <div className="p-4 mb-5 rounded-4 bg-light-subtle border border-light shadow-sm position-relative overflow-hidden">
+                     <div className="d-flex flex-wrap align-items-center gap-3 position-relative z-1">
+                        <div className="d-flex align-items-center justify-content-center bg-white rounded-circle shadow-sm text-primary" style={{width: 48, height: 48}}>
+                            <Sparkles size={24} />
+                        </div>
+                        <div className="flex-grow-1">
+                            <label className="small text-muted fw-bold text-uppercase mb-1">Narrative Strategy</label>
+                            <select 
+                                className="form-select border-0 bg-white shadow-sm fw-semibold py-2" 
+                                style={{borderRadius: '12px', cursor: 'pointer'}}
+                                value={strategy} 
+                                onChange={async (e) => {
+                                    setIsSubmitting(true);
+                                    await autofillCoverLetter(doc.id, e.target.value, 'reset').then(res => setDoc(res.data));
+                                    setStrategy(e.target.value);
+                                    setIsSubmitting(false);
+                                }}
+                            >
+                                <option value="standard">Standard (Pro → Personal → Company)</option>
+                                <option value="mission_driven">Mission-Driven (Company → Pro → Personal)</option>
+                                <option value="specialist">Specialist (Focus on Hard Skills)</option>
+                            </select>
+                        </div>
                     </div>
                 </div>
-            </div>
+            )}
 
             {/* --- WORKSPACE --- */}
-            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={(e) => setActiveId(e.active.id)} onDragEnd={handleDragEnd}>
-                <SortableContext items={sortedParagraphs.map(p => p.id)} strategy={verticalListSortingStrategy} disabled={!isReorderMode}>
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={(e) => setActiveId(e.active.id)} onDragEnd={(e) => !isLocked && handleDragEnd(e)}>
+                <SortableContext items={sortedParagraphs.map(p => p.id)} strategy={verticalListSortingStrategy} disabled={!isReorderMode || isLocked}>
                     
-                    <SectionDivider index={0} onInsert={handleInsertParagraph} />
+                    <SectionDivider index={0} onInsert={handleInsertParagraph} disabled={isLocked} />
 
                     <div className="d-flex flex-column">
                         {sortedParagraphs.map((para, index) => (
@@ -258,17 +333,15 @@ const Step3_ActiveCoverLetter = ({
                                         isSubmitting={isSubmitting}
                                         isReorderMode={isReorderMode}
                                         onUpdate={handleGlobalUpdate}
-                                        onAddArgument={(pid, classif) => addCoverLetterIdea(coverLetter.id, "New Argument", [], "", classif).then(loadCoverLetter)} 
-                                        onDeleteIdea={async (idea, p) => {
-                                            if(!window.confirm("Delete?")) return;
-                                            await updateCoverLetterParagraph(coverLetter.id, p.id, { idea_ids: p.idea_ids.filter(id => id !== idea.id)});
-                                            await loadCoverLetter();
-                                        }}
-                                        onRevertIdea={async (id) => { await updateCoverLetterIdea(coverLetter.id, id, { owner: 'autofill' }); loadCoverLetter(); }}
+                                        onAddArgument={(pid, classif) => handleAddArgument(pid, classif)} 
+                                        onDeleteIdea={(idea, p) => handleDeleteIdea(idea, p)}
+                                        onRevertIdea={(id) => handleRevertIdea(id)}
                                         onShowPreview={setPreviewItem}
+                                        // Disable editing inside
+                                        readOnly={isLocked} 
                                     />
                                 </div>
-                                <SectionDivider index={index + 1} onInsert={handleInsertParagraph} />
+                                <SectionDivider index={index + 1} onInsert={handleInsertParagraph} disabled={isLocked} />
                             </React.Fragment>
                         ))}
                     </div>
@@ -281,11 +354,9 @@ const Step3_ActiveCoverLetter = ({
             <PromptModal isOpen={isPromptModalOpen} jsonString={clPromptJson} onClose={() => setIsPromptModalOpen(false)} />
             {previewItem && <CVItemPreviewModal isOpen={!!previewItem} onClose={() => setPreviewItem(null)} itemToPreview={previewItem} />}
 
-            {/* STYLES */}
             <style>{`
                 .section-divider-zone:hover .divider-line { opacity: 1 !important; }
                 .section-divider-zone:hover .divider-btn { opacity: 1 !important; transform: translate(-50%, -50%) scale(1) !important; }
-                /* Always show on touch devices when interacting */
                 .section-divider-zone:active .divider-line { opacity: 1 !important; }
                 .hover-lift:hover { transform: translateY(-1px); }
             `}</style>
@@ -293,4 +364,4 @@ const Step3_ActiveCoverLetter = ({
     );
 };
 
-export default Step3_ActiveCoverLetter;
+export default SupportingDocStudio;
