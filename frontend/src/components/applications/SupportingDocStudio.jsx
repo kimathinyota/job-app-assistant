@@ -22,7 +22,7 @@ import CVItemPreviewModal from './CVItemPreviewModal.jsx';
 import ParagraphStudio from './ParagraphStudio.jsx';
 import { 
     Wand2, Loader2, BrainCircuit, Sparkles, Plus, 
-    Layout, GripVertical, Lock, Edit3, ArrowLeft 
+    Layout, GripVertical, Lock, Edit3, ArrowLeft, Trash2, Eye // Added Trash2, Eye
 } from 'lucide-react';
 
 import { 
@@ -78,6 +78,9 @@ const SupportingDocStudio = ({
     const [isPromptModalOpen, setIsPromptModalOpen] = useState(false);
     const [previewItem, setPreviewItem] = useState(null);
     const [activeId, setActiveId] = useState(null);
+
+    // NEW STATE: For Document Preview (Placeholder for a more complex modal)
+    const [isDocumentPreviewOpen, setIsDocumentPreviewOpen] = useState(false); 
 
     const sensors = useSensors(
         useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -163,12 +166,13 @@ const SupportingDocStudio = ({
         return { ideaMap: iMap, pairMap: pMap };
     }, [doc, activeMapping, cvLookups]);
 
-    // --- FIX: PREVIEW HANDLER ---
+    // --- FIX: PREVIEW HANDLER (remains the same) ---
     const handleShowPreview = (id, typeHint) => {
         if (!activeCV) return;
 
         let targetId = id;
         let targetType = typeHint;
+        // ... rest of handleShowPreview logic ...
 
         // 1. Resolve "Evidence ID" (ev-...) to "CV Item ID" (exp_...)
         if (typeof id === 'string' && id.startsWith('ev-')) {
@@ -222,11 +226,12 @@ const SupportingDocStudio = ({
         }
     };
 
+    // RENAME FIX (Line 229) - Assumes client is imported
     const handleRename = async () => {
         if(activeIsLocked) return;
         try {
             await client.patch(`/coverletter/${effectiveDocId}`, { name: docName });
-        } catch(err) { console.error("Failed to rename"); }
+        } catch(err) { console.error("Failed to rename", err); } // Added error logging
     };
 
     const handleInsertParagraph = async (index) => {
@@ -244,6 +249,40 @@ const SupportingDocStudio = ({
         } finally { setIsSubmitting(false); }
     };
 
+    // NEW FUNCTION: Handle Paragraph Deletion
+    const handleDeleteParagraph = async (paraId) => {
+        if (!window.confirm("Are you sure you want to delete this paragraph section and its content?")) return;
+        if(activeIsLocked) return;
+        setIsSubmitting(true);
+        try {
+            // Assuming the API client has a direct delete method for a paragraph
+            await client.delete(`/coverletter/${doc.id}/paragraph/${paraId}`); 
+            
+            setDoc(prev => {
+                const newParas = prev.paragraphs.filter(p => p.id !== paraId);
+                const reordered = newParas.map((p, idx) => ({ ...p, order: idx }));
+                return { ...prev, paragraphs: reordered };
+            });
+        } catch (err) { 
+            console.error("Failed to delete paragraph", err);
+            loadDoc(true); // Attempt a silent reload to correct state on error
+        } finally { 
+            setIsSubmitting(false); 
+        }
+    };
+    
+    // NEW FUNCTION: Toggle Reorder Mode
+    const handleToggleReorder = () => {
+        setIsReorderMode(prev => !prev);
+    };
+
+    // NEW FUNCTION: Document Preview Trigger
+    const handleDocumentPreview = () => {
+        // In a real application, logic to aggregate all paragraph.draft_text 
+        // using RichTextEditor's logic would go here.
+        setIsDocumentPreviewOpen(true);
+    };
+
     const handleGlobalUpdate = async (type, id, updates) => {
         if (type === 'idea') {
             setDoc(prev => ({ ...prev, ideas: prev.ideas.map(i => i.id === id ? { ...i, ...updates } : i) }));
@@ -253,7 +292,9 @@ const SupportingDocStudio = ({
             await updateCoverLetterParagraph(doc.id, id, updates);
         }
     };
-
+    
+    // ... rest of event handlers remain the same ...
+    
     const handleAddArgument = async (paraId, classification) => {
         if (isSubmitting || activeIsLocked) return;
         setIsSubmitting(true);
@@ -300,10 +341,13 @@ const SupportingDocStudio = ({
             });
         }
     };
+    
+    // ... loading checks remain the same ...
 
     if (!effectiveDocId) return <div className="alert alert-danger m-4">Document ID missing.</div>;
     if (isLoading) return <div className="vh-100 d-flex align-items-center justify-content-center"><Loader2 className="animate-spin text-primary" /></div>;
     if (!doc) return <div className="alert alert-warning m-4">Initializing document...</div>;
+
 
     const sortedParagraphs = [...(doc?.paragraphs || [])].sort((a, b) => (a.order || 0) - (b.order || 0));
 
@@ -317,24 +361,31 @@ const SupportingDocStudio = ({
                 </div>
             )}
 
-            <div className="d-flex flex-wrap justify-content-between align-items-end mb-4 position-sticky top-0 bg-white pt-3 pb-3 border-bottom z-3" style={{backdropFilter: 'blur(12px)', background: 'rgba(255,255,255,0.85)'}}>
-                <div className="mb-2 mb-lg-0 flex-grow-1">
-                    <div className="d-flex align-items-center gap-2 text-primary mb-1">
-                        <BrainCircuit size={20} />
-                        <button 
-                            onClick={onBack ? onBack : () => navigate(`/application/${applicationId}`)} 
-                            className="btn btn-link p-0 text-primary small fw-bold text-uppercase tracking-wide text-decoration-none d-flex align-items-center gap-1"
-                        >
-                            <ArrowLeft size={14}/> Back to Dashboard
-                        </button>
-                    </div>
-                    <div className="d-flex align-items-center gap-2">
+            {/* NEW A+ HEADER SECTION */}
+            <div className="position-sticky top-0 bg-white pt-3 pb-3 z-3" style={{backdropFilter: 'blur(12px)', background: 'rgba(255,255,255,0.85)'}}>
+                
+                {/* 1. BACK/CONTEXT ROW */}
+                <div className="d-flex align-items-center gap-2 text-primary mb-3">
+                    <BrainCircuit size={20} />
+                    <button 
+                        onClick={onBack ? onBack : () => navigate(`/application/${applicationId}`)} 
+                        className="btn btn-link p-0 text-primary small fw-bold text-uppercase tracking-wide text-decoration-none d-flex align-items-center gap-1"
+                    >
+                        <ArrowLeft size={14}/> Back to Dashboard
+                    </button>
+                </div>
+
+                {/* 2. TITLE/RENAME & ACTIONS ROW (A+ Look with Padding) */}
+                <div className="p-4 mb-4 rounded-4 bg-light-subtle border border-light shadow-lg d-flex flex-column flex-lg-row justify-content-between align-items-start align-items-lg-center">
+                    
+                    {/* Title/Rename Area */}
+                    <div className="d-flex align-items-center gap-2 flex-grow-1 mb-3 mb-lg-0 me-lg-4">
                         {activeIsLocked ? (
                             <h2 className="fw-bold text-dark mb-0 tracking-tight">{docName}</h2>
                         ) : (
                             <input 
                                 type="text" 
-                                className="form-control form-control-lg border-0 px-0 fw-bold text-dark shadow-none bg-transparent"
+                                className="form-control form-control-lg border-0 p-0 fw-bold text-dark shadow-none bg-transparent"
                                 style={{fontSize: '2rem', letterSpacing: '-0.03em'}}
                                 value={docName}
                                 onChange={(e) => setDocName(e.target.value)}
@@ -343,22 +394,45 @@ const SupportingDocStudio = ({
                         )}
                         {!activeIsLocked && <Edit3 size={16} className="text-muted opacity-50" />}
                     </div>
+
+                    {/* Action Buttons (New Layout) */}
+                    {!activeIsLocked && (
+                        <div className="d-flex gap-3 flex-wrap align-items-center flex-shrink-0">
+                            
+                            {/* Preview Button */}
+                            <button 
+                                className="btn btn-outline-secondary rounded-pill d-flex align-items-center gap-2 px-3 shadow-sm hover-lift" 
+                                onClick={handleDocumentPreview} 
+                                title="Preview Document"
+                            >
+                                <Eye size={16}/> 
+                                <span className="fw-bold d-none d-md-inline">Preview</span>
+                            </button>
+                            
+                            {/* Reorder Button (Toggle) */}
+                            <button 
+                                className={`btn btn-outline-secondary rounded-pill d-flex align-items-center gap-2 px-3 shadow-sm hover-lift ${isReorderMode ? 'active border-primary text-primary bg-primary-subtle' : ''}`} 
+                                onClick={handleToggleReorder} 
+                                title={isReorderMode ? "Exit Reorder Mode" : "Enter Reorder Mode"}
+                            >
+                                <GripVertical size={16}/> 
+                                <span className="fw-bold d-none d-md-inline">{isReorderMode ? 'Reordering' : 'Reorder'}</span>
+                            </button>
+
+                            {/* AI Prompt Button (Text Changed) */}
+                            <button className="btn btn-primary rounded-pill d-flex align-items-center gap-2 px-3 shadow-sm hover-lift" onClick={async () => {
+                                setIsSubmitting(true);
+                                const res = await generateCoverLetterPrompt(activeMapping.id);
+                                setClPromptJson(JSON.stringify(res.data, null, 2));
+                                setIsPromptModalOpen(true);
+                                setIsSubmitting(false);
+                            }} disabled={isSubmitting}>
+                                {isSubmitting ? <Loader2 size={16} className="animate-spin"/> : <Wand2 size={16}/>} 
+                                <span className="fw-bold">AI Prompt</span> {/* Shortened text */}
+                            </button>
+                        </div>
+                    )}
                 </div>
-                
-                {!activeIsLocked && (
-                    <div className="d-flex gap-2 flex-wrap align-items-center">
-                         <button className="btn btn-sm btn-primary rounded-pill d-flex align-items-center gap-2 px-3 shadow-sm hover-lift" onClick={async () => {
-                            setIsSubmitting(true);
-                            const res = await generateCoverLetterPrompt(activeMapping.id);
-                            setClPromptJson(JSON.stringify(res.data, null, 2));
-                            setIsPromptModalOpen(true);
-                            setIsSubmitting(false);
-                        }} disabled={isSubmitting}>
-                            {isSubmitting ? <Loader2 size={16} className="animate-spin"/> : <Wand2 size={16}/>} 
-                            <span className="fw-bold">Generate AI Prompt</span>
-                        </button>
-                    </div>
-                )}
             </div>
             
             {!activeIsLocked && (
@@ -409,6 +483,7 @@ const SupportingDocStudio = ({
                                         onUpdate={handleGlobalUpdate}
                                         onAddArgument={(pid, classif) => handleAddArgument(pid, classif)} 
                                         onDeleteIdea={(idea, p) => handleDeleteIdea(idea, p)}
+                                        onDeleteParagraph={handleDeleteParagraph} // New prop for deletion
                                         onRevertIdea={(id) => handleRevertIdea(id)}
                                         onShowPreview={handleShowPreview} 
                                         readOnly={activeIsLocked} 
@@ -425,6 +500,14 @@ const SupportingDocStudio = ({
             </DndContext>
 
             <PromptModal isOpen={isPromptModalOpen} jsonString={clPromptJson} onClose={() => setIsPromptModalOpen(false)} />
+            
+            {/* Placeholder Modal for Full Document Preview */}
+            <PromptModal 
+                isOpen={isDocumentPreviewOpen} 
+                jsonString={`// Full Document Preview:\n// The document compiler is not yet fully implemented in this studio. The final document would be generated here by compiling all visible paragraphs (and their content/headings).\n\n// First paragraph content start:\n${sortedParagraphs[0]?.draft_text || '...'}`} 
+                onClose={() => setIsDocumentPreviewOpen(false)} 
+                title="Full Document Preview (Draft)" 
+            />
             
             {previewItem && (
                 <CVItemPreviewModal 

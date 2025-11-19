@@ -1,6 +1,9 @@
 // frontend/src/components/applications/ParagraphStudio.jsx
 import React, { useState, useMemo } from 'react';
-import { Sparkles, Pencil, Plus, GripVertical, ChevronDown, ChevronUp, AlignLeft, Lightbulb } from 'lucide-react';
+import { 
+    Sparkles, Pencil, Plus, GripVertical, ChevronDown, ChevronUp, AlignLeft, Lightbulb,
+    Trash2 // ADDED
+} from 'lucide-react';
 import ArgumentCard from './ArgumentCard.jsx';
 import ProseEditor from './ProseEditor.jsx';
 import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
@@ -9,6 +12,7 @@ import { CSS } from '@dnd-kit/utilities';
 // --- SUB-COMPONENTS ---
 
 const SortableArgumentList = ({ ideas, ...props }) => (
+// ... unchanged
     <SortableContext items={ideas.map(i => i.id)} strategy={verticalListSortingStrategy}>
         <div className="d-flex flex-column gap-3">
             {ideas.map(idea => <SortableArgumentItem key={idea.id} idea={idea} {...props} />)}
@@ -17,6 +21,7 @@ const SortableArgumentList = ({ ideas, ...props }) => (
 );
 
 const SortableArgumentItem = ({ idea, ...props }) => {
+// ... unchanged
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: idea.id });
     const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 };
     return (
@@ -38,7 +43,8 @@ const ParagraphStudio = ({
     onAddArgument,
     onDeleteIdea,
     onRevertIdea,
-    onShowPreview
+    onShowPreview,
+    onDeleteParagraph // NEW PROP
 }) => {
     const [view, setView] = useState('strategy'); 
     const [isCollapsed, setIsCollapsed] = useState(false);
@@ -71,18 +77,19 @@ const ParagraphStudio = ({
                 className={`d-flex align-items-center p-3 ${isCollapsed ? '' : 'border-bottom'}`} 
                 style={{minHeight: '72px', cursor: isReorderMode ? 'grab' : 'default'}}
             >
-                {/* Drag Handle (Only in Reorder Mode) */}
+                {/* Drag Handle (Show only in Reorder Mode) */}
                 {isReorderMode && (
-                    <div className="me-3 text-muted cursor-grab" {...attributes} {...listeners}>
+                    <div className="me-3 text-muted cursor-grab flex-shrink-0" {...attributes} {...listeners} title="Drag to reorder section">
                         <GripVertical size={20} />
                     </div>
                 )}
 
-                {/* Toggle Expand (Left aligned for modern feel) */}
+                {/* Toggle Expand (Fixed Centering) */}
                 <button 
-                    className="btn btn-icon btn-light rounded-circle me-3 transition-transform"
+                    className="btn btn-icon btn-light rounded-circle me-3 transition-transform d-flex align-items-center justify-content-center" // FIX: Added d-flex centering
                     onClick={() => setIsCollapsed(!isCollapsed)}
                     style={{width: 32, height: 32, transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)'}}
+                    title={isCollapsed ? "Expand Section" : "Collapse Section"}
                 >
                     <ChevronDown size={16} className="text-dark" />
                 </button>
@@ -118,25 +125,41 @@ const ParagraphStudio = ({
                     )}
                 </div>
 
-                {/* View Toggle (Hidden when collapsed) */}
-                {!isCollapsed && !isReorderMode && (
-                    <div className="d-flex bg-light rounded-pill p-1 ms-3">
+                {/* Action Buttons */}
+                <div className="d-flex align-items-center flex-shrink-0">
+                    {/* View Toggle (Hidden when collapsed) */}
+                    {!isCollapsed && !isReorderMode && (
+                        <div className="d-flex bg-light rounded-pill p-1 ms-3">
+                            <button 
+                                onClick={() => setView('strategy')}
+                                className={`btn btn-sm rounded-pill d-flex align-items-center gap-2 px-3 py-1 fw-semibold transition-all ${view === 'strategy' ? 'bg-white shadow-sm text-primary' : 'text-muted hover-text-dark'}`}
+                                style={{fontSize: '0.85rem'}}
+                            >
+                                <Sparkles size={14} /> <span className="d-none d-sm-inline">Strategy</span>
+                            </button>
+                            <button 
+                                onClick={() => setView('write')}
+                                className={`btn btn-sm rounded-pill d-flex align-items-center gap-2 px-3 py-1 fw-semibold transition-all ${view === 'write' ? 'bg-white shadow-sm text-primary' : 'text-muted hover-text-dark'}`}
+                                style={{fontSize: '0.85rem'}}
+                            >
+                                <Pencil size={14} /> <span className="d-none d-sm-inline">Write</span>
+                            </button>
+                        </div>
+                    )}
+
+                    {/* Delete Button (Show only when not reordering and delete function is passed) */}
+                    {!isReorderMode && onDeleteParagraph && (
                         <button 
-                            onClick={() => setView('strategy')}
-                            className={`btn btn-sm rounded-pill d-flex align-items-center gap-2 px-3 py-1 fw-semibold transition-all ${view === 'strategy' ? 'bg-white shadow-sm text-primary' : 'text-muted hover-text-dark'}`}
-                            style={{fontSize: '0.85rem'}}
+                            className="btn btn-icon btn-light text-danger rounded-circle ms-3 d-flex align-items-center justify-content-center"
+                            onClick={() => onDeleteParagraph(paragraph.id)}
+                            disabled={isSubmitting}
+                            title="Delete Paragraph Section"
+                            style={{width: 32, height: 32}}
                         >
-                            <Sparkles size={14} /> <span className="d-none d-sm-inline">Strategy</span>
+                            <Trash2 size={16} />
                         </button>
-                        <button 
-                            onClick={() => setView('write')}
-                            className={`btn btn-sm rounded-pill d-flex align-items-center gap-2 px-3 py-1 fw-semibold transition-all ${view === 'write' ? 'bg-white shadow-sm text-primary' : 'text-muted hover-text-dark'}`}
-                            style={{fontSize: '0.85rem'}}
-                        >
-                            <Pencil size={14} /> <span className="d-none d-sm-inline">Write</span>
-                        </button>
-                    </div>
-                )}
+                    )}
+                </div>
             </div>
 
             {/* --- EXPANDED CONTENT --- */}
