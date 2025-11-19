@@ -19,8 +19,6 @@ const ProseEditor = ({
             if (idea.mapping_pair_ids && jobFeatures) {
                 for (const pid of idea.mapping_pair_ids) {
                     const pair = pairMap.get(pid);
-                    
-                    // --- FIX: Use 'feature_id' instead of 'job_feature_id' ---
                     if (pair && pair.feature_id) { 
                         linkedReq = jobFeatures.find(f => f.id === pair.feature_id);
                         if (linkedReq) break; 
@@ -37,7 +35,8 @@ const ProseEditor = ({
                     .map(pid => pairMap.get(pid))
                     .filter(Boolean)
                     .map(p => ({ 
-                        id: `ev-${p.id}`, 
+                        id: `ev-${p.id}`,          // The Mapping Pair ID (Used by Mentions)
+                        sourceId: p.context_item_id, // <--- NEW: The Raw CV Item ID (Used by Sections)
                         label: p.context_item_text,
                         detail: "Evidence",
                         isStrategy: true 
@@ -86,6 +85,7 @@ const ProseEditor = ({
                 cvCategories={cvCategories}
                 linkableItems={linkableItems} 
                 onPreview={onShowPreview}
+                sectionTitle={paragraph.purpose}
             />
         </div>
     );

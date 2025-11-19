@@ -11,7 +11,7 @@ import {
     Bold, Italic, List, ListOrdered, Quote, 
     Briefcase, GraduationCap, Cpu, Heart, Trophy, 
     Lightbulb, ChevronDown, Type, Sparkles, Info, Ghost, CheckCircle2, Trash2, Eye, EyeOff,
-    SquareDashedBottom, Link2, X, ChevronRight, LayoutTemplate, FileText, Copy
+    SquareDashedBottom, Link2, X, ChevronRight, LayoutTemplate, FileText, Copy, Heading1
 } from 'lucide-react';
 import tippy from 'tippy.js';
 import 'tippy.js/dist/tippy.css';
@@ -202,6 +202,38 @@ const HierarchicalLinkMenu = ({ cvCategories, linkableItems, onSelect, onClose }
 // 1. CODEX EXTENSIONS
 // ============================================================================
 
+// --- SECTION TITLE NODE (NEW) ---
+const SectionTitle = Node.create({
+    name: 'sectionTitle',
+    group: 'block',
+    atom: true,
+    selectable: true,
+    draggable: true,
+    
+    addAttributes() {
+        return {
+            label: { default: 'Section Title' }
+        };
+    },
+
+    parseHTML() { return [{ tag: 'div[data-type="section-title"]' }]; },
+
+    renderHTML({ HTMLAttributes }) {
+        return ['div', mergeAttributes(HTMLAttributes, { 'data-type': 'section-title', class: 'section-title-block' }), HTMLAttributes.label];
+    },
+
+    addNodeView() {
+        return ReactNodeViewRenderer(({ node }) => (
+            <NodeViewWrapper className="section-title-wrapper mb-4 mt-2">
+                <div className="p-2 border-bottom border-3 border-dark d-flex align-items-center bg-light-subtle">
+                    <Heading1 size={24} className="text-muted me-3 opacity-50" />
+                    <h2 className="m-0 fw-bold text-dark">{node.attrs.label}</h2>
+                </div>
+            </NodeViewWrapper>
+        ));
+    }
+});
+
 // --- GHOST TEXT MARK (Highlighter) ---
 const GhostText = Mark.create({
     name: 'ghostText',
@@ -210,11 +242,10 @@ const GhostText = Mark.create({
     renderHTML({ HTMLAttributes }) { return ['span', mergeAttributes(HTMLAttributes, { class: 'ghost-text-mark' }), 0] },
 });
 
-// --- GHOST SECTION NODE ---
+// --- GHOST SECTION NODE (Updated Attributes) ---
 const GhostSection = Node.create({
     name: 'ghostSection',
     group: 'block',
-    // Allows nesting of blocks and sections
     content: '(paragraph | blockquote | bulletList | orderedList | ghostSection)+', 
     defining: true, 
     
@@ -222,28 +253,25 @@ const GhostSection = Node.create({
         return {
             label: { default: 'New Strategy Section' },
             linkedId: { default: null },
+            linkedLabel: { default: null }, // <--- NEW: Stores the name of the source item
             linkedType: { default: null },
             isVisible: { default: false }, 
         };
     },
-
+    
+    // ... (Keep parseHTML, renderHTML, shortcuts, inputRules unchanged)
     parseHTML() { return [{ tag: 'div[data-type="ghost-section"]' }]; },
-
     renderHTML({ HTMLAttributes }) {
         return ['div', mergeAttributes(HTMLAttributes, { 'data-type': 'ghost-section', class: 'ghost-section-block' }), 0];
     },
-
     addNodeView() { return ReactNodeViewRenderer(GhostSectionComponent); },
-
     addKeyboardShortcuts() {
         return {
             Backspace: () => {
                 const { state } = this.editor;
                 const { selection } = state;
                 const { empty, $anchor } = selection;
-                
                 if (!empty) return false;
-
                 let ghostSectionNode = null;
                 for (let d = $anchor.depth; d > 0; d--) {
                     const node = $anchor.node(d);
@@ -252,25 +280,18 @@ const GhostSection = Node.create({
                         break;
                     }
                 }
-
                 if (!ghostSectionNode) return false;
-
                 const parent = $anchor.parent;
                 const isFirstChild = ghostSectionNode.firstChild === parent;
                 const isAtStartOfParent = $anchor.parentOffset === 0;
-
                 if (isFirstChild && isAtStartOfParent) {
-                    if (ghostSectionNode.textContent.trim().length > 0) {
-                        return true; 
-                    }
+                    if (ghostSectionNode.textContent.trim().length > 0) return true; 
                     return false; 
                 }
                 return false;
             },
-            // Enter shortcut removed to allow normal Tiptap newline insertion
         };
     },
-
     addInputRules() {
         return [
             new InputRule({
@@ -284,7 +305,7 @@ const GhostSection = Node.create({
     },
 });
 
-// --- GHOST SECTION COMPONENT ---
+// --- GHOST SECTION COMPONENT (Updated UI & Logic) ---
 const GhostSectionComponent = (props) => {
     const { node, updateAttributes, deleteNode } = props;
     const { linkableItems, cvCategories } = useContext(EditorActionContext);
@@ -295,6 +316,7 @@ const GhostSectionComponent = (props) => {
     useEffect(() => { 
         if (isEditing && inputRef.current) {
             inputRef.current.focus();
+            // If entering edit mode from a non-empty state, ensure cursor is at end
             const len = inputRef.current.value.length;
             inputRef.current.setSelectionRange(len, len);
         }
@@ -310,8 +332,33 @@ const GhostSectionComponent = (props) => {
         }
     };
 
+    // Handle Backspace to delete link pill
+    const handleKeyDown = (e) => {
+        if (e.key === 'Enter') {
+            setIsEditing(false);
+            return;
+        }
+
+        if (e.key === 'Backspace' && node.attrs.linkedId) {
+            // If cursor is at start (pos 0) and we have a link, delete the link
+            if (e.target.selectionStart === 0 && e.target.selectionEnd === 0) {
+                updateAttributes({ linkedId: null, linkedLabel: null, linkedType: null });
+            }
+        }
+    };
+
     const handleLink = (item) => {
-        updateAttributes({ linkedId: item.id, label: item.label, linkedType: item.type });
+        const currentLabel = node.attrs.label || "";
+        const defaultLabel = 'New Strategy Section';
+        const shouldAdoptName = !currentLabel.trim() || currentLabel === defaultLabel;
+
+        updateAttributes({ 
+            linkedId: item.id, 
+            linkedLabel: item.label,
+            linkedType: item.type,
+            label: shouldAdoptName ? item.label : currentLabel.trim()
+        });
+
         setIsLinking(false);
         setIsEditing(false);
     };
@@ -319,6 +366,8 @@ const GhostSectionComponent = (props) => {
     const toggleVisibility = () => {
         updateAttributes({ isVisible: !node.attrs.isVisible });
     };
+
+    const LinkIcon = node.attrs.linkedType === 'requirement' ? Lightbulb : Link2;
 
     return (
         <NodeViewWrapper className="ghost-section-wrapper my-4">
@@ -334,7 +383,16 @@ const GhostSectionComponent = (props) => {
                     {node.attrs.isVisible ? <Eye size={14}/> : <EyeOff size={14} />}
                 </button>
 
-                {node.attrs.linkedId ? <Link2 size={14}/> : <SquareDashedBottom size={14}/>}
+                {node.attrs.linkedId ? (
+                    <div className="d-flex align-items-center bg-white bg-opacity-50 rounded px-1" title={`Linked to: ${node.attrs.linkedLabel}`}>
+                        <LinkIcon size={12} className="me-1"/> 
+                        <span className="tiny fw-bold text-truncate" style={{maxWidth: '100px', fontSize: '0.65rem'}}>
+                            {node.attrs.linkedLabel}
+                        </span>
+                    </div>
+                ) : (
+                    <SquareDashedBottom size={14}/>
+                )}
 
                 {isEditing ? (
                     <div className="flex-grow-1 position-relative">
@@ -343,8 +401,9 @@ const GhostSectionComponent = (props) => {
                             className="form-control form-control-sm border-0 bg-transparent p-0 fw-bold text-inherit w-100 shadow-none"
                             value={node.attrs.label}
                             onChange={handleInput}
+                            onKeyDown={handleKeyDown}
+                            placeholder="Untitled Section"
                             onBlur={() => setTimeout(() => { if(!isLinking) setIsEditing(false); }, 200)}
-                            onKeyDown={(e) => e.key === 'Enter' && setIsEditing(false)}
                         />
                         {isLinking && (
                             <div className="position-absolute top-100 start-0 mt-1" style={{zIndex: 200}}>
@@ -353,18 +412,19 @@ const GhostSectionComponent = (props) => {
                         )}
                     </div>
                 ) : (
+                    /* FIX: Added conditional class and fallback text so span is never empty/0-width */
                     <span 
-                        className="fw-bold small flex-grow-1 cursor-text text-truncate" 
+                        className={`fw-bold small flex-grow-1 cursor-text text-truncate ${!node.attrs.label ? 'text-muted fst-italic opacity-50' : ''}`}
                         onClick={() => setIsEditing(true)}
                         title="Click to rename section or type '@' to link"
                     >
-                        {node.attrs.label}
+                        {node.attrs.label || "Untitled Section"}
                     </span>
                 )}
 
                 <div className="d-flex align-items-center gap-1">
                     {node.attrs.linkedId ? (
-                        <button className="btn btn-sm btn-link p-0 opacity-50 hover-opacity-100 text-inherit" onClick={() => updateAttributes({ linkedId: null, linkedType: null, label: 'New Strategy Section' })} title="Unlink"><X size={14}/></button>
+                        <button className="btn btn-sm btn-link p-0 opacity-50 hover-opacity-100 text-inherit" onClick={() => updateAttributes({ linkedId: null, linkedLabel: null, linkedType: null })} title="Unlink"><X size={14}/></button>
                     ) : (
                         !isEditing && <button className="btn btn-sm btn-link p-0 opacity-50 hover-opacity-100 text-inherit fw-bold small" onClick={() => { setIsEditing(true); setIsLinking(true); }}>Link</button>
                     )}
@@ -396,7 +456,6 @@ const GhostSectionComponent = (props) => {
         </NodeViewWrapper>
     );
 };
-
 // --- MENTION COMPONENT ---
 const MentionComponent = (props) => {
     const { node, updateAttributes, deleteNode } = props;
@@ -530,20 +589,43 @@ const ToolbarDropdown = ({ icon: Icon, label, tooltip, items, colorClass = "text
 // ============================================================================
 // 6. MAIN EDITOR
 // ============================================================================
-const RichTextEditor = ({ initialContent, onUpdate, placeholder, strategyArgs = [], cvCategories = {}, linkableItems = [], hints = [], onPreview }) => {
+const RichTextEditor = ({ initialContent, onUpdate, placeholder, strategyArgs = [], cvCategories = {}, linkableItems = [], hints = [], onPreview, sectionTitle }) => {
     const [evidenceStats, setEvidenceStats] = useState({ used: 0, total: 0 });
     const [previewContent, setPreviewContent] = useState(null);
 
+// --- UPDATED: CALCULATE EVIDENCE STATS (DUAL-CHECK) ---
     const calculateEvidenceStats = (doc, strategies) => {
         if (!doc || !strategies.length) return { used: 0, total: 0 };
-        const strategyIds = new Set();
-        strategies.forEach(arg => { arg.evidence.forEach(ev => strategyIds.add(ev.id)); });
-        if (strategyIds.size === 0) return { used: 0, total: 0 };
+
+        // 1. Collect all expected Evidence IDs + Source IDs
+        const strategyItems = [];
+        strategies.forEach(arg => { 
+            arg.evidence.forEach(ev => {
+                strategyItems.push({ id: ev.id, sourceId: ev.sourceId }); 
+            }); 
+        });
+
+        if (strategyItems.length === 0) return { used: 0, total: 0 };
+
+        // 2. Collect all used IDs from the document (Mentions AND Section Links)
         const usedIds = new Set();
-        doc.descendants((node) => { if (node.type.name === 'mention') usedIds.add(node.attrs.id); });
+        doc.descendants((node) => { 
+            if (node.type.name === 'mention' && node.attrs.id) usedIds.add(node.attrs.id); 
+            if (node.type.name === 'ghostSection' && node.attrs.linkedId) usedIds.add(node.attrs.linkedId);
+        });
+
+        // 3. Count used evidence (Match EITHER Mapping ID OR Source ID)
         let count = 0;
-        strategyIds.forEach(id => { if (usedIds.has(id)) count++; });
-        return { used: count, total: strategyIds.size };
+        const uniqueItems = new Set(strategyItems.map(i => i.id)); // Just for count total
+
+        strategyItems.forEach(item => {
+            if (usedIds.has(item.id) || (item.sourceId && usedIds.has(item.sourceId))) {
+                count++;
+            }
+        });
+
+        // Use a Set to ensure unique total count (strategies might reuse evidence)
+        return { used: count, total: uniqueItems.size };
     };
 
     const allMentionItems = useMemo(() => {
@@ -565,6 +647,7 @@ const RichTextEditor = ({ initialContent, onUpdate, placeholder, strategyArgs = 
             Link.configure({ openOnClick: false }),
             GhostText, 
             GhostSection, 
+            SectionTitle, // Register new node
             Mention.configure({
                 HTMLAttributes: { class: 'mention-chip', 'data-label': 'Mention' },
                 renderText({ options, node }) { return `${node.attrs.label ?? node.attrs.id}`; },
@@ -604,8 +687,46 @@ const RichTextEditor = ({ initialContent, onUpdate, placeholder, strategyArgs = 
         onCreate: ({ editor }) => { setEvidenceStats(calculateEvidenceStats(editor.state.doc, strategyArgs)); },
     });
 
+    // Sync Section Title prop changes to the editor node (if it exists)
+    useEffect(() => {
+        if (!editor || !sectionTitle || editor.isDestroyed) return;
+        const { tr } = editor.state;
+        let updated = false;
+        editor.state.doc.descendants((node, pos) => {
+            if (node.type.name === 'sectionTitle' && node.attrs.label !== sectionTitle) {
+                tr.setNodeMarkup(pos, undefined, { ...node.attrs, label: sectionTitle });
+                updated = true;
+            }
+        });
+        if (updated) editor.view.dispatch(tr);
+    }, [sectionTitle, editor]);
+
     const insertChip = (item) => editor?.chain().focus().insertContent({ type: 'mention', attrs: { id: item.id, label: item.label, context: item.context } }).insertContent(' ').run();
     
+    const toggleSectionTitle = () => {
+        if (!editor) return;
+        let exists = false;
+        editor.state.doc.descendants(n => { if (n.type.name === 'sectionTitle') exists = true; });
+        
+        if (exists) {
+             const { tr } = editor.state;
+             const positions = [];
+             editor.state.doc.descendants((node, pos) => {
+                 if (node.type.name === 'sectionTitle') positions.push({pos, size: node.nodeSize});
+             });
+             // Delete in reverse
+             for (let i = positions.length - 1; i >= 0; i--) {
+                 tr.delete(positions[i].pos, positions[i].pos + positions[i].size);
+             }
+             editor.view.dispatch(tr);
+        } else {
+            editor.chain().focus().insertContentAt(0, {
+                type: 'sectionTitle',
+                attrs: { label: sectionTitle || "Section Title" }
+            }).run();
+        }
+    };
+
     const insertGhostSection = () => {
         editor?.chain().focus().insertContent({ 
             type: 'ghostSection', 
@@ -614,9 +735,16 @@ const RichTextEditor = ({ initialContent, onUpdate, placeholder, strategyArgs = 
         }).run();
     };
 
-    const insertQuickLayout = () => {
-        if (strategyArgs.length === 0) return;
+    // --- UPDATED: INSERT QUICK LAYOUT (Strict Ghost Structure) ---
+    // --- UPDATED: INSERT QUICK LAYOUT ---
+const insertQuickLayout = () => {
+        // 1. Define the Title Node (Visible H2 Header)
+        const titleNode = sectionTitle ? {
+            type: 'sectionTitle',
+            attrs: { label: sectionTitle }
+        } : null;
 
+        // 2. Define Instructions (Ghost Text)
         const instructions = {
             type: 'paragraph',
             content: [{ 
@@ -626,11 +754,11 @@ const RichTextEditor = ({ initialContent, onUpdate, placeholder, strategyArgs = 
             }]
         };
 
+        // 3. Build Structure: Requirement Section -> Evidence Paragraphs
         const layoutNodes = strategyArgs.map(arg => {
-            const sectionLabel = arg.requirementLabel || arg.title || 'New Section';
-            const linkedId = arg.requirementId || null;
-            const linkedType = arg.requirementId ? 'requirement' : null;
-
+            const reqLabel = arg.requirementLabel || arg.title || 'New Section';
+            
+            // Map Evidence items to PARAGRAPHS (Old simplified method)
             const evidenceParagraphs = (arg.evidence && arg.evidence.length > 0) 
                 ? arg.evidence.map(ev => ({
                     type: 'paragraph',
@@ -641,66 +769,92 @@ const RichTextEditor = ({ initialContent, onUpdate, placeholder, strategyArgs = 
                         },
                         {
                             type: 'text',
-                            text: ' ', 
+                            text: ' ' // Spacing after chip
                         },
                         {
                             type: 'text',
-                            text: `(${ev.detail || ''})`, 
-                            marks: [{ type: 'ghostText' }] 
+                            text: `(${ev.detail || 'Evidence details'})`, 
+                            marks: [{ type: 'ghostText' }] // Context is ghosted
                         },
                         {
                             type: 'text',
-                            text: ': ',
-                            marks: [{ type: 'ghostText' }] 
+                            text: ': ', // Separator
+                            marks: [{ type: 'ghostText' }]
                         },
+                        // --- Clean Space for Typing ---
                         {
                             type: 'text',
                             text: ' ' 
                         }
                     ]
                 }))
-                : [{ type: 'paragraph' }]; 
+                : [{ 
+                    type: 'paragraph', 
+                    content: [{ type: 'text', text: 'Start writing here...', marks: [{ type: 'ghostText' }] }] 
+                }]; 
 
+            // Return the Parent Requirement Section containing the Paragraphs
             return {
                 type: 'ghostSection',
                 attrs: { 
-                    label: sectionLabel, 
-                    linkedId: linkedId, 
-                    linkedType: linkedType,
-                    isVisible: false 
+                    label: reqLabel, 
+                    linkedId: arg.requirementId || null,
+                    linkedType: arg.requirementId ? 'requirement' : null,
+                    linkedLabel: arg.requirementLabel || null,
+                    isVisible: false // Hidden by default
                 },
                 content: evidenceParagraphs
             };
         });
 
-        editor.chain().focus().insertContent([
-            instructions, 
-            ...layoutNodes,
-            { type: 'paragraph' }
-        ]).run();
+        // 4. Assemble content
+        const contentToInsert = [];
+        
+        // Only add title if it doesn't already exist
+        const hasTitle = editor.state.doc.content.content.some(n => n.type.name === 'sectionTitle');
+        if (titleNode && !hasTitle) {
+            contentToInsert.push(titleNode);
+        }
+
+        contentToInsert.push(instructions);
+        contentToInsert.push(...layoutNodes);
+        contentToInsert.push({ type: 'paragraph' }); // Trailing empty paragraph
+
+        editor.chain().focus().insertContent(contentToInsert).run();
     };
 
-    // --- CLEAN HTML GENERATOR (Updated Hierarchy Logic) ---
+// --- CLEAN HTML GENERATOR (Fixed Hierarchy) ---
     const generateCleanHTML = () => {
         if (!editor) return "";
         const json = editor.getJSON();
 
-        // Map depth (from 1 to 4+) to the appropriate H tag and style
-        const getHeadingData = (currentDepth) => {
-            // H-Tag number is derived from the depth, capping at 4
-            const tagNumber = Math.min(currentDepth, 4); 
+        // Simplified Heading Data
+        // Prevents H4 from becoming smaller than body text (12pt)
+        const getHeadingData = (depth) => {
+            // depth starts at 1 for top-level ghost sections
+            // Logic: Paragraph Title is H2. So Depth 1 = H3, Depth 2 = H4.
+            
+            if (depth + 2 > 4) {
+                // Depth 3+ -> Bold Text (12pt)
+                // This ensures deep nesting just results in bold body text, never tiny text.
+                return { tag: null, style: 'font-weight: bold; display: block; margin-bottom: 0.5em; margin-top: 1em; font-size: 12pt;' };
+            }
+
+            const tagNumber = depth + 2; // Depth 1 -> H3
             const tag = `h${tagNumber}`;
             
-            // Define styles for a minimal, professional look (Times New Roman, 12pt base)
             let style = 'font-weight: bold; margin-bottom: 0.5em;';
             
-            // Sizes get smaller as the hierarchy number increases (i.e., deeper nesting)
             switch (tag) {
-                case 'h1': style += 'font-size: 14pt; margin-top: 1.6em;'; break; // Largest/Most Important
-                case 'h2': style += 'font-size: 13pt; margin-top: 1.4em;'; break;
-                case 'h3': style += 'font-size: 12pt; margin-top: 1.2em;'; break;
+                case 'h3': 
+                    style += 'font-size: 14pt; margin-top: 1.2em;'; // Level 1
+                    break;
                 case 'h4': 
-                default:   style += 'font-size: 11pt; margin-top: 1em;'; break; // Smallest/Least Important
+                    style += 'font-size: 13pt; margin-top: 1em;';   // Level 2 (Fixed: was 11pt)
+                    break;
+                default:   
+                    style += 'font-size: 12pt; margin-top: 1em;';   // Fallback
+                    break;
             }
 
             return { tag, style };
@@ -709,11 +863,14 @@ const RichTextEditor = ({ initialContent, onUpdate, placeholder, strategyArgs = 
         const processNode = (node, depth = 0) => {
             if (!node) return "";
             
+            // 0. Handle Paragraph Title (H2) - The "Roof" of this section
+            if (node.type === "sectionTitle") {
+                return `<h2 style="font-weight: bold; font-size: 16pt; margin-top: 1.4em; margin-bottom: 0.5em;">${node.attrs.label}</h2>`;
+            }
+
             // 1. Handle Text
             if (node.type === "text") {
-                if (node.marks && node.marks.some(m => m.type === "ghostText")) {
-                    return ""; 
-                }
+                if (node.marks && node.marks.some(m => m.type === "ghostText")) return ""; 
                 let text = node.text;
                 if (node.marks) {
                     node.marks.forEach(m => {
@@ -724,17 +881,22 @@ const RichTextEditor = ({ initialContent, onUpdate, placeholder, strategyArgs = 
                 return text;
             }
 
-            // 2. Handle Ghost Sections 
+            // 2. Handle Ghost Sections (The hierarchy logic)
             if (node.type === "ghostSection") {
                 if (node.attrs && node.attrs.isVisible) {
-                    const { tag, style } = getHeadingData(depth + 1); 
+                    const currentDepth = depth + 1;
+                    const { tag, style } = getHeadingData(currentDepth); 
                     
                     // Recursively process children
-                    const childrenHtml = node.content ? node.content.map(n => processNode(n, depth + 1)).join("") : "";
+                    const childrenHtml = node.content ? node.content.map(n => processNode(n, currentDepth)).join("") : "";
                     
-                    return `<${tag} style="${style}">${node.attrs.label}</${tag}>${childrenHtml}`;
+                    if (tag) {
+                        return `<${tag} style="${style}">${node.attrs.label}</${tag}>${childrenHtml}`;
+                    } else {
+                        // Render as P block if too deep, but explicitly styled
+                        return `<p style="${style}">${node.attrs.label}</p>${childrenHtml}`;
+                    }
                 }
-                // If invisible, just process children's HTML (depth maintained)
                 return node.content ? node.content.map(n => processNode(n, depth)).join("") : ""; 
             }
 
@@ -744,23 +906,19 @@ const RichTextEditor = ({ initialContent, onUpdate, placeholder, strategyArgs = 
                 return node.attrs.label || "";
             }
 
-            // 4. Paragraphs
+            // 4. Paragraphs (Body Text)
             if (node.type === "paragraph") {
-                // Process children at the same block depth
                 const childrenHtml = node.content ? node.content.map(n => processNode(n, depth)).join("") : "";
                 if (!childrenHtml.trim()) return ""; 
-                return `<p>${childrenHtml}</p>`;
+                // Explicitly setting 12pt ensures consistency if pasted into weird editors
+                return `<p style="font-size: 12pt; line-height: 1.5;">${childrenHtml}</p>`;
             }
             
-            // 5. Default traversal for lists, etc.
-            if (node.content) {
-                // Process children at the same block depth
-                return node.content.map(n => processNode(n, depth)).join("");
-            }
+            // 5. Default traversal
+            if (node.content) return node.content.map(n => processNode(n, depth)).join("");
             return "";
         };
 
-        // Process top-level content (depth 0)
         return (json.content || []).map(n => processNode(n, 0)).join("");
     };
 
@@ -797,6 +955,8 @@ const RichTextEditor = ({ initialContent, onUpdate, placeholder, strategyArgs = 
 
     const progress = evidenceStats.total > 0 ? Math.round((evidenceStats.used / evidenceStats.total) * 100) : 0;
     const progressColor = progress === 100 ? 'text-success' : progress > 50 ? 'text-primary' : 'text-muted';
+
+    const hasSectionTitle = editor && editor.state.doc.content.content.some(n => n.type.name === 'sectionTitle');
 
     return (
         <EditorActionContext.Provider value={{ onPreview, cvCategories, linkableItems }}>
@@ -847,6 +1007,16 @@ const RichTextEditor = ({ initialContent, onUpdate, placeholder, strategyArgs = 
                     <ToolbarDivider />
 
                     {/* Codex Actions */}
+                    <button 
+                        className={`btn btn-sm btn-white border shadow-sm d-flex align-items-center gap-2 px-2 me-1 transition-all ${hasSectionTitle ? 'text-success bg-success-subtle border-success' : 'text-muted hover-bg-light'}`}
+                        onClick={toggleSectionTitle}
+                        onMouseDown={(e) => e.preventDefault()} 
+                        title="Insert Paragraph Heading (H2)"
+                        style={hasSectionTitle ? {borderColor: 'rgba(25, 135, 84, 0.3)'} : {}}
+                    >
+                        <Heading1 size={14} /> <span className="small fw-bold d-none d-md-inline">Heading</span>
+                    </button>
+
                     <button 
                         className="btn btn-sm btn-white border shadow-sm text-purple d-flex align-items-center gap-2 px-2 me-1 hover-bg-purple-subtle" 
                         onClick={insertGhostSection}
