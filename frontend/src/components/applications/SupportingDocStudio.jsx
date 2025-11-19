@@ -12,7 +12,8 @@ import {
     generateCoverLetterPrompt,
     fetchApplicationDetails, 
     fetchJobDetails,         
-    fetchMappingDetails      
+    fetchMappingDetails,
+    deleteCoverLetterParagraph      
 } from '../../api/applicationClient.js';
 import { fetchCVDetails } from '../../api/cvClient.js'; 
 
@@ -256,7 +257,10 @@ const SupportingDocStudio = ({
         setIsSubmitting(true);
         try {
             // Assuming the API client has a direct delete method for a paragraph
-            await client.delete(`/coverletter/${doc.id}/paragraph/${paraId}`); 
+
+            await deleteCoverLetterParagraph(doc.id, paraId);
+            
+            // await client.delete(`/coverletter/${doc.id}/paragraph/${paraId}`); 
             
             setDoc(prev => {
                 const newParas = prev.paragraphs.filter(p => p.id !== paraId);

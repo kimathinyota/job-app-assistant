@@ -11,18 +11,351 @@ import {
     Bold, Italic, List, ListOrdered, Quote, 
     Briefcase, GraduationCap, Cpu, Heart, Trophy, 
     Lightbulb, ChevronDown, Type, Sparkles, Info, Ghost, CheckCircle2, Trash2, Eye, EyeOff,
-    SquareDashedBottom, Link2, X, ChevronRight, LayoutTemplate, FileText, Copy, Heading1
+    SquareDashedBottom, Link2, X, BrainCircuit, ChevronRight, LayoutTemplate, FileText, Copy, FolderGit2,Heading1,
+    Calendar, Building2,  // <--- ADD THESE TO IMPORTS
+    ArrowLeft, 
+    Map as MapIcon, // <--- ALIASED HERE TO FIX CONFLICT
+    Target // Ensure Target is imported if used
 } from 'lucide-react';
 import tippy from 'tippy.js';
 import 'tippy.js/dist/tippy.css';
 import 'tippy.js/animations/shift-away.css';
 import 'tippy.js/themes/light-border.css';
 
+import CVItemDisplayCard from './CVItemDisplayCard.jsx';
+
+
+// --- HELPER: NOTE RENDERER (Parses Markdown Links + Internal Chips) ---
+const RenderedNote = ({ text }) => {
+    if (!text) return null;
+    const lines = text.split('\n');
+
+    // Regex for: [type]<:id><label>  OR  [Label](URL)
+    // Group 1,2,3 = Internal Ref. Group 4,5 = Markdown Link.
+    const combinedRegex = /\[([a-zA-Z0-9_]+)\]<:([a-zA-Z0-9_]+)><(.*?)>|\[([^\]]+)\]\(([^)]+)\)/g;
+
+    return (
+        <div className="small text-dark mb-0 ps-3 fst-italic strategy-note-content" style={{ lineHeight: '1.8' }}>
+            {lines.map((line, i) => {
+                const parts = [];
+                let lastIndex = 0;
+                let match;
+
+                // Reset regex state for each line
+                combinedRegex.lastIndex = 0;
+
+                while ((match = combinedRegex.exec(line)) !== null) {
+                    // Push preceding text
+                    if (match.index > lastIndex) {
+                        parts.push(line.substring(lastIndex, match.index));
+                    }
+
+                    // Check which format matched
+                    if (match[1]) {
+                        // MATCH: Internal Reference [type]<:id><label>
+                        const type = match[1];
+                        const id = match[2];
+                        const label = match[3];
+
+                        parts.push(
+                            <span 
+                                key={`internal-${i}-${match.index}`} 
+                                className="d-inline-flex align-items-center gap-1 px-1 mx-1 rounded border bg-white border-secondary-subtle text-primary"
+                                style={{fontSize: '0.85em', verticalAlign: 'middle', textDecoration: 'none', fontStyle: 'normal'}}
+                                title={`${type}: ${label}`}
+                            >
+                                <Link2 size={10} className="opacity-50"/>
+                                <span className="fw-semibold">{label}</span>
+                            </span>
+                        );
+                    } else if (match[4]) {
+                        // MATCH: Markdown Link [Label](URL)
+                        const label = match[4];
+                        const url = match[5];
+
+                        parts.push(
+                            <a 
+                                key={`external-${i}-${match.index}`} 
+                                href={url} 
+                                target="_blank" 
+                                rel="noopener noreferrer" 
+                                className="fw-medium text-primary text-decoration-underline position-relative z-2 mx-1"
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                {label}
+                            </a>
+                        );
+                    }
+
+                    lastIndex = combinedRegex.lastIndex;
+                }
+
+                // Push remaining text
+                if (lastIndex < line.length) {
+                    parts.push(line.substring(lastIndex));
+                }
+
+                return <div key={i} className="mb-1">{parts.length > 0 ? parts : line || <br />}</div>;
+            })}
+        </div>
+    );
+};
+
+// --- ICON HELPER ---
+const getIconForType = (type) => {
+    switch (type) {
+        case 'experiences': return Briefcase;
+        case 'education': return GraduationCap;
+        case 'skills': return Cpu;
+        case 'projects': return FolderGit2;
+        case 'achievements': return Trophy;
+        case 'hobbies': return Heart;
+        default: return FileText; // Fallback
+    }
+};
+
+
+// --- STRATEGY SIDE PANEL (Updated Icons) ---
+// --- STRATEGY SIDE PANEL (Collapsible Version) ---
+const StrategySidePanel = ({ isOpen, onClose, strategies, fullCV }) => {
+    const showClass = isOpen ? 'show' : '';
+    const visibility = isOpen ? 'visible' : 'hidden';
+
+    // State for the detail view
+    const [viewingItem, setViewingItem] = useState(null); 
+    
+    // State for collapsible strategy boxes (stores IDs of collapsed items)
+    const [collapsedItems, setCollapsedItems] = useState([]);
+
+    useEffect(() => {
+        if (!isOpen) {
+            setViewingItem(null);
+            // Optional: Reset collapses when panel closes? 
+            // setCollapsedItems([]); 
+        }
+    }, [isOpen]);
+
+    const toggleCollapse = (id) => {
+        setCollapsedItems(prev => 
+            prev.includes(id) 
+                ? prev.filter(itemId => itemId !== id) // Remove from array (Expand)
+                : [...prev, id] // Add to array (Collapse)
+        );
+    };
+
+    return createPortal(
+        <>
+            {isOpen && <div className="offcanvas-backdrop fade show" onClick={onClose} style={{ zIndex: 1045, backdropFilter: 'blur(2px)' }}></div>}
+
+            <div 
+                className={`offcanvas offcanvas-end ${showClass} shadow-lg border-start d-flex flex-column bg-light`} 
+                tabIndex="-1" 
+                style={{ visibility, width: '550px', zIndex: 1050, transition: 'transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)' }}
+            >
+                {!viewingItem ? (
+                    <>
+                        <div className="offcanvas-header bg-white border-bottom px-4 py-3">
+                            <div className="d-flex align-items-center gap-3">
+                                <div className="bg-primary-subtle text-primary p-2 rounded-3 d-flex align-items-center justify-content-center" style={{width: 42, height: 42}}>
+                                    <MapIcon size={22} />
+                                </div>
+                                <div>
+                                    <h5 className="fw-bold text-dark m-0 tracking-tight">Strategy Outline</h5>
+                                    <span className="text-muted small">Your writing guide & assets</span>
+                                </div>
+                            </div>
+                            <button type="button" className="btn btn-icon btn-light rounded-circle border-0 hover-bg-light-subtle transition-all" onClick={onClose} style={{width: 36, height: 36}}>
+                                <X size={20} />
+                            </button>
+                        </div>
+                        
+                        <div className="offcanvas-body p-0 custom-scroll bg-light-subtle">
+                            {strategies.length === 0 ? (
+                                <div className="h-100 d-flex flex-column align-items-center justify-content-center text-muted opacity-50 p-4 text-center">
+                                    <BrainCircuit size={48} className="mb-3 text-secondary" />
+                                    <h6 className="fw-bold text-dark">No Strategy Defined</h6>
+                                    <p className="small mb-0" style={{maxWidth: '250px'}}>Add arguments and link evidence in the Studio to build your cheat sheet.</p>
+                                </div>
+                            ) : (
+                                <div className="d-flex flex-column gap-3 p-4">
+                                    {strategies.map((idea, idx) => {
+                                        const isCollapsed = collapsedItems.includes(idea.id);
+                                        
+                                        return (
+                                            <div key={idea.id} className="strategy-item bg-white rounded-4 border shadow-sm overflow-hidden animate-fade-in" style={{animationDelay: `${idx * 50}ms`}}>
+                                                
+                                                {/* --- HEADER (Clickable) --- */}
+                                                <div 
+                                                    className={`px-4 py-3 d-flex align-items-center gap-3 bg-white cursor-pointer hover-bg-light-subtle transition-colors ${isCollapsed ? '' : 'border-bottom'}`}
+                                                    onClick={() => toggleCollapse(idea.id)}
+                                                >
+                                                    <span className="badge bg-dark text-white rounded-circle d-flex align-items-center justify-content-center shadow-sm mt-1 flex-shrink-0" style={{width: 24, height: 24, fontSize: '0.75rem'}}>
+                                                        {idx + 1}
+                                                    </span>
+                                                    <h6 className="fw-bold text-dark m-0 text-wrap flex-grow-1 lh-base user-select-none">
+                                                        {idea.title}
+                                                    </h6>
+                                                    <div className="text-muted opacity-50">
+                                                        <ChevronDown 
+                                                            size={18} 
+                                                            className={`transition-transform duration-300 ${isCollapsed ? '' : 'rotate-180'}`}
+                                                        />
+                                                    </div>
+                                                </div>
+
+                                                {/* --- BODY (Collapsible) --- */}
+                                                {!isCollapsed && (
+                                                    <div className="p-4 pt-3 bg-white animate-slide-down">
+                                                        {idea.note && (
+                                                            <div className="p-3 mb-4 bg-warning-subtle border border-warning-subtle rounded-3 position-relative">
+                                                                <Quote size={18} className="text-warning-emphasis opacity-25 position-absolute top-0 start-0 m-2" />
+                                                                <RenderedNote text={idea.note} />
+                                                            </div>
+                                                        )}
+
+                                                        <div className="d-flex flex-column gap-2">
+                                                            <span className="tiny fw-bold text-uppercase text-muted tracking-wide mb-1 d-block">
+                                                                Supporting Evidence ({idea.evidence.length})
+                                                            </span>
+                                                            
+                                                            {idea.evidence.length === 0 && (
+                                                                <div className="p-2 text-muted small fst-italic border rounded bg-light text-center">No evidence linked.</div>
+                                                            )}
+                                                            
+                                                            {idea.evidence.map(ev => {
+                                                                const TypeIcon = getIconForType(ev.categoryType);
+                                                                
+                                                                return (
+                                                                    <div 
+                                                                        key={ev.id} 
+                                                                        className="group position-relative bg-white border rounded-3 p-2 transition-all hover-border-primary hover-shadow-sm cursor-pointer"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation(); // Prevent collapsing when clicking item
+                                                                            if(ev.fullItem) setViewingItem({ item: ev.fullItem, type: ev.categoryType });
+                                                                        }}
+                                                                    >
+                                                                        <div className="d-flex align-items-start gap-3 p-1">
+                                                                            <div className={`mt-1 d-flex align-items-center justify-content-center rounded-circle flex-shrink-0 ${ev.type === 'mapping' ? 'text-success bg-success-subtle' : 'text-primary bg-primary-subtle'}`} style={{width: 28, height: 28}}>
+                                                                                {ev.type === 'mapping' ? <Target size={14} /> : <TypeIcon size={14} />}
+                                                                            </div>
+
+                                                                            <div className="flex-grow-1 min-w-0">
+                                                                                {ev.type === 'mapping' ? (
+                                                                                    <>
+                                                                                        <div className="d-flex flex-column gap-1">
+                                                                                            <div className="d-flex align-items-center gap-2">
+                                                                                                <TypeIcon size={12} className="text-muted" />
+                                                                                                <span className="fw-bold text-dark small text-wrap d-block lh-sm">{ev.label}</span>
+                                                                                            </div>
+                                                                                            <div className="d-flex align-items-start gap-1 text-muted tiny">
+                                                                                                <span className="badge bg-light text-secondary border px-1 mt-0.5 flex-shrink-0" style={{fontSize: '0.6rem'}}>REQ</span>
+                                                                                                <span className="text-wrap lh-sm">{ev.requirement}</span>
+                                                                                            </div>
+                                                                                        </div>
+                                                                                        {ev.reason && (
+                                                                                            <div className="mt-2 pt-2 border-top border-light-subtle d-flex gap-2 text-muted small">
+                                                                                                <Info size={12} className="mt-0.5 flex-shrink-0 opacity-50"/>
+                                                                                                <span className="lh-sm fst-italic text-wrap" style={{fontSize: '0.8rem'}}>{ev.reason}</span>
+                                                                                            </div>
+                                                                                        )}
+                                                                                    </>
+                                                                                ) : (
+                                                                                    <div className="d-flex flex-column">
+                                                                                        <span className="fw-bold text-dark small text-wrap lh-sm">{ev.label}</span>
+                                                                                        <div className="d-flex align-items-center gap-1 mt-1">
+                                                                                            <TypeIcon size={10} className="text-muted opacity-75" />
+                                                                                            <span className="tiny text-muted text-uppercase tracking-wide text-wrap">{ev.detail}</span>
+                                                                                        </div>
+                                                                                    </div>
+                                                                                )}
+                                                                            </div>
+                                                                            
+                                                                            {ev.fullItem && (
+                                                                                <div className="align-self-center text-muted opacity-25 group-hover-opacity-100 ps-2">
+                                                                                    <ChevronRight size={16} />
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    </>
+                ) : (
+                    /* --- DETAIL VIEW (No changes here) --- */
+                    <div className="d-flex flex-column h-100 bg-white">
+                         <div className="offcanvas-header border-bottom bg-white px-4 py-3 d-flex align-items-center justify-content-between sticky-top">
+                            <button 
+                                className="btn btn-link text-dark text-decoration-none p-0 d-flex align-items-center gap-2 group transition-all"
+                                onClick={() => setViewingItem(null)}
+                            >
+                                <div className="bg-light border rounded-circle d-flex align-items-center justify-content-center group-hover-bg-gray-200 transition-colors" style={{width: 32, height: 32}}>
+                                    <ArrowLeft size={16} />
+                                </div>
+                                <div className="d-flex flex-column align-items-start" style={{lineHeight: 1.2}}>
+                                    <span className="fw-bold small text-uppercase tracking-wide text-muted">Back to</span>
+                                    <span className="fw-bold text-dark">Strategy Outline</span>
+                                </div>
+                            </button>
+                            <button type="button" className="btn btn-icon btn-light rounded-circle border-0" onClick={onClose}><X size={20} /></button>
+                        </div>
+                        
+                        <div className="offcanvas-body p-0 custom-scroll bg-light-subtle">
+                             <div className="container-fluid p-4">
+                                 <CVItemDisplayCard 
+                                    item={viewingItem.item}
+                                    itemType={viewingItem.type}
+                                    allSkills={fullCV?.skills || []}
+                                    allAchievements={fullCV?.achievements || []}
+                                    allExperiences={fullCV?.experiences || []}
+                                    allEducation={fullCV?.education || []}
+                                    allHobbies={fullCV?.hobbies || []}
+                                 />
+                             </div>
+                        </div>
+                    </div>
+                )}
+            </div>
+            <style>{`
+                .group-hover-bg-gray-200:hover { background-color: #e9ecef !important; }
+                .group-hover-opacity-100:hover { opacity: 1 !important; }
+                .hover-shadow-sm:hover { box-shadow: 0 .125rem .25rem rgba(0,0,0,.075)!important; }
+                .hover-border-primary:hover { border-color: var(--bs-primary) !important; }
+                .cursor-pointer { cursor: pointer; }
+                .hover-bg-light-subtle:hover { background-color: #f8f9fa; }
+                .tracking-tight { letter-spacing: -0.02em; }
+                .rotate-180 { transform: rotate(180deg); }
+                .transition-transform { transition: transform 0.3s ease; }
+                .user-select-none { user-select: none; }
+                
+                /* Simple fade-in for content expansion */
+                @keyframes slideDown {
+                    from { opacity: 0; transform: translateY(-5px); }
+                    to { opacity: 1; transform: translateY(0); }
+                }
+                .animate-slide-down { animation: slideDown 0.2s ease-out forwards; }
+            `}</style>
+        </>,
+        document.body
+    );
+};
+
+
 // --- CONTEXT ---
 const EditorActionContext = createContext({
     onPreview: () => {},
     cvCategories: {},
-    linkableItems: [] 
+    linkableItems: [],
+    strategyArgs: [], // Added strategyArgs to context
+    fullCV: null // <--- Added fullCV to context
 });
 
 // --- PREVIEW SIDE PANEL (Modern Offcanvas) ---
@@ -144,19 +477,28 @@ const PortalDropdown = ({ isOpen, onClose, rect, children }) => {
 };
 
 // --- HIERARCHICAL LINK MENU ---
-const HierarchicalLinkMenu = ({ cvCategories, linkableItems, onSelect, onClose }) => {
+const HierarchicalLinkMenu = ({ cvCategories, linkableItems, strategyArgs, onSelect, onClose }) => {
     const [activeCategory, setActiveCategory] = useState(null);
 
     const categories = useMemo(() => {
+        // Prepare Strategy Items for the Menu
+        const strategyItems = (strategyArgs || []).map(arg => ({
+            id: `arg-${arg.id}`,
+            label: arg.title,
+            type: 'strategy',
+            detail: 'Strategy Argument'
+        }));
+
         return [
             { id: 'reqs', label: 'Requirements', icon: Lightbulb, items: linkableItems.filter(i => i.type === 'requirement') },
+            { id: 'strat', label: 'Strategies', icon: BrainCircuit, items: strategyItems }, // Added Strategies
             { id: 'exp', label: 'Experience', icon: Briefcase, items: cvCategories.Experience || [] },
             { id: 'edu', label: 'Education', icon: GraduationCap, items: cvCategories.Education || [] },
             { id: 'skills', label: 'Skills', icon: Cpu, items: cvCategories.Skills || [] },
             { id: 'ach', label: 'Achievements', icon: Trophy, items: cvCategories.Achievements || [] },
             { id: 'hobby', label: 'Hobbies', icon: Heart, items: cvCategories.Hobbies || [] },
         ].filter(c => c.items && c.items.length > 0);
-    }, [cvCategories, linkableItems]);
+    }, [cvCategories, linkableItems, strategyArgs]);
 
     return (
         <div className="bg-white shadow-lg border rounded-3 overflow-hidden d-flex" style={{height: '250px', width: '400px'}}>
@@ -308,7 +650,7 @@ const GhostSection = Node.create({
 // --- GHOST SECTION COMPONENT (Updated UI & Logic) ---
 const GhostSectionComponent = (props) => {
     const { node, updateAttributes, deleteNode } = props;
-    const { linkableItems, cvCategories } = useContext(EditorActionContext);
+    const { linkableItems, cvCategories, strategyArgs } = useContext(EditorActionContext);
     const [isEditing, setIsEditing] = useState(false);
     const [isLinking, setIsLinking] = useState(false);
     const inputRef = useRef(null);
@@ -366,15 +708,31 @@ const GhostSectionComponent = (props) => {
     const toggleVisibility = () => {
         updateAttributes({ isVisible: !node.attrs.isVisible });
     };
+    
+    // --- NEW: Dismiss handler ---
+    const handleDismiss = () => {
+        setIsLinking(false);
+        setIsEditing(false);
+    };
 
     const LinkIcon = node.attrs.linkedType === 'requirement' ? Lightbulb : Link2;
 
     return (
         <NodeViewWrapper className="ghost-section-wrapper my-4">
+             {/* BACKDROP to catch clicks outside when menu is open */}
+            {isLinking && (
+                <div 
+                    className="position-fixed top-0 start-0 w-100 h-100" 
+                    style={{zIndex: 199, cursor: 'default'}} 
+                    onClick={handleDismiss}
+                    onMouseDown={(e) => e.stopPropagation()} // Prevent TipTap from stealing focus immediately
+                />
+            )}
+            
             <div className={`ghost-header d-flex align-items-center gap-2 p-2 rounded-top border border-dashed 
                 ${node.attrs.linkedId ? 'border-primary bg-primary-subtle text-primary' : 'border-purple bg-purple-subtle text-purple'}
                 ${node.attrs.isVisible ? 'border-bottom-0 border-solid shadow-sm' : ''} 
-            `}>
+            `} style={{position: 'relative', zIndex: isLinking ? 201 : 'auto'}}>
                 <button 
                     className="btn btn-sm btn-link p-0 text-inherit hover-opacity-100 opacity-75" 
                     onClick={toggleVisibility}
@@ -407,7 +765,13 @@ const GhostSectionComponent = (props) => {
                         />
                         {isLinking && (
                             <div className="position-absolute top-100 start-0 mt-1" style={{zIndex: 200}}>
-                                <HierarchicalLinkMenu cvCategories={cvCategories} linkableItems={linkableItems} onSelect={handleLink} onClose={() => setIsLinking(false)} />
+                                <HierarchicalLinkMenu 
+                                    cvCategories={cvCategories} 
+                                    linkableItems={linkableItems} 
+                                    strategyArgs={strategyArgs}
+                                    onSelect={handleLink} 
+                                    onClose={handleDismiss} 
+                                />
                             </div>
                         )}
                     </div>
@@ -521,29 +885,203 @@ const MentionComponent = (props) => {
     );
 };
 
-// --- MENTION LIST ---
-const MentionList = React.forwardRef((props, ref) => {
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const selectItem = index => { const item = props.items[index]; if (item) props.command({ id: item.id, label: item.label, context: item.context }); };
-  useEffect(() => setSelectedIndex(0), [props.items]);
-  React.useImperativeHandle(ref, () => ({
-    onKeyDown: ({ event }) => {
-      if (event.key === 'ArrowUp') { setSelectedIndex((selectedIndex + props.items.length - 1) % props.items.length); return true; }
-      if (event.key === 'ArrowDown') { setSelectedIndex((selectedIndex + 1) % props.items.length); return true; }
-      if (event.key === 'Enter') { selectItem(selectedIndex); return true; }
-      return false;
-    },
-  }));
-  return (
-    <div className="bg-white border rounded shadow-lg overflow-hidden" style={{minWidth: '200px', maxWidth: '300px'}}>
-      {props.items.length ? props.items.map((item, index) => (
-        <button key={index} className={`w-100 text-start btn btn-sm border-0 rounded-0 px-3 py-2 d-flex flex-column ${index === selectedIndex ? 'bg-primary text-white' : 'text-dark hover-bg-light'}`} onClick={() => selectItem(index)}>
-           <span className="fw-bold small text-truncate w-100">{item.label}</span>
-           {item.context && <span className={`small text-truncate w-100 ${index === selectedIndex ? 'text-white-50' : 'text-muted'}`} style={{fontSize: '0.7rem'}}>{item.context}</span>}
-        </button>
-      )) : <div className="p-2 text-muted small">No matches found</div>}
-    </div>
-  );
+// --- UPDATED: CATEGORIZED MENTION LIST (REPLACES MENTION LIST) ---
+const CategorizedMentionList = React.forwardRef((props, ref) => {
+    const { cvCategories, strategyArgs } = useContext(EditorActionContext);
+    const [activeCategory, setActiveCategory] = useState(null);
+    
+    // Reconstruct the categorized data structure
+    const categories = useMemo(() => {
+        const cats = [];
+        
+        // 1. Strategies & Evidence (Grouped)
+        if (strategyArgs && strategyArgs.length > 0) {
+            const strategyItems = [];
+            
+            strategyArgs.forEach(arg => {
+                // Add the Argument itself
+                strategyItems.push({
+                    id: `arg-${arg.id}`,
+                    label: arg.title,
+                    context: 'Strategy Argument',
+                    isStrategy: true
+                });
+                // Add its evidence
+                arg.evidence.forEach(ev => {
+                     strategyItems.push({
+                        id: ev.id,
+                        label: ev.label,
+                        context: `Evidence: ${arg.title}`,
+                        detail: ev.detail
+                     });
+                });
+            });
+            
+            if (strategyItems.length > 0) {
+                cats.push({ id: 'strat', label: 'Strategies', icon: BrainCircuit, items: strategyItems });
+            }
+        }
+
+        // 2. CV Categories
+        const mapCat = (id, label, icon, items) => {
+            if (items && items.length > 0) {
+                cats.push({ id, label, icon, items: items.map(i => ({ ...i, context: label })) });
+            }
+        };
+
+        mapCat('exp', 'Experience', Briefcase, cvCategories.Experience);
+        mapCat('edu', 'Education', GraduationCap, cvCategories.Education);
+        mapCat('skills', 'Skills', Cpu, cvCategories.Skills);
+        mapCat('ach', 'Achievements', Trophy, cvCategories.Achievements);
+        mapCat('hobby', 'Hobbies', Heart, cvCategories.Hobbies);
+
+        return cats;
+    }, [cvCategories, strategyArgs]);
+
+    // Filter logic: If user types, filter the items within categories
+    const filteredCategories = useMemo(() => {
+        const query = props.query?.toLowerCase() || '';
+        if (!query) return categories;
+
+        return categories.map(cat => ({
+            ...cat,
+            items: cat.items.filter(item => 
+                item.label.toLowerCase().includes(query) || 
+                (item.context && item.context.toLowerCase().includes(query))
+            )
+        })).filter(cat => cat.items.length > 0);
+    }, [categories, props.query]);
+
+    // Flatten for keyboard navigation
+    const flatItems = useMemo(() => {
+        return filteredCategories.flatMap(cat => cat.items);
+    }, [filteredCategories]);
+
+    const [selectedIndex, setSelectedIndex] = useState(0);
+
+    // Auto-select first category if browsing
+    useEffect(() => {
+        if (filteredCategories.length > 0 && !activeCategory) {
+            setActiveCategory(filteredCategories[0].id);
+        }
+    }, [filteredCategories]);
+
+    const selectItem = (item) => {
+        props.command({ id: item.id, label: item.label, context: item.context });
+    };
+
+    React.useImperativeHandle(ref, () => ({
+        onKeyDown: ({ event }) => {
+            if (event.key === 'ArrowUp') {
+                setSelectedIndex((selectedIndex + flatItems.length - 1) % flatItems.length);
+                return true;
+            }
+            if (event.key === 'ArrowDown') {
+                setSelectedIndex((selectedIndex + 1) % flatItems.length);
+                return true;
+            }
+            if (event.key === 'Enter') {
+                if (flatItems[selectedIndex]) {
+                    selectItem(flatItems[selectedIndex]);
+                    return true;
+                }
+            }
+            return false;
+        },
+    }));
+
+    // Determine which items to show in the right pane
+    // If there is a query, we show a flattened list of results (or grouped).
+    // If no query, we use the nice 2-pane explorer.
+    const isSearching = !!props.query;
+
+    if (isSearching) {
+        // --- SEARCH MODE (Flat List with Headers) ---
+        return (
+            <div className="bg-white border rounded shadow-lg overflow-hidden custom-scroll" style={{minWidth: '300px', maxHeight: '300px', overflowY: 'auto'}}>
+                {filteredCategories.length === 0 ? (
+                    <div className="p-3 text-center text-muted small">No matches found</div>
+                ) : (
+                    filteredCategories.map(cat => (
+                        <div key={cat.id}>
+                            <div className="px-3 py-1 bg-light border-bottom border-top tiny fw-bold text-uppercase text-muted mt-0">
+                                {cat.label}
+                            </div>
+                            {cat.items.map(item => {
+                                const idx = flatItems.indexOf(item);
+                                return (
+                                    <button 
+                                        key={item.id} 
+                                        className={`w-100 text-start btn btn-sm border-0 rounded-0 px-3 py-2 d-flex flex-column ${idx === selectedIndex ? 'bg-primary text-white' : 'text-dark hover-bg-light'}`} 
+                                        onClick={() => selectItem(item)}
+                                    >
+                                        <span className="fw-bold small text-truncate w-100">{item.label}</span>
+                                        <span className={`small text-truncate w-100 ${idx === selectedIndex ? 'text-white-50' : 'text-muted'}`} style={{fontSize: '0.7rem'}}>
+                                            {item.context}
+                                        </span>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    ))
+                )}
+            </div>
+        );
+    }
+
+    // --- EXPLORE MODE (2-Pane Layout) ---
+    return (
+        <div className="bg-white shadow-lg border rounded-3 overflow-hidden d-flex" style={{height: '280px', width: '450px'}}>
+            {/* LEFT PANE: Categories */}
+            <div className="w-35 border-end bg-light overflow-auto custom-scroll d-flex flex-column">
+                {categories.map(cat => (
+                    <button
+                        key={cat.id}
+                        className={`w-100 btn btn-sm text-start d-flex align-items-center justify-content-between px-3 py-2 border-0 rounded-0 ${activeCategory === cat.id ? 'bg-white text-primary fw-bold shadow-inset' : 'text-muted hover-bg-white'}`}
+                        onMouseEnter={() => setActiveCategory(cat.id)}
+                        onMouseDown={(e) => e.preventDefault()}
+                    >
+                        <div className="d-flex align-items-center gap-2">
+                            <cat.icon size={14} /> {cat.label}
+                        </div>
+                        {cat.id === 'strat' && <span className="badge bg-primary-subtle text-primary rounded-pill" style={{fontSize:'0.6em'}}>{cat.items.length}</span>}
+                    </button>
+                ))}
+            </div>
+            
+            {/* RIGHT PANE: Items */}
+            <div className="w-65 overflow-auto custom-scroll bg-white">
+                {!activeCategory ? (
+                    <div className="h-100 d-flex align-items-center justify-content-center text-muted small fst-italic p-3 text-center">
+                        Hover a category...
+                    </div>
+                ) : (
+                    categories.find(c => c.id === activeCategory)?.items.map((item, i) => (
+                        <button
+                            key={item.id || i}
+                            className="w-100 btn btn-sm text-start px-3 py-2 border-bottom border-light hover-bg-primary-subtle"
+                            onClick={() => selectItem(item)}
+                            onMouseDown={(e) => e.preventDefault()}
+                        >
+                            <div className="d-flex flex-column">
+                                <span className={`fw-bold text-dark small text-truncate ${item.isStrategy ? 'text-primary' : ''}`}>
+                                    {item.label}
+                                </span>
+                                {item.context && (
+                                    <span className="text-muted text-truncate" style={{fontSize: '0.7em'}}>
+                                        {item.context}
+                                    </span>
+                                )}
+                            </div>
+                        </button>
+                    ))
+                )}
+            </div>
+             <style>{`
+                .w-35 { width: 35%; } .w-65 { width: 65%; }
+            `}</style>
+        </div>
+    );
 });
 
 // --- TOOLBAR DROPDOWN ---
@@ -589,9 +1127,10 @@ const ToolbarDropdown = ({ icon: Icon, label, tooltip, items, colorClass = "text
 // ============================================================================
 // 6. MAIN EDITOR
 // ============================================================================
-const RichTextEditor = ({ initialContent, onUpdate, placeholder, strategyArgs = [], cvCategories = {}, linkableItems = [], hints = [], onPreview, sectionTitle }) => {
+const RichTextEditor = ({ initialContent, onUpdate, placeholder, strategyArgs = [], cvCategories = {}, linkableItems = [], hints = [], onPreview, sectionTitle, fullCV }) => {
     const [evidenceStats, setEvidenceStats] = useState({ used: 0, total: 0 });
     const [previewContent, setPreviewContent] = useState(null);
+    const [showStrategyPanel, setShowStrategyPanel] = useState(false);
 
 // --- UPDATED: CALCULATE EVIDENCE STATS (DUAL-CHECK) ---
     const calculateEvidenceStats = (doc, strategies) => {
@@ -658,9 +1197,9 @@ const RichTextEditor = ({ initialContent, onUpdate, placeholder, strategyArgs = 
                         let component, popup;
                         return {
                             onStart: props => {
-                                component = new ReactRenderer(MentionList, { props, editor: props.editor });
+                                component = new ReactRenderer(CategorizedMentionList, { props, editor: props.editor }); // Replaced MentionList
                                 if (!props.clientRect) return;
-                                popup = tippy('body', { getReferenceClientRect: props.clientRect, appendTo: () => document.body, content: component.element, showOnCreate: true, interactive: true, trigger: 'manual', placement: 'bottom-start' });
+                                popup = tippy('body', { getReferenceClientRect: props.clientRect, appendTo: () => document.body, content: component.element, showOnCreate: true, interactive: true, trigger: 'manual', placement: 'bottom-start', theme: 'light-border', maxWidth: 'none' });
                             },
                             onUpdate: props => { component.updateProps(props); if (!props.clientRect) return; popup[0].setProps({ getReferenceClientRect: props.clientRect }); },
                             onKeyDown: props => { if (props.event.key === 'Escape') { popup[0].hide(); return true; } return component.ref?.onKeyDown(props); },
@@ -959,10 +1498,12 @@ const insertQuickLayout = () => {
     const hasSectionTitle = editor && editor.state.doc.content.content.some(n => n.type.name === 'sectionTitle');
 
     return (
-        <EditorActionContext.Provider value={{ onPreview, cvCategories, linkableItems }}>
+        <EditorActionContext.Provider value={{ onPreview, cvCategories, linkableItems, strategyArgs }}>
             <div className="d-flex flex-column h-100 border rounded-3 bg-white focus-within-shadow transition-all" style={{minHeight: '400px'}}>
                 
                 <PreviewSidePanel isOpen={previewContent !== null} onClose={() => setPreviewContent(null)} content={previewContent} />
+                <StrategySidePanel isOpen={showStrategyPanel} onClose={() => setShowStrategyPanel(false)} strategies={strategyArgs} fullCV={fullCV} />
+
 
                 {hints.length > 0 && (
                     <div className="bg-blue-50 border-bottom px-3 py-2 d-flex align-items-start gap-2 animate-fade-in">
@@ -976,6 +1517,17 @@ const insertQuickLayout = () => {
 
                 {/* TOP TOOLBAR (ASSETS) */}
                 <div className="d-flex align-items-center gap-2 p-2 border-bottom bg-light-subtle rounded-top-3 overflow-x-auto hide-scrollbar text-nowrap">
+                    <button 
+                        className={`btn btn-sm shadow-sm d-flex align-items-center gap-2 px-3 me-2 border ${showStrategyPanel ? 'bg-purple-subtle text-purple border-purple-subtle' : 'btn-white text-purple border-light-subtle hover-bg-purple-subtle'}`} 
+                        onClick={() => setShowStrategyPanel(!showStrategyPanel)}
+                        title="Open Strategy Cheat Sheet"
+                    >
+                        <MapIcon size={16} /> <span className="fw-bold">Strategy</span>
+                    </button>
+
+                    <ToolbarDivider />
+
+                    
                     {strategyArgs.length > 0 && (
                         <div className="d-flex gap-2 align-items-center">
                             {strategyArgs.map(arg => (

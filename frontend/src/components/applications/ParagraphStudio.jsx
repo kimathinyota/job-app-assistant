@@ -2,7 +2,7 @@
 import React, { useState, useMemo } from 'react';
 import { 
     Sparkles, Pencil, Plus, GripVertical, ChevronDown, ChevronUp, AlignLeft, Lightbulb,
-    Trash2 // ADDED
+    Trash2 
 } from 'lucide-react';
 import ArgumentCard from './ArgumentCard.jsx';
 import ProseEditor from './ProseEditor.jsx';
@@ -12,7 +12,6 @@ import { CSS } from '@dnd-kit/utilities';
 // --- SUB-COMPONENTS ---
 
 const SortableArgumentList = ({ ideas, ...props }) => (
-// ... unchanged
     <SortableContext items={ideas.map(i => i.id)} strategy={verticalListSortingStrategy}>
         <div className="d-flex flex-column gap-3">
             {ideas.map(idea => <SortableArgumentItem key={idea.id} idea={idea} {...props} />)}
@@ -21,7 +20,6 @@ const SortableArgumentList = ({ ideas, ...props }) => (
 );
 
 const SortableArgumentItem = ({ idea, ...props }) => {
-// ... unchanged
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: idea.id });
     const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 };
     return (
@@ -44,7 +42,7 @@ const ParagraphStudio = ({
     onDeleteIdea,
     onRevertIdea,
     onShowPreview,
-    onDeleteParagraph // NEW PROP
+    onDeleteParagraph
 }) => {
     const [view, setView] = useState('strategy'); 
     const [isCollapsed, setIsCollapsed] = useState(false);
@@ -86,12 +84,12 @@ const ParagraphStudio = ({
 
                 {/* Toggle Expand (Fixed Centering) */}
                 <button 
-                    className="btn btn-icon btn-light rounded-circle me-3 transition-transform d-flex align-items-center justify-content-center" // FIX: Added d-flex centering
+                    className="btn btn-icon btn-light rounded-circle me-3 transition-transform d-flex align-items-center justify-content-center" 
                     onClick={() => setIsCollapsed(!isCollapsed)}
-                    style={{width: 32, height: 32, transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)'}}
+                    style={{width: 36, height: 36, transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)'}}
                     title={isCollapsed ? "Expand Section" : "Collapse Section"}
                 >
-                    <ChevronDown size={16} className="text-dark" />
+                    <ChevronDown size={20} className="text-dark" />
                 </button>
 
                 {/* Title & Meta */}
@@ -154,9 +152,9 @@ const ParagraphStudio = ({
                             onClick={() => onDeleteParagraph(paragraph.id)}
                             disabled={isSubmitting}
                             title="Delete Paragraph Section"
-                            style={{width: 32, height: 32}}
+                            style={{width: 36, height: 36}}
                         >
-                            <Trash2 size={16} />
+                            <Trash2 size={20} />
                         </button>
                     )}
                 </div>

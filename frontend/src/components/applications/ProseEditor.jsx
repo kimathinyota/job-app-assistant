@@ -12,38 +12,88 @@ const ProseEditor = ({
     onShowPreview 
 }) => {
     
-    const strategyArgs = useMemo(() => {
+const strategyArgs = useMemo(() => {
+        // Helper to find the full item object in the CV data
+        const findFullItem = (id) => {
+            if (!fullCV) return null;
+            // Map backend keys to the 'type' strings your PreviewModal expects
+            const sources = [
+                { list: fullCV.experiences, type: 'experiences' },
+                { list: fullCV.education, type: 'education' },
+                { list: fullCV.projects, type: 'projects' },
+                { list: fullCV.skills, type: 'skills' },
+                { list: fullCV.achievements, type: 'achievements' },
+                { list: fullCV.hobbies, type: 'hobbies' }
+            ];
+            
+            for (const source of sources) {
+                const found = source.list?.find(i => i.id === id);
+                if (found) return { item: found, type: source.type };
+            }
+            return null;
+        };
+
         return ideas.map(idea => {
             let linkedReq = null;
             
-            if (idea.mapping_pair_ids && jobFeatures) {
-                for (const pid of idea.mapping_pair_ids) {
-                    const pair = pairMap.get(pid);
-                    if (pair && pair.feature_id) { 
-                        linkedReq = jobFeatures.find(f => f.id === pair.feature_id);
-                        if (linkedReq) break; 
-                    }
-                }
-            }
+            // 1. Mapped Evidence
+            const pairEvidence = (idea.mapping_pair_ids || [])
+                .map(pid => pairMap.get(pid))
+                .filter(Boolean)
+                .map(p => {
+                     if(p.feature_id && jobFeatures) linkedReq = jobFeatures.find(f => f.id === p.feature_id);
+                     
+                     const fullData = findFullItem(p.context_item_id);
+
+                     return { 
+                        id: `ev-${p.id}`, 
+                        sourceId: p.context_item_id, 
+                        label: p.context_item_text, 
+                        detail: "Mapped Evidence", 
+                        isStrategy: true,
+                        requirement: p.feature_text,
+                        reason: p.annotation,
+                        type: 'mapping',
+                        // --- DATA FOR PREVIEW ---
+                        fullItem: fullData?.item,
+                        categoryType: fullData?.type
+                    };
+                });
+
+            // 2. Loose Evidence
+            const looseEvidence = (idea.related_entity_ids || [])
+                .map(eid => {
+                    const fullData = findFullItem(eid);
+                    if (!fullData) return null;
+
+                    // Determine label based on type
+                    let label = fullData.item.name || fullData.item.title || fullData.item.degree;
+                    if (fullData.type === 'experiences') label = `${fullData.item.title} @ ${fullData.item.company}`;
+                    
+                    return { 
+                        id: `loose-${eid}`, 
+                        sourceId: eid, 
+                        label: label, 
+                        detail: fullData.type.charAt(0).toUpperCase() + fullData.type.slice(1), // Capitalize
+                        type: 'loose',
+                        isStrategy: true,
+                        // --- DATA FOR PREVIEW ---
+                        fullItem: fullData.item,
+                        categoryType: fullData.type
+                    };
+                })
+                .filter(Boolean);
 
             return {
                 id: idea.id,
                 title: idea.title,
+                note: idea.annotation,
                 requirementId: linkedReq?.id,
                 requirementLabel: linkedReq?.description, 
-                evidence: idea.mapping_pair_ids
-                    .map(pid => pairMap.get(pid))
-                    .filter(Boolean)
-                    .map(p => ({ 
-                        id: `ev-${p.id}`,          // The Mapping Pair ID (Used by Mentions)
-                        sourceId: p.context_item_id, // <--- NEW: The Raw CV Item ID (Used by Sections)
-                        label: p.context_item_text,
-                        detail: "Evidence",
-                        isStrategy: true 
-                    }))
+                evidence: [...pairEvidence, ...looseEvidence]
             };
         });
-    }, [ideas, pairMap, jobFeatures]);
+    }, [ideas, pairMap, jobFeatures, fullCV]);
 
     const linkableItems = useMemo(() => {
         const items = [];
@@ -86,6 +136,7 @@ const ProseEditor = ({
                 linkableItems={linkableItems} 
                 onPreview={onShowPreview}
                 sectionTitle={paragraph.purpose}
+                fullCV={fullCV}
             />
         </div>
     );

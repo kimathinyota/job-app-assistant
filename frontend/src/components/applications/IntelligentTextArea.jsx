@@ -1,627 +1,376 @@
 // frontend/src/components/applications/IntelligentTextArea.jsx
 import React, { useState, useEffect, useRef, useMemo, forwardRef, useImperativeHandle } from 'react';
+import { createPortal } from 'react-dom';
+import { 
+    Briefcase, GraduationCap, Cpu, Heart, Trophy, FolderGit2, 
+    Link as LinkIcon, ChevronRight, LayoutList, BrainCircuit, X, Globe 
+} from 'lucide-react';
 
-// --- CSS for the component ---
+// --- ICONS MAPPING ---
+const ICONS = {
+    evidence: LinkIcon,
+    experiences: Briefcase,
+    education: GraduationCap,
+    skills: Cpu,
+    projects: FolderGit2,
+    achievements: Trophy,
+    hobbies: Heart,
+    default: LayoutList
+};
+
+// --- STYLES ---
 const STYLES = `
-.intelligent-textarea-wrapper {
-    position: relative;
-    width: 100%;
-}
-
-/* --- Base button style --- */
-.intelligent-textarea-btn {
-    position: absolute;
-    top: 0px;
-    z-index: 5;
-    border: none;
-    background: var(--bs-light);
-    color: var(--bs-primary);
-    border-radius: 0 0.375rem 0 0.375rem;
-    font-size: 1.1rem;
-    width: 30px;
-    height: 30px;
-    line-height: 1;
-    opacity: 0.6;
-    transition: opacity 0.15s ease-in-out;
-}
-.intelligent-textarea-btn:hover {
-    opacity: 1;
-}
-
-/* --- Maximize button is now the only one --- */
-.intelligent-textarea-max-btn {
-    right: 0px; /* Sits at the far right */
-    font-size: 0.9rem; /* Smaller icon */
-}
-/* --- END MODIFIED --- */
-
-
 .intelligent-editor {
-    min-height: 80px;
-    width: 100%;
-    padding: 0.375rem 0.75rem;
-    font-size: 0.9rem;
-    font-weight: 400;
-    line-height: 1.5;
-    color: var(--bs-body-color);
-    background-color: var(--bs-body-bg);
-    border: 1px solid var(--bs-border-color);
-    border-radius: 0.375rem;
+    min-height: 80px; width: 100%; padding: 0.75rem;
+    font-size: 0.9rem; line-height: 1.6;
+    color: var(--bs-body-color); background-color: var(--bs-body-bg);
+    border: 1px solid var(--bs-border-color); border-radius: 0.5rem;
+    overflow-y: auto; white-space: pre-wrap;
     transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
-    overflow-y: auto;
-    white-space: pre-wrap;
-    /* --- MODIFIED: Padding for one button --- */
-    padding-right: 35px;
 }
 .intelligent-editor:focus {
-    color: var(--bs-body-color);
-    background-color: var(--bs-body-bg);
-    border-color: #86b7fe;
-    outline: 0;
+    border-color: #86b7fe; outline: 0;
     box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
 }
 .intelligent-editor[data-placeholder="true"]:before {
-    content: 'Click to add notes... Type @ to reference your CV...';
-    color: var(--bs-gray-500);
-    cursor: text;
-    pointer-events: none;
+    content: attr(data-placeholder-text);
+    color: var(--bs-gray-400); cursor: text; pointer-events: none; font-style: normal; opacity: 0.8;
 }
 .intelligent-editor a {
-    color: var(--bs-primary);
-    text-decoration: none;
-    font-weight: 500;
-    background-color: var(--bs-primary-bg-subtle);
-    padding: 1px 4px;
-    border-radius: 4px;
-    cursor: pointer;
+    color: #0d6efd; text-decoration: none; font-weight: 600;
+    background-color: rgba(13, 110, 253, 0.1); padding: 0 4px; border-radius: 4px;
+    cursor: pointer; user-select: none; display: inline-block;
 }
-.suggestions-popup {
-    position: absolute;
-    z-index: 1050;
-    background: var(--bs-white);
-    border: 1px solid var(--bs-border-color);
-    border-radius: 0.375rem;
-    box-shadow: var(--bs-box-shadow-lg);
-    max-height: 250px;
-    overflow-y: auto;
-    width: 300px;
+.intelligent-editor a.external-link {
+    background-color: transparent; color: #0969da; text-decoration: underline; padding: 0; font-weight: 400;
 }
-.suggestion-item {
-    display: block;
-    width: 100%;
-    padding: 0.5rem 1rem;
-    clear: both;
-    font-weight: 400;
-    color: var(--bs-body-color);
-    text-align: inherit;
-    text-decoration: none;
-    white-space: nowrap;
-    background-color: transparent;
-    border: 0;
-    cursor: pointer;
-}
-.suggestion-item:hover, .suggestion-item.active {
-    background-color: var(--bs-primary-bg-subtle);
-    color: var(--bs-primary-text-emphasis);
-}
-.suggestion-item small {
-    display: block;
-    color: var(--bs-text-muted);
-}
+.intelligent-editor a.external-link:hover { color: #0a58ca; background-color: rgba(13, 110, 253, 0.05); }
+
+@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+.mobile-sheet { animation: slideUp 0.3s ease-out; border-radius: 1rem 1rem 0 0; border-bottom: none !important; }
+.mobile-sheet .w-35 { width: 35%; } .mobile-sheet .w-65 { width: 65%; }
+@media (min-width: 768px) { .menu-desktop { width: 500px; height: 320px; border-radius: 0.5rem; } .menu-desktop .w-35 { width: 35%; } .menu-desktop .w-65 { width: 65%; } }
 `;
 
-// Regex to find our custom references
-const REFERENCE_REGEX = /\[(.*?)]<:(.*?)><(.*?)>/g;
+const REFERENCE_REGEX = /\[(.*?)]<:(.*?)><(.*?)>/g; 
+const MARKDOWN_LINK_REGEX = /\[([^\]]+)\]\(([^)]+)\)/g; 
 
+// --- RESPONSIVE MENU COMPONENT ---
+const HierarchicalMenu = ({ categories, onSelect, position, onClose, searchQuery = "" }) => {
+    // Filter logic: If searchQuery exists, filter items
+    const filteredCategories = useMemo(() => {
+        if (!searchQuery) return categories;
+        const query = searchQuery.toLowerCase();
+        
+        return categories.map(cat => ({
+            ...cat,
+            items: cat.items.filter(item => {
+                const label = item.label || item.name || item.title || "";
+                const subtitle = item.subtitle || "";
+                return label.toLowerCase().includes(query) || subtitle.toLowerCase().includes(query);
+            })
+        })).filter(c => c.items.length > 0);
+    }, [categories, searchQuery]);
+
+    const [activeCatId, setActiveCatId] = useState(null);
+    
+    // Auto-select first category if list changes
+    useEffect(() => {
+        if (filteredCategories.length > 0) {
+            // If current active category is empty or gone, switch to first one
+            if (!activeCatId || !filteredCategories.find(c => c.id === activeCatId)) {
+                setActiveCatId(filteredCategories[0].id);
+            }
+        } else {
+            setActiveCatId(null);
+        }
+    }, [filteredCategories]);
+
+    const menuRef = useRef(null);
+    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+
+    useEffect(() => {
+        const handleClickOutside = (e) => {
+            if (menuRef.current && !menuRef.current.contains(e.target)) onClose();
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, [onClose]);
+
+    const style = useMemo(() => {
+        if (isMobile) return { position: 'fixed', bottom: 0, left: 0, right: 0, height: '50vh', zIndex: 1060, display: 'flex' };
+        const MENU_WIDTH = 500;
+        const screenWidth = window.innerWidth;
+        let left = position.left;
+        if (left + MENU_WIDTH > screenWidth - 20) left = Math.max(10, (position.left + position.width) - MENU_WIDTH); 
+        const top = Math.min(position.top + 8, window.innerHeight - 330);
+        return { position: 'fixed', top, left, zIndex: 1060, display: 'flex' };
+    }, [position, isMobile]);
+
+    const activeItems = filteredCategories.find(c => c.id === activeCatId)?.items || [];
+
+    return createPortal(
+        <>
+            {isMobile && <div className="modal-backdrop fade show" style={{zIndex: 1055}} onClick={onClose}></div>}
+            <div ref={menuRef} className={`bg-white shadow-lg border overflow-hidden d-flex flex-column ${isMobile ? 'mobile-sheet' : 'menu-desktop'}`} style={style}>
+                {isMobile && (
+                    <div className="d-flex justify-content-between align-items-center px-3 py-2 border-bottom bg-light">
+                        <span className="fw-bold small text-muted">Link Evidence</span>
+                        <button className="btn btn-sm btn-icon" onClick={onClose}><X size={16}/></button>
+                    </div>
+                )}
+                
+                {/* Optional Search Header Display */}
+                {searchQuery && (
+                    <div className="bg-light border-bottom px-3 py-1 text-muted tiny fw-bold text-uppercase">
+                        Filtering by: "{searchQuery}"
+                    </div>
+                )}
+
+                <div className="d-flex flex-grow-1 overflow-hidden">
+                    {/* LEFT PANE */}
+                    <div className="w-35 border-end bg-light overflow-auto custom-scroll py-2 d-flex flex-column">
+                        {filteredCategories.length === 0 ? (
+                            <div className="p-3 text-center text-muted small fst-italic">No matches.</div>
+                        ) : (
+                            filteredCategories.map(cat => {
+                                const Icon = ICONS[cat.type] || ICONS.default;
+                                return (
+                                    <button
+                                        key={cat.id}
+                                        className={`w-100 btn btn-sm text-start d-flex align-items-center justify-content-between px-3 py-2 border-0 rounded-0 transition-colors ${activeCatId === cat.id ? 'bg-white text-primary fw-bold shadow-inset' : 'text-muted hover-bg-white'}`}
+                                        onMouseEnter={() => !isMobile && setActiveCatId(cat.id)}
+                                        onClick={() => isMobile && setActiveCatId(cat.id)}
+                                        onMouseDown={(e) => e.preventDefault()} 
+                                    >
+                                        <div className="d-flex align-items-center gap-2 text-truncate">
+                                            <Icon size={14} className="flex-shrink-0" /> 
+                                            <span className="text-truncate">{cat.name}</span>
+                                        </div>
+                                        {activeCatId === cat.id && !isMobile && <ChevronRight size={12} className="flex-shrink-0"/>}
+                                    </button>
+                                );
+                            })
+                        )}
+                    </div>
+                    {/* RIGHT PANE */}
+                    <div className="w-65 overflow-auto custom-scroll bg-white">
+                        <div className="sticky-top bg-white border-bottom px-3 py-2 text-muted tiny fw-bold text-uppercase tracking-wide">
+                            {filteredCategories.find(c => c.id === activeCatId)?.name || "Items"}
+                        </div>
+                        {activeItems.length === 0 ? (
+                            <div className="h-75 d-flex align-items-center justify-content-center text-muted small fst-italic">No items found.</div>
+                        ) : (
+                            activeItems.map(item => (
+                                <button
+                                    key={item.id}
+                                    className="w-100 btn btn-sm text-start px-3 py-2 border-bottom border-light hover-bg-primary-subtle transition-colors"
+                                    onClick={() => onSelect(item, filteredCategories.find(c => c.id === activeCatId).type)}
+                                    onMouseDown={(e) => e.preventDefault()}
+                                >
+                                    <div className="d-flex flex-column">
+                                        <span className="fw-bold text-dark small text-truncate">{item.label || item.name || item.title}</span>
+                                        {item.subtitle && <span className="text-muted tiny text-truncate opacity-75" style={{fontSize:'0.75em'}}>{item.subtitle}</span>}
+                                    </div>
+                                </button>
+                            ))
+                        )}
+                    </div>
+                </div>
+            </div>
+            <style>{`.shadow-inset { box-shadow: inset 3px 0 0 var(--bs-primary); }`}</style>
+        </>,
+        document.body
+    );
+};
+
+// --- MAIN EDITOR COMPONENT ---
 const IntelligentTextArea = forwardRef(({ 
     initialValue, 
     onSave, 
     cv, 
-    onShowPreview,
-    onMaximize,
-    manageSaveExternally = false,
-    onLocalTextChange = () => {}
+    extraSuggestions = [], 
+    onMention,
+    placeholder = "Type @ to link evidence..."
 }, ref) => {
     const editorRef = useRef(null);
-    const [rawText, setRawText] = useState(initialValue || '');
-    const [isFocused, setIsFocused] = useState(false);
-    
+    const [menuState, setMenuState] = useState({ open: false, position: { top: 0, left: 0, width: 0 }, mode: 'cursor', query: '' });
     const suggestionQueryRef = useRef(null);
-    
-    const [suggestions, setSuggestions] = useState({
-        open: false,
-        query: '',
-        type: null,
-        categoryType: null,
-        items: [],
-        position: { top: 0, left: 0 },
-        activeIndex: 0,
-    });
 
-    const cvCategories = useMemo(() => {
-        if (!cv) return [];
-        return [
-            { type: 'experiences', name: 'Experiences', items: cv.experiences || [] },
-            { type: 'projects', name: 'Projects', items: cv.projects || [] },
-            { type: 'skills', name: 'Skills', items: cv.skills || [] },
-            { type: 'education', name: 'Education', items: cv.education || [] },
-            { type: 'achievements', name: 'Achievements', items: cv.achievements || [] },
-            { type: 'hobbies', name: 'Hobbies', items: cv.hobbies || [] },
-        ];
-    }, [cv]);
-
-    // --- Helper Functions ---
-    const getItemName = (item, type) => {
-        switch(type) {
-            case 'experiences': 
-                return item.title;
-            case 'projects': 
-                return item.title || item.name;
-            case 'skills': 
-                return item.name;
-            case 'education': 
-                return item.degree;
-            case 'achievements': 
-                return item.text;
-            case 'hobbies': 
-                return item.name;
-            default: 
-                return 'Unknown';
+    const categories = useMemo(() => {
+        const cats = [];
+        if (extraSuggestions.length > 0) cats.push({ id: 'mapped', type: 'evidence', name: 'Mapped Evidence', items: extraSuggestions });
+        
+        if (cv) {
+            const toItems = (list, labelKey, subKey) => (list || []).map(i => ({ ...i, label: i[labelKey], subtitle: i[subKey] }));
+            cats.push({ id: 'exp', type: 'experiences', name: 'Experience', items: toItems(cv.experiences, 'title', 'company') });
+            cats.push({ id: 'proj', type: 'projects', name: 'Projects', items: toItems(cv.projects, 'title', 'description') });
+            cats.push({ id: 'skill', type: 'skills', name: 'Skills', items: toItems(cv.skills, 'name', 'category') });
+            cats.push({ id: 'ach', type: 'achievements', name: 'Achievements', items: toItems(cv.achievements, 'text', 'context') }); // Added Achievements
+            cats.push({ id: 'edu', type: 'education', name: 'Education', items: toItems(cv.education, 'degree', 'institution') });
+            cats.push({ id: 'hob', type: 'hobbies', name: 'Hobbies', items: toItems(cv.hobbies, 'name', '') });
         }
-    }
+        return cats.filter(c => c.items.length > 0);
+    }, [cv, extraSuggestions]);
 
-    const getItemSubtitle = (item, type) => {
-        switch(type) {
-            case 'experiences': return item.company;
-            case 'education': return item.institution;
-            case 'projects': return null;
-            case 'achievements': return item.context;
-            default: return null;
-        }
-    }
-    
-    // --- Convert raw text to display HTML ---
-    const parseRawToHtml = (text) => {
-        if (!text) return '';
-        return text.replace(REFERENCE_REGEX, (match, type, id, name) => {
-            const el = document.createElement('a');
-            el.href = "#";
-            el.dataset.type = type;
-            el.dataset.id = id;
-            el.setAttribute("contenteditable", "false");
-            el.textContent = name;
-            return el.outerHTML;
-        });
-    };
-
-    // --- Convert display HTML back to raw text ---
-    const parseHtmlToRaw = (element) => {
+    // ... (parseRawToHtml, parseHtmlToRaw, getCaretCoordinates, handleClick - KEEP SAME) ...
+    const parseRawToHtml = (text) => text ? text.replace(REFERENCE_REGEX, (m, t, i, n) => `<a href="#" data-type="${t}" data-id="${i}" contenteditable="false">${n}</a>`).replace(MARKDOWN_LINK_REGEX, (m, l, u) => `<a href="${u}" target="_blank" rel="noopener noreferrer" contenteditable="false" class="external-link">${l}</a>`) : '';
+    const parseHtmlToRaw = (el) => { /* ... same logic ... */ 
         let raw = '';
-        if (!element) return '';
-        element.childNodes.forEach(node => {
-            if (node.nodeType === Node.TEXT_NODE) {
-                raw += node.textContent;
-            } else if (node.nodeType === Node.ELEMENT_NODE && node.tagName === 'A') {
-                const type = node.dataset.type;
-                const id = node.dataset.id;
-                const name = node.textContent;
-                raw += `[${type}]<:${id}><${name}>`;
-            } else if (node.nodeType === Node.ELEMENT_NODE) {
-                if (node.tagName === 'BR') {
-                    raw += '\n';
-                } else if (node.tagName === 'DIV') {
-                    if (raw.length > 0 && !raw.endsWith('\n')) raw += '\n';
-                    raw += parseHtmlToRaw(node);
-                } else {
-                    raw += parseHtmlToRaw(node);
-                }
+        el.childNodes.forEach(node => {
+            if (node.nodeType === 3) raw += node.textContent;
+            else if (node.tagName === 'A') {
+                if (node.dataset.type) raw += `[${node.dataset.type}]<:${node.dataset.id}><${node.textContent}>`;
+                else raw += node.getAttribute('href') ? `[${node.textContent}](${node.getAttribute('href')})` : node.textContent;
+            } else if (node.nodeType === 1) {
+                if (node.tagName === 'BR') raw += '\n';
+                else if (node.tagName === 'DIV') { if (raw.length>0 && !raw.endsWith('\n')) raw += '\n'; raw += parseHtmlToRaw(node); }
+                else raw += parseHtmlToRaw(node);
             }
         });
         return raw;
     };
-
-    // --- Sync editor display when initialValue changes ---
-    useEffect(() => {
-        if (editorRef.current && !isFocused) {
-            const newRawText = initialValue || '';
-            setRawText(newRawText);
-            editorRef.current.innerHTML = parseRawToHtml(newRawText);
-            editorRef.current.dataset.placeholder = !newRawText;
-        }
-    }, [initialValue, isFocused]);
-
-    // --- Handle editor blur (save) ---
-    const handleBlur = () => {
-        setIsFocused(false);
-        setTimeout(() => {
-             if (!isFocused) {
-                setSuggestions(prev => ({ ...prev, open: false, type: null }));
-             }
-        }, 150);
-        
-        const currentRawText = parseHtmlToRaw(editorRef.current);
-        setRawText(currentRawText);
-
-        if (manageSaveExternally) {
-            onLocalTextChange(currentRawText);
-        } else if (currentRawText !== initialValue) {
-            onSave(currentRawText);
-        }
-        
-        if (editorRef.current) {
-            editorRef.current.dataset.placeholder = !currentRawText.trim();
-        }
-    };
-
-    // --- Handle editor focus ---
-    const handleFocus = () => {
-        setIsFocused(true);
-        if (editorRef.current) {
-            editorRef.current.dataset.placeholder = "false";
-        }
-    };
-
-    // --- Get caret position (to place popup) ---
-    const getCaretCoordinates = () => {
+    const getCaretCoordinates = () => { /* ... same ... */ 
         const sel = window.getSelection();
-        if (sel.rangeCount > 0) {
-            const range = sel.getRangeAt(0).cloneRange();
-            range.collapse(true);
-            const span = document.createElement('span');
-            range.insertNode(span);
-            const rect = span.getBoundingClientRect();
-            const { top, left } = rect;
-            span.parentNode.removeChild(span);
-            
-            const editorRect = editorRef.current.getBoundingClientRect();
-            
-            if (top === 0 && left === 0) {
-                return { top: editorRect.top + window.scrollY, left: editorRect.left + window.scrollX };
-            }
-            // --- FIX 2: This was `editorRect.top`, now it's `editorRect.left` ---
-            return { top: rect.bottom - editorRect.top, left: rect.left - editorRect.left };
-        }
-        return { top: 0, left: 0 };
+        if (!sel.rangeCount) return { top: 0, left: 0, width: 0 };
+        const range = sel.getRangeAt(0).cloneRange();
+        range.collapse(true);
+        const rect = range.getClientRects()[0];
+        return rect ? { top: rect.bottom, left: rect.left, width: 0 } : { top: 0, left: 0, width: 0 };
     };
-
-    // --- Handle click on links ---
     const handleClick = (e) => {
-        if (e.target.tagName === 'A' && e.target.dataset.type) {
-            e.preventDefault();
-            const { type, id } = e.target.dataset;
-            const category = cvCategories.find(c => c.type === type);
-            if (!category) return;
-            
-            const item = category.items.find(i => i.id === id);
-            if (item) {
-                onShowPreview(item, type);
-            }
+        if (e.target.tagName === 'A' && e.target.classList.contains('external-link')) {
+            const url = e.target.getAttribute('href');
+            if (url) window.open(url, '_blank', 'noopener,noreferrer');
         }
     };
 
-    // --- Main input handler ---
+    // --- HANDLE INPUT (Updated for Query) ---
     const handleInput = () => {
-        const selection = window.getSelection();
-        if (!selection.rangeCount) return;
-        
-        const range = selection.getRangeAt(0);
-        if (!range.collapsed) return;
-        
-        const node = range.startContainer;
-        const offset = range.startOffset;
+        const sel = window.getSelection();
+        if (!sel.rangeCount) return;
+        const node = sel.anchorNode;
+        if (node.nodeType !== 3) return;
 
-        if (editorRef.current) {
-            const hasText = editorRef.current.textContent.trim().length > 0;
-            editorRef.current.dataset.placeholder = !hasText;
+        const text = node.textContent;
+        const offset = sel.anchorOffset;
+        const textBefore = text.slice(0, offset);
+        
+        const atIndex = textBefore.lastIndexOf('@');
+        
+        if (atIndex !== -1) {
+            const query = textBefore.slice(atIndex + 1); // Get text after @
+            suggestionQueryRef.current = { node, offset: atIndex }; // Store @ position
+            setMenuState({ 
+                open: true, 
+                position: getCaretCoordinates(), 
+                mode: 'cursor',
+                query: query // Pass query to state
+            });
+        } else {
+            setMenuState(prev => ({ ...prev, open: false, query: '' }));
         }
         
-        if (!node || node.nodeType !== Node.TEXT_NODE) {
-            setSuggestions(prev => ({ ...prev, open: false }));
+        if (editorRef.current) editorRef.current.dataset.placeholder = !editorRef.current.textContent.trim();
+    };
+
+    // --- INSERT ITEM (Updated) ---
+    const insertItem = (item, type) => {
+        if (menuState.mode === 'external') {
+            setMenuState({ ...menuState, open: false, query: '' });
+            if (onMention) onMention(item, type);
             return;
         }
 
-        const text = node.textContent.substring(0, offset);
+        const sel = window.getSelection();
+        const range = document.createRange();
+        const { node, offset } = suggestionQueryRef.current; // Position of @
+
+        // Delete everything from @ to current cursor (the query)
+        // Note: This simplistic logic assumes the user hasn't moved the cursor elsewhere.
+        // For robust implementation, we calculate the length of the query.
+        const textContent = node.textContent;
+        const currentCursor = sel.anchorOffset;
         
-        if (suggestions.type) {
-            // --- We are *inside* a query (e.g., searching for items) ---
-            const queryStartOffset = suggestionQueryRef.current?.offset || 0;
-
-            // --- FIX 1: Add 1 to queryStartOffset to search *after* the @ ---
-            const safeQueryStart = Math.min(queryStartOffset + 1, text.length);
-            const queryText = text.substring(safeQueryStart).toLowerCase();
-            
-            const category = cvCategories.find(c => c.type === suggestions.categoryType);
-            
-            if (!category) {
-                setSuggestions(prev => ({ ...prev, open: false, type: null }));
-                return;
-            }
-
-            const items = category.items.filter(item => {
-                const nameToSearch = getItemName(item, suggestions.categoryType);
-                return nameToSearch.toLowerCase().includes(queryText);
-            });
-            
-            setSuggestions(prev => ({
-                ...prev,
-                open: true,
-                query: queryText,
-                items: items,
-                position: getCaretCoordinates(),
-                activeIndex: 0,
-            }));
-
-        } else {
-            // --- Check if we are *starting* a new query ---
-            const atMatch = text.match(/@([\w\s]*)$/);
-            if (atMatch) {
-                const query = atMatch[1].toLowerCase();
-
-                const items = cvCategories.filter(cat => 
-                    cat.items.length > 0 && cat.name.toLowerCase().includes(query)
-                );
-                
-                suggestionQueryRef.current = {
-                    node: node,
-                    offset: offset - query.length - 1 // This offset points AT the @
-                };
-                
-                setSuggestions({
-                    open: true,
-                    query: query,
-                    type: 'category',
-                    categoryType: null,
-                    items: items,
-                    position: getCaretCoordinates(),
-                    activeIndex: 0,
-                });
-            } else {
-                setSuggestions(prev => ({ ...prev, open: false, type: null }));
-            }
-        }
-    };
-
-    // --- Insert reference ---
-    const insertReference = (item, type) => {
-        const selection = window.getSelection();
-        if (!selection.rangeCount) return;
-        
-        if (!selection.focusNode) {
-            console.error("Editor lost focus. Cannot insert reference.");
-            return; 
-        }
-
-        const range = selection.getRangeAt(0);
-        
-        // --- FIX 1 (continued): This offset correctly points AT the @ ---
-        const { node, offset } = suggestionQueryRef.current;
-        
-        // This will now delete the entire query, *including* the @
-        range.setStart(node, offset); 
-        range.setEnd(selection.focusNode, selection.focusOffset);
+        range.setStart(node, offset);
+        range.setEnd(node, currentCursor); // Delete up to cursor
         range.deleteContents();
 
-        const link = document.createElement('a');
+        const a = document.createElement('a');
+        a.href = "#";
+        a.contentEditable = false;
+        a.dataset.type = type;
+        a.dataset.id = item.id;
+        a.textContent = item.label || item.name;
+
+        range.insertNode(a);
+        range.setStartAfter(a);
+        range.setEndAfter(a);
         
-        const itemName = getItemName(item, type);
-
-        link.href = "#";
-        link.dataset.type = type;
-        link.dataset.id = item.id;
-        link.setAttribute("contenteditable", "false");
-        link.textContent = itemName;
-
-        range.insertNode(link);
-        range.setStartAfter(link);
-        range.setEndAfter(link);
-        selection.removeAllRanges();
-        selection.addRange(range);
-
-        const space = document.createTextNode(' ');
+        const space = document.createTextNode('\u00A0');
         range.insertNode(space);
         range.setStartAfter(space);
         range.setEndAfter(space);
-        selection.removeAllRanges();
-        selection.addRange(range);
+        
+        sel.removeAllRanges();
+        sel.addRange(range);
 
-        setSuggestions({ open: false, items: [], query: '', type: null, position: {}, activeIndex: 0 });
+        setMenuState({ open: false, position: { top: 0, left: 0 }, mode: 'cursor', query: '' });
         editorRef.current.focus();
-        handleInput();
+        
+        if (onMention) onMention(item, type);
     };
 
-    // --- Handle suggestion selection ---
-    const selectSuggestion = (item) => {
-        const selection = window.getSelection();
-        if (!selection.rangeCount) return;
-
-        if (!selection.focusNode || !suggestionQueryRef.current) {
-            return;
+    useEffect(() => {
+        if (editorRef.current && (initialValue || editorRef.current.textContent.trim() === "")) {
+             editorRef.current.innerHTML = parseRawToHtml(initialValue || "");
+             editorRef.current.dataset.placeholder = !initialValue;
         }
+    }, [initialValue]);
 
-        const range = selection.getRangeAt(0);
-
-        if (suggestions.type === 'category') {
-            // Stage 1: Category selected
-            const category = cvCategories.find(c => c.type === item.type);
-            const { node, offset } = suggestionQueryRef.current;
-
-            // This deletes only the category query (e.g., "exp")
-            const queryStartOffset = offset + 1;
-            const queryEndOffset = queryStartOffset + suggestions.query.length;
-
-            if (queryEndOffset <= node.textContent.length) {
-                range.setStart(node, queryStartOffset);
-                range.setEnd(node, queryEndOffset);
-                range.deleteContents();
-            } else {
-                range.setStart(node, queryStartOffset);
-                range.setEnd(selection.focusNode, selection.focusOffset);
-                range.deleteContents();
-            }
-            
-            // --- FIX 1 (continued): We NO LONGER update the offset ---
-            // const newQueryRefOffset = offset + 1; // <-- REMOVED
-            // suggestionQueryRef.current.offset = newQueryRefOffset; // <-- REMOVED
-            // The offset will *stay* pointing at the @, which is what we want.
-
-            setSuggestions(prev => ({
-                ...prev,
-                type: 'item',
-                categoryType: item.type,
-                query: '',
-                items: category.items,
-                activeIndex: 0,
-                position: getCaretCoordinates(), // Get new position after deletion
-            }));
-            
-        } else {
-            // Stage 2: Item selected
-            insertReference(item, suggestions.categoryType);
+    const handleBlur = () => {
+        if (editorRef.current) {
+            const txt = parseHtmlToRaw(editorRef.current);
+            if (txt !== initialValue) onSave(txt);
         }
     };
 
-    // --- Keyboard navigation ---
-    const handleKeyDown = (e) => {
-        if (!suggestions.open) return;
-        if (suggestions.items.length === 0) return;
-
-        if (e.key === 'ArrowDown') {
-            e.preventDefault();
-            setSuggestions(prev => ({
-                ...prev,
-                activeIndex: (prev.activeIndex + 1) % prev.items.length,
-            }));
-        } else if (e.key === 'ArrowUp') {
-            e.preventDefault();
-            setSuggestions(prev => ({
-                ...prev,
-                activeIndex: (prev.activeIndex - 1 + prev.items.length) % prev.items.length,
-            }));
-        } else if (e.key === 'Enter' || e.key === 'Tab') {
-            e.preventDefault();
-            selectSuggestion(suggestions.items[suggestions.activeIndex]);
-        } else if (e.key === 'Backspace' && suggestions.query === '' && suggestions.type === 'item') {
-             e.preventDefault();
-             // --- FIX 1 (continued): No offset math needed here either ---
-             setSuggestions(prev => ({
-                ...prev,
-                type: 'category',
-                categoryType: null,
-                query: '',
-                items: cvCategories,
-                activeIndex: 0,
-             }));
-             // suggestionQueryRef.current.offset = suggestionQueryRef.current.offset - 1; // <-- REMOVED
-        } else if (e.key === 'Escape') {
-            e.preventDefault();
-            setSuggestions(prev => ({ ...prev, open: false, type: null }));
-        }
-    };
-    
-    // --- REMOVED: handlePlusClick function ---
-
-    // --- Expose functions to parent (for the modal) ---
     useImperativeHandle(ref, () => ({
-        triggerCategorySearch: (categoryItem) => {
-            editorRef.current.focus();
-            
-            const selection = window.getSelection();
-            const range = document.createRange();
-            range.selectNodeContents(editorRef.current);
-            range.collapse(false);
-            selection.removeAllRanges();
-            selection.addRange(range);
-
-            const atNode = document.createTextNode('@');
-            range.insertNode(atNode);
-            
-            // This offset points AT the @
-            suggestionQueryRef.current = {
-                node: atNode,
-                offset: 0
-            };
-            
-            const category = cvCategories.find(c => c.type === categoryItem.type);
-            
-            setSuggestions({
-                open: true,
-                type: 'item',
-                categoryType: categoryItem.type,
-                query: '',
-                items: category?.items || [],
-                position: getCaretCoordinates(),
-                activeIndex: 0,
+        openMenu: (rect) => {
+            if (!rect) return;
+            setMenuState({ 
+                open: true, 
+                position: { top: rect.bottom, left: rect.left, width: rect.width }, 
+                mode: 'external',
+                query: '' // Reset query for external open
             });
-
-            range.setStartAfter(atNode);
-            range.setEndAfter(atNode);
-            selection.removeAllRanges();
-            selection.addRange(range);
+        },
+        triggerSearch: () => {
+            editorRef.current.focus();
         }
     }));
 
-    // --- Render ---
     return (
         <div className="intelligent-textarea-wrapper">
             <style>{STYLES}</style>
-            
-            {!manageSaveExternally && (
-                <>
-                    {/* --- REMOVED: Plus Button --- */}
-                    <button
-                        type="button"
-                        className="intelligent-textarea-btn intelligent-textarea-max-btn"
-                        title="Maximize Editor"
-                        onMouseDown={(e) => { e.preventDefault(); onMaximize(); }}
-                    >
-                        <i className="bi bi-arrows-fullscreen"></i>
-                    </button>
-                </>
-            )}
-            
-            <div
+            <div 
                 ref={editorRef}
-                className="intelligent-editor"
-                contentEditable="true"
-                onFocus={handleFocus}
-                onBlur={handleBlur}
+                className="intelligent-editor custom-scroll"
+                contentEditable
                 onInput={handleInput}
-                onKeyDown={handleKeyDown}
+                onBlur={handleBlur}
                 onClick={handleClick}
-                data-placeholder={!rawText && !isFocused}
+                data-placeholder-text={placeholder}
+                spellCheck="false"
             />
-            {suggestions.open && (
-                <div
-                    className="suggestions-popup"
-                    style={{
-                        top: suggestions.position.top + 5,
-                        left: suggestions.position.left,
-                        right: suggestions.position.right ? suggestions.position.right + 5 : 'auto'
-                    }}
-                >
-                    {suggestions.items.length === 0 && (
-                        <span className="suggestion-item text-muted">No results found</span>
-                    )}
-                    {suggestions.items.map((item, index) => {
-                        const name = suggestions.type === 'item' ? getItemName(item, suggestions.categoryType) : item.name;
-                        const subtitle = suggestions.type === 'item' ? getItemSubtitle(item, suggestions.categoryType) : null;
-                        
-                        return (
-                            <button
-                                key={item.id || item.type}
-                                type="button"
-                                className={`suggestion-item ${index === suggestions.activeIndex ? 'active' : ''}`}
-                                onMouseDown={(e) => {
-                                    e.preventDefault();
-                                    selectSuggestion(item);
-                                }}
-                            >
-                                {name}
-                                {subtitle && <small>{subtitle}</small>}
-                            </button>
-                        );
-                    })}
-                </div>
+            {menuState.open && (
+                <HierarchicalMenu 
+                    categories={categories} 
+                    position={menuState.position} 
+                    onSelect={insertItem}
+                    onClose={() => setMenuState({ ...menuState, open: false })}
+                    searchQuery={menuState.query} // Pass query
+                />
             )}
         </div>
     );

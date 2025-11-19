@@ -357,6 +357,10 @@ class Idea(BaseEntity):
     description: Optional[str] = None
     mapping_pair_ids: List[str] = Field(default_factory=list)
     annotation: Optional[str] = None
+    # --- NEW FIELD ---
+    # Stores IDs of raw CV items (e.g., 'exp_123', 'skill_456') linked to this argument
+    related_entity_ids: List[str] = Field(default_factory=list) 
+    # -----------------
     owner: Literal["user", "autofill"] = "user"
     classification: Literal["professional", "personal", "company", "unclassified"] = "unclassified"
 
@@ -733,6 +737,9 @@ class IdeaUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     mapping_pair_ids: Optional[List[str]] = None
+    # --- NEW FIELD ---
+    related_entity_ids: Optional[List[str]] = None
+    # -----------------
     annotation: Optional[str] = None
     # --- ADDED TO SUPPORT THE "OWNERSHIP & PROMOTION" RULE ---
     owner: Optional[Literal["user", "autofill"]] = None
