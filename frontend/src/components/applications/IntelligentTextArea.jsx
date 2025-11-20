@@ -1,1166 +1,509 @@
-// IntelligentTextArea.jsx
-// Full single-file component
-// - Bootstrap dark-mode via <html data-bs-theme="dark">
-// - Mobile tap fixes: pointer-tracking to distinguish taps vs scrolls
-// - Scroll sensitivity relaxed (movement threshold 6px)
-// - Desktop 2-pane menu, mobile anchored popup
-// - Mapped items: Evidence = label, Requirement = subtitle
-// - Short category names, consistent icons & spacing
-
-import React, {
-  useState,
-  useEffect,
-  useRef,
-  useMemo,
-  forwardRef,
-  useImperativeHandle
-} from "react";
-import { createPortal } from "react-dom";
-
-import {
-  Briefcase,
-  GraduationCap,
-  Cpu,
-  Heart,
-  Trophy,
-  FolderGit2,
-  Link as LinkIcon,
-  LayoutList,
-  X
-} from "lucide-react";
-
-/* ===========================
-   ICON MAP (consistent sizing)
-   =========================== */
-const ICONS = {
-  evidence: LinkIcon,
-  experiences: Briefcase,
-  education: GraduationCap,
-  skills: Cpu,
-  projects: FolderGit2,
-  achievements: Trophy,
-  hobbies: Heart,
-  default: LayoutList
-};
-
-/* ===========================
-   STYLES (single string)
-   =========================== */
-const STYLES = `
-/* -------------------------- Editor -------------------------- */
-.intelligent-editor {
-  min-height: 84px;
-  width: 100%;
-  padding: 0.75rem;
-  font-size: 0.95rem;
-  line-height: 1.5;
-  color: var(--bs-body-color, #1f2937);
-  background-color: var(--bs-body-bg, #fff);
-  border: 1px solid var(--bs-border-color, #e5e7eb);
-  border-radius: 0.5rem;
-  overflow-y: auto;
-  white-space: pre-wrap;
-  position: relative;
-  transition: border-color .12s ease, box-shadow .12s ease;
-  -webkit-font-smoothing: antialiased;
-  -webkit-tap-highlight-color: rgba(0,0,0,0);
-}
-
-.intelligent-editor:focus {
-  border-color: #86b7fe;
-  box-shadow: 0 0 0 0.18rem rgba(13,110,253,0.12);
-  outline: 0;
-}
-
-.intelligent-editor[data-placeholder="true"]::before {
-  content: attr(data-placeholder-text);
-  position: absolute;
-  left: 0.75rem;
-  top: 0.7rem;
-  color: #9ca3af;
-  opacity: 0.85;
-  pointer-events: none;
-  font-size: 0.95rem;
-}
-
-/* links inside text (the mention tokens) */
-.intelligent-editor a {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 6px;
-  border-radius: 6px;
-  background-color: rgba(13,110,253,0.06);
-  color: #0d6efd;
-  font-weight: 600;
-  text-decoration: none;
-  white-space: nowrap;
-  vertical-align: middle;
-}
-
-/* external markdown links look different */
-.intelligent-editor a.external-link {
-  background: none;
-  color: #0969da;
-  text-decoration: underline;
-  font-weight: 500;
-  padding: 0;
-}
-
-/* -------------------------- Animations -------------------------- */
-@keyframes slideDownFade {
-  from { opacity: 0; transform: translateY(-8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-/* -------------------------- Popup container -------------------------- */
-.mobile-toolbar-popup {
-  animation: slideDownFade 0.16s ease-out;
-  background: var(--bs-body-bg, #fff);
-  border-radius: 12px;
-  box-shadow: 0 14px 40px -12px rgba(0,0,0,0.18);
-  border: 1px solid rgba(0,0,0,0.06);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  -webkit-overflow-scrolling: touch;
-  -webkit-user-select: none;
-  user-select: none;
-  touch-action: manipulation;
-}
-
-/* Desktop panel */
-.menu-desktop {
-  display: flex;
-  flex-direction: column;
-  border-radius: 8px;
-  background: var(--bs-body-bg, #fff);
-}
-
-/* -------------------------- Two-pane layout (desktop) -------------------------- */
-.menu-desktop .split {
-  display: flex;
-  width: 100%;
-  height: 100%;
-}
-
-.menu-desktop .left {
-  width: 36%;
-  min-width: 160px;
-  max-width: 220px;
-  border-right: 1px solid rgba(0,0,0,0.04);
-  background: var(--bs-body-bg, #fafafa);
-  overflow-y: auto;
-}
-
-.menu-desktop .right {
-  width: 64%;
-  overflow-y: auto;
-  background: var(--bs-body-bg, #fff);
-  padding: 6px 0;
-}
-
-/* left category button */
-.cat-btn {
-  width: 100%;
-  border: 0;
-  background: transparent;
-  padding: 10px 12px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 0.92rem;
-  text-align: left;
-  cursor: pointer;
-  color: var(--bs-body-color, #111827);
-  touch-action: manipulation;
-  -webkit-tap-highlight-color: rgba(0,0,0,0);
-}
-
-.cat-btn:hover,
-.cat-btn.active {
-  background: rgba(13,110,253,0.04);
-}
-
-/* small icon sizing for consistency */
-.cat-btn svg, .item-icon svg {
-  width: 18px;
-  height: 18px;
-  min-width: 18px;
-  min-height: 18px;
-  color: #6b7280;
-  flex: 0 0 18px;
-}
-
-/* short category name styling */
-.cat-label {
-  font-weight: 700;
-  font-size: 0.86rem;
-  letter-spacing: 0.02em;
-}
-
-/* -------------------------- List items (desktop & mobile shared) -------------------------- */
-.item-btn {
-  width: 100%;
-  border: 0;
-  background: transparent;
-  padding: 10px 12px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  text-align: left;
-  cursor: pointer;
-  touch-action: manipulation;
-  -webkit-tap-highlight-color: rgba(0,0,0,0);
-}
-
-.item-btn:hover {
-  background: rgba(0,0,0,0.02);
-}
-
-.item-body {
-  display: flex;
-  flex-direction: column;
-  min-width: 0; /* allow truncation */
-}
-
-.item-title {
-  font-weight: 700;
-  font-size: 0.95rem;
-  color: var(--bs-body-color, #111827);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.item-sub {
-  font-size: 0.82rem;
-  color: #6b7280;
-  margin-top: 2px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* badge on the right (category short name) */
-.item-badge {
-  margin-left: auto;
-  font-size: 0.78rem;
-  color: #0d6efd;
-  background: rgba(13,110,253,0.06);
-  border-radius: 8px;
-  padding: 6px 8px;
-  min-width: 46px;
-  text-align: center;
-  font-weight: 700;
-}
-
-/* make sure mobile rows can break reasonably for long content */
-.mobile-toolbar-popup .item-btn .item-body .item-title,
-.mobile-toolbar-popup .item-btn .item-body .item-sub {
-  white-space: normal;
-  word-break: break-word;
-}
-
-/* make buttons look tappable on mobile */
-.mobile-toolbar-popup .item-btn {
-  padding: 12px 14px;
-}
-
-/* search input */
-.menu-search {
-  padding: 10px;
-  border-bottom: 1px solid rgba(0,0,0,0.04);
-  background: transparent;
-}
-
-.menu-search input {
-  width: 100%;
-  padding: 8px 10px;
-  font-size: 0.92rem;
-}
-
-/* dim background overlay */
-.menu-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.22);
-  z-index: 9998;
-  touch-action: manipulation;
-}
-
-/* responsive tweaks */
-@media (max-width: 767px) {
-  .menu-desktop { width: auto; height: auto; }
-  .menu-desktop .left { display: none; }
-  .mobile-toolbar-popup { width: 92%; max-width: 720px; border-radius: 12px; }
-}
-
-/* --------------------------
-   Bootstrap DARK THEME SUPPORT
-   Targets structures when <html data-bs-theme="dark">
-   -------------------------- */
-html[data-bs-theme="dark"] .intelligent-editor {
-  color: var(--bs-body-color, #e6eef8);
-  background-color: var(--bs-body-bg, #0f1720);
-  border-color: rgba(255,255,255,0.06);
-}
-
-html[data-bs-theme="dark"] .mobile-toolbar-popup,
-html[data-bs-theme="dark"] .menu-desktop {
-  background: #0b1220;
-  border-color: rgba(255,255,255,0.04);
-  color: #e6eef8;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.6);
-}
-
-html[data-bs-theme="dark"] .menu-desktop .left {
-  background: #071019;
-  border-right-color: rgba(255,255,255,0.02);
-}
-
-html[data-bs-theme="dark"] .item-btn,
-html[data-bs-theme="dark"] .cat-btn {
-  color: #e6eef8;
-  background: transparent;
-  border-bottom-color: rgba(255,255,255,0.02);
-}
-
-html[data-bs-theme="dark"] .item-btn:hover,
-html[data-bs-theme="dark"] .cat-btn.active {
-  background: rgba(255,255,255,0.02);
-}
-
-html[data-bs-theme="dark"] .item-badge {
-  color: #cfe6ff;
-  background: rgba(29,78,216,0.12);
-}
-
-/* make overlay darker in dark theme */
-html[data-bs-theme="dark"] .menu-overlay {
-  background: rgba(0,0,0,0.6);
-}
-`;
-
-/* ===========================
-   Regex for parsing
-   =========================== */
-const REFERENCE_REGEX = /\[(.*?)]<:(.*?)><(.*?)>/g;
-const MARKDOWN_LINK_REGEX = /\[([^\]]+)\]\(([^)]+)\)/g;
-
-/* ===========================
-   Utility: pointer tracking per-row
-   - returns handlers and state holder
-   =========================== */
-function usePointerSelect(onActivate, options = {}) {
-  // options: { moveThreshold: number }
-  const moveThreshold = (options && options.moveThreshold) || 6;
-  const metaRef = useRef({
-    pointerId: null,
-    startX: 0,
-    startY: 0,
-    isDragging: false,
-    activeTarget: null
-  });
-
-  const onPointerDown = (e) => {
-    // only primary button
-    if (e.button && e.button !== 0) return;
-    // start tracking
-    const p = metaRef.current;
-    p.pointerId = e.pointerId;
-    p.startX = e.clientX;
-    p.startY = e.clientY;
-    p.isDragging = false;
-    p.activeTarget = e.currentTarget;
-    try {
-      // capture pointer so we get move/up even if finger leaves
-      e.currentTarget.setPointerCapture && e.currentTarget.setPointerCapture(e.pointerId);
-    } catch (err) {
-      // swallow
-    }
-  };
-
-  const onPointerMove = (e) => {
-    const p = metaRef.current;
-    if (p.pointerId !== e.pointerId) return;
-    const dx = Math.abs(e.clientX - p.startX);
-    const dy = Math.abs(e.clientY - p.startY);
-    if (!p.isDragging && (dx > moveThreshold || dy > moveThreshold)) {
-      p.isDragging = true;
-    }
-  };
-
-  const onPointerUp = (e) => {
-    const p = metaRef.current;
-    if (p.pointerId !== e.pointerId) return;
-    try {
-      p.activeTarget && p.activeTarget.releasePointerCapture && p.activeTarget.releasePointerCapture(e.pointerId);
-    } catch (err) {}
-    const wasDragging = p.isDragging;
-    // reset
-    p.pointerId = null;
-    p.isDragging = false;
-    p.activeTarget = null;
-    // activate if not dragged
-    if (!wasDragging) {
-      onActivate && onActivate(e);
-    }
-  };
-
-  const onPointerCancel = (e) => {
-    const p = metaRef.current;
-    if (p.pointerId !== e.pointerId) return;
-    try {
-      p.activeTarget && p.activeTarget.releasePointerCapture && p.activeTarget.releasePointerCapture(e.pointerId);
-    } catch (err) {}
-    p.pointerId = null;
-    p.isDragging = false;
-    p.activeTarget = null;
-  };
-
-  return {
-    onPointerDown,
-    onPointerMove,
-    onPointerUp,
-    onPointerCancel
-  };
-}
-
-/* ===========================
-   HierarchicalMenu component
-   =========================== */
-const HierarchicalMenu = ({
-  categories,
-  onSelect,
-  position,
-  onClose,
-  searchQuery = ""
-}) => {
-  const menuRef = useRef(null);
-  const [internalQuery, setInternalQuery] = useState(searchQuery || "");
-  const [activeCat, setActiveCat] = useState(
-    (categories && categories.length && categories[0].id) || null
-  );
-
-  const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
-
-  // Flatten items
-  const allItemsFlat = useMemo(() => {
-    return (categories || []).flatMap((cat) =>
-      (cat.items || []).map((item) => ({
-        ...item,
-        _catId: cat.id,
-        _catName: cat.name,
-        _catType: cat.type
-      }))
-    );
-  }, [categories]);
-
-  const filteredItems = useMemo(() => {
-    const q = (internalQuery || "").trim().toLowerCase();
-    if (!q) {
-      if (!isMobile && activeCat) {
-        const cat = categories.find((c) => c.id === activeCat);
-        return (cat && (cat.items || []).map((i) => ({ ...i, _catId: cat.id, _catName: cat.name, _catType: cat.type }))) || [];
-      }
-      return allItemsFlat;
-    }
-
-    return allItemsFlat.filter((item) => {
-      return (
-        ((item.label || item.name) + " " + (item.subtitle || "") + " " + (item._catName || ""))
-          .toLowerCase()
-          .indexOf(q) !== -1
-      );
-    });
-  }, [internalQuery, allItemsFlat, isMobile, activeCat, categories]);
-
-  // close on outside pointerdown (fast)
-  useEffect(() => {
-    const handler = (e) => {
-      // if click/tap occurs outside the menu, close
-      if (menuRef.current && !menuRef.current.contains(e.target)) {
-        onClose();
-      }
-    };
-    document.addEventListener("pointerdown", handler, { passive: true });
-    return () => document.removeEventListener("pointerdown", handler);
-  }, [onClose]);
-
-  // Desktop style
-  const desktopStyle = useMemo(() => {
-    if (isMobile) return {};
-    const W = 500;
-    const left = Math.min(Math.max(8, position.left - 250), Math.max(8, window.innerWidth - W - 8));
-    const top = Math.min(Math.max(8, position.top + 8), Math.max(8, window.innerHeight - 360));
-    return {
-      position: "fixed",
-      top,
-      left,
-      width: W,
-      height: 340,
-      zIndex: 11020,
-      display: "flex",
-      flexDirection: "column"
-    };
-  }, [isMobile, position]);
-
-  // Mobile anchored style
-  const mobileStyle = useMemo(() => {
-    if (!isMobile) return {};
-    const margin = 8;
-    const maxWidth = Math.min(window.innerWidth * 0.82, 760);
-    const maxHeight = Math.min(window.innerHeight * 0.6, 520);
-    let top;
-    const spaceAbove = position.top;
-    const spaceBelow = window.innerHeight - position.top;
-    if (spaceBelow > maxHeight + 20 || spaceBelow >= spaceAbove) {
-      top = position.top + margin;
-    } else {
-      top = Math.max(margin, position.top - maxHeight - margin);
-    }
-    let left = position.left + margin;
-    if (left + maxWidth + margin > window.innerWidth) {
-      left = Math.max(margin, window.innerWidth - maxWidth - margin);
-    }
-    return {
-      position: "fixed",
-      top,
-      left,
-      width: maxWidth,
-      maxHeight,
-      zIndex: 11030,
-      overflowY: "auto"
-    };
-  }, [isMobile, position]);
-
-  // ensure activeCat set
-  useEffect(() => {
-    if (!activeCat && categories && categories.length) setActiveCat(categories[0].id);
-  }, [categories, activeCat]);
-
-  const containerClass = isMobile ? "mobile-toolbar-popup" : "menu-desktop";
-
-  // generic handler for selection that parent expects
-  const doSelect = (item, type) => {
-    try {
-      onSelect && onSelect(item, type);
-    } catch (err) {
-      console.warn("onSelect error", err);
-    } finally {
-      onClose && onClose();
-    }
-  };
-
-  // pointer handlers per item using hook
-  const makePointerHandlersFor = (item, type) =>
-    useMemo(() => {
-      const handlers = usePointerSelect(() => {
-        doSelect(item, type);
-      }, { moveThreshold: 6 });
-      return handlers;
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [item, type]);
-
-  return createPortal(
-    <>
-      {/* overlay behind menu; close when tapped */}
-      <div
-        className="menu-overlay"
-        style={{ zIndex: isMobile ? 11010 : 10500 }}
-        onPointerDown={(e) => {
-          // close overlay on any pointerdown
-          e.stopPropagation();
-          onClose();
-        }}
-      />
-
-      <div
-        ref={menuRef}
-        className={containerClass}
-        style={isMobile ? mobileStyle : desktopStyle}
-        // don't prevent default here — we let children handle pointer capture
-        onPointerDown={(e) => {
-          // stop propagation so outer document listener doesn't immediately close
-          e.stopPropagation();
-        }}
-      >
-        {/* header + search */}
-        <div className="menu-search" style={{ zIndex: 11040 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            {isMobile ? (
-              <>
-                <strong style={{ fontSize: 14, color: "var(--bs-body-color, #374151)" }}>Link Evidence</strong>
-                <div style={{ flex: 1 }} />
-                <button
-                  onPointerDown={(e) => {
-                    e.stopPropagation();
-                    onClose();
-                  }}
-                  className="btn btn-sm"
-                  aria-label="close"
-                >
-                  <X size={16} />
-                </button>
-              </>
-            ) : (
-              <strong style={{ fontSize: 14, color: "var(--bs-body-color, #374151)" }}>Insert Link</strong>
-            )}
-          </div>
-
-          <div style={{ marginTop: 8 }}>
-            <input
-              aria-label="Search"
-              placeholder="Search..."
-              value={internalQuery}
-              onChange={(e) => setInternalQuery(e.target.value)}
-              className="form-control"
-              style={{ padding: "8px 10px", fontSize: 14 }}
-              autoFocus
-              onPointerDown={(e) => e.stopPropagation()}
-            />
-          </div>
-        </div>
-
-        {/* mobile unified list */}
-        {isMobile ? (
-          <div style={{ flex: 1, overflowY: "auto" }}>
-            {filteredItems.length === 0 ? (
-              <div style={{ padding: 16, color: "#6b7280", fontStyle: "italic" }}>No matches found</div>
-            ) : (
-              filteredItems.map((item) => {
-                const Icon = ICONS[item._catType] || ICONS.default;
-                // do not create new handlers inside render synchronously — wrap in closure
-                const handlers = (() => {
-                  // local pointer-tracking instance (per rendered item)
-                  const metaRef = {
-                    pointerId: null,
-                    startX: 0,
-                    startY: 0,
-                    isDragging: false,
-                    activeTarget: null
-                  };
-
-                  const onPointerDown = (e) => {
-                    if (e.button && e.button !== 0) return;
-                    metaRef.pointerId = e.pointerId;
-                    metaRef.startX = e.clientX;
-                    metaRef.startY = e.clientY;
-                    metaRef.isDragging = false;
-                    metaRef.activeTarget = e.currentTarget;
-                    try {
-                      e.currentTarget.setPointerCapture && e.currentTarget.setPointerCapture(e.pointerId);
-                    } catch (err) {}
-                  };
-
-                  const onPointerMove = (e) => {
-                    if (metaRef.pointerId !== e.pointerId) return;
-                    const dx = Math.abs(e.clientX - metaRef.startX);
-                    const dy = Math.abs(e.clientY - metaRef.startY);
-                    if (!metaRef.isDragging && (dx > 6 || dy > 6)) metaRef.isDragging = true;
-                  };
-
-                  const onPointerUp = (e) => {
-                    if (metaRef.pointerId !== e.pointerId) return;
-                    try {
-                      metaRef.activeTarget && metaRef.activeTarget.releasePointerCapture && metaRef.activeTarget.releasePointerCapture(e.pointerId);
-                    } catch (err) {}
-                    const wasDragging = metaRef.isDragging;
-                    metaRef.pointerId = null;
-                    metaRef.isDragging = false;
-                    metaRef.activeTarget = null;
-                    if (!wasDragging) {
-                      doSelect(item, item._catType);
-                    }
-                  };
-
-                  const onPointerCancel = (e) => {
-                    if (metaRef.pointerId !== e.pointerId) return;
-                    try {
-                      metaRef.activeTarget && metaRef.activeTarget.releasePointerCapture && metaRef.activeTarget.releasePointerCapture(e.pointerId);
-                    } catch (err) {}
-                    metaRef.pointerId = null;
-                    metaRef.isDragging = false;
-                    metaRef.activeTarget = null;
-                  };
-
-                  return {
-                    onPointerDown,
-                    onPointerMove,
-                    onPointerUp,
-                    onPointerCancel
-                  };
-                })();
-
-                return (
-                  <button
-                    key={item.id}
-                    className="item-btn"
-                    type="button"
-                    onPointerDown={handlers.onPointerDown}
-                    onPointerMove={handlers.onPointerMove}
-                    onPointerUp={handlers.onPointerUp}
-                    onPointerCancel={handlers.onPointerCancel}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        doSelect(item, item._catType);
-                      }
-                    }}
-                  >
-                    <span className="item-icon" style={{ display: "inline-flex", alignItems: "center" }}>
-                      {React.createElement(Icon, { size: 18 })}
-                    </span>
-
-                    <div className="item-body" style={{ marginLeft: 4 }}>
-                      <div className="item-title">{item.label || item.name}</div>
-                      {item.subtitle ? <div className="item-sub">{item.subtitle}</div> : null}
-                    </div>
-
-                    <div className="item-badge" aria-hidden>{item._catName}</div>
-                  </button>
-                );
-              })
-            )}
-          </div>
-        ) : (
-          /* desktop 2-pane: left categories, right items */
-          <div className="split" style={{ flex: 1 }}>
-            <div className="left">
-              {(categories || []).map((cat) => {
-                const Icon = ICONS[cat.type] || ICONS.default;
-                const isActive = cat.id === activeCat;
-                return (
-                  <button
-                    key={cat.id}
-                    className={`cat-btn ${isActive ? "active" : ""}`}
-                    type="button"
-                    onPointerDown={(e) => {
-                      // short, immediate
-                      e.stopPropagation();
-                      setActiveCat(cat.id);
-                      setInternalQuery("");
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        setActiveCat(cat.id);
-                        setInternalQuery("");
-                      }
-                    }}
-                  >
-                    <span className="item-icon">{React.createElement(Icon, { size: 18 })}</span>
-                    <span className="cat-label">{cat.name}</span>
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="right">
-              {filteredItems.length === 0 ? (
-                <div style={{ padding: 16, color: "#6b7280", fontStyle: "italic" }}>No matches in this view</div>
-              ) : (
-                filteredItems.map((item) => {
-                  // create pointer handlers for desktop items too
-                  const metaRef = {
-                    pointerId: null,
-                    startX: 0,
-                    startY: 0,
-                    isDragging: false,
-                    activeTarget: null
-                  };
-
-                  const onPointerDown = (e) => {
-                    if (e.button && e.button !== 0) return;
-                    metaRef.pointerId = e.pointerId;
-                    metaRef.startX = e.clientX;
-                    metaRef.startY = e.clientY;
-                    metaRef.isDragging = false;
-                    metaRef.activeTarget = e.currentTarget;
-                    try {
-                      e.currentTarget.setPointerCapture && e.currentTarget.setPointerCapture(e.pointerId);
-                    } catch (err) {}
-                    e.stopPropagation();
-                  };
-
-                  const onPointerMove = (e) => {
-                    if (metaRef.pointerId !== e.pointerId) return;
-                    const dx = Math.abs(e.clientX - metaRef.startX);
-                    const dy = Math.abs(e.clientY - metaRef.startY);
-                    if (!metaRef.isDragging && (dx > 6 || dy > 6)) metaRef.isDragging = true;
-                  };
-
-                  const onPointerUp = (e) => {
-                    if (metaRef.pointerId !== e.pointerId) return;
-                    try {
-                      metaRef.activeTarget && metaRef.activeTarget.releasePointerCapture && metaRef.activeTarget.releasePointerCapture(e.pointerId);
-                    } catch (err) {}
-                    const wasDragging = metaRef.isDragging;
-                    metaRef.pointerId = null;
-                    metaRef.isDragging = false;
-                    metaRef.activeTarget = null;
-                    if (!wasDragging) doSelect(item, item._catType);
-                  };
-
-                  const onPointerCancel = (e) => {
-                    if (metaRef.pointerId !== e.pointerId) return;
-                    try {
-                      metaRef.activeTarget && metaRef.activeTarget.releasePointerCapture && metaRef.activeTarget.releasePointerCapture(e.pointerId);
-                    } catch (err) {}
-                    metaRef.pointerId = null;
-                    metaRef.isDragging = false;
-                    metaRef.activeTarget = null;
-                  };
-
-                  return (
-                    <button
-                      key={item.id}
-                      className="item-btn"
-                      type="button"
-                      onPointerDown={(e) => {
-                        onPointerDown(e);
-                      }}
-                      onPointerMove={(e) => onPointerMove(e)}
-                      onPointerUp={(e) => onPointerUp(e)}
-                      onPointerCancel={(e) => onPointerCancel(e)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          doSelect(item, item._catType);
-                        }
-                      }}
-                    >
-                      <div style={{ display: "flex", gap: 12, alignItems: "center", minWidth: 0 }}>
-                        <span className="item-icon" aria-hidden>
-                          {React.createElement(ICONS[item._catType] || ICONS.default, { size: 18 })}
-                        </span>
-                        <div className="item-body">
-                          <div className="item-title">{item.label || item.name}</div>
-                          {item.subtitle ? <div className="item-sub">{item.subtitle}</div> : null}
-                        </div>
-                        <div className="item-badge" aria-hidden>{item._catName}</div>
-                      </div>
-                    </button>
-                  );
-                })
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-    </>,
-    document.body
-  );
-};
-
-/* ===========================
-   IntelligentTextArea main component
-   =========================== */
-const IntelligentTextArea = forwardRef(
-  (
-    {
-      initialValue,
-      onSave,
-      cv,
-      extraSuggestions = [],
-      onMention,
-      placeholder = "Type @ to link evidence..."
-    },
-    ref
-  ) => {
-    const editorRef = useRef(null);
-    const [menuState, setMenuState] = useState({
-      open: false,
-      position: { top: 0, left: 0 },
-      mode: "cursor", // 'cursor' or 'external'
-      query: ""
-    });
-
-    const mentionMetaRef = useRef(null);
-
-    /* -------------------------
-       Build categories (short names)
-       ------------------------- */
+// frontend/src/components/applications/IntelligentTextArea.jsx
+import React, { useEffect, useState, useMemo, forwardRef, useImperativeHandle } from 'react';
+import { useEditor, EditorContent, ReactRenderer, mergeAttributes, NodeViewWrapper, NodeViewContent, ReactNodeViewRenderer } from '@tiptap/react';
+import { Node, Mark, InputRule } from '@tiptap/core';
+import StarterKit from '@tiptap/starter-kit';
+import Placeholder from '@tiptap/extension-placeholder';
+import Mention from '@tiptap/extension-mention';
+import Link from '@tiptap/extension-link';
+import { 
+    Ghost, Eye, EyeOff, Trash2, Heading1, 
+    Briefcase, GraduationCap, Cpu, Heart, Trophy, FolderGit2, Target, ChevronRight, Lightbulb
+} from 'lucide-react';
+import tippy from 'tippy.js';
+import 'tippy.js/dist/tippy.css';
+import 'tippy.js/animations/shift-away.css'; 
+
+// ============================================================================
+// 1. HELPER COMPONENTS (Mention Menu)
+// ============================================================================
+
+const CategorizedMentionList = forwardRef((props, ref) => {
+    const { cv, extraSuggestions, query, command } = props;
+    const [activeCategory, setActiveCategory] = useState(null);
+    const [selectedIndex, setSelectedIndex] = useState(0);
+
+    // 1. Structure the Categories based on `cv` and `extraSuggestions`
     const categories = useMemo(() => {
-      const cats = [];
-      // Mapped (short name MAP) - Requirement as subtitle
-      if ((extraSuggestions || []).length > 0) {
-        cats.push({
-          id: "mapped",
-          type: "evidence",
-          name: "MAP",
-          items: (extraSuggestions || []).map((s, idx) => ({
-            ...s,
-            // Present evidence first and requirement underneath
-            label: s.evidence || s.label || `Evidence ${idx + 1}`,
-            subtitle: s.requirement || s.subtitle || ""
-          }))
-        });
-      }
+        const safeCV = cv || {};
+        const list = [];
 
-      // helper
-      const toItems = (list, labelKey, subKey) =>
-        (list || []).map((i) => ({
-          ...i,
-          label: i[labelKey],
-          subtitle: i[subKey]
-        }));
+        // Add Mappings/Evidence if available (from extraSuggestions)
+        if (extraSuggestions && extraSuggestions.length > 0) {
+            list.push({ 
+                id: 'map', 
+                label: 'Evidence', 
+                icon: Lightbulb, // or Target
+                items: extraSuggestions.map(s => ({
+                    id: s.id,
+                    label: s.evidence || s.label || 'Evidence',
+                    detail: s.requirement || s.subtitle,
+                    context: 'Evidence'
+                }))
+            });
+        }
 
-      if (cv) {
-        cats.push({
-          id: "exp",
-          type: "experiences",
-          name: "EXP",
-          items: toItems(cv.experiences, "title", "company")
-        });
-        cats.push({
-          id: "proj",
-          type: "projects",
-          name: "PRO",
-          items: toItems(cv.projects, "title", "description")
-        });
-        cats.push({
-          id: "skill",
-          type: "skills",
-          name: "SK",
-          items: toItems(cv.skills, "name", "category")
-        });
-        cats.push({
-          id: "ach",
-          type: "achievements",
-          name: "ACH",
-          items: toItems(cv.achievements, "text", "context")
-        });
-        cats.push({
-          id: "edu",
-          type: "education",
-          name: "EDU",
-          items: toItems(cv.education, "degree", "institution")
-        });
-        cats.push({
-          id: "hob",
-          type: "hobbies",
-          name: "HOB",
-          items: toItems(cv.hobbies, "name", "")
-        });
-      }
+        // Add CV Sections
+        if (safeCV.experiences?.length) list.push({ id: 'exp', label: 'Experience', icon: Briefcase, items: safeCV.experiences });
+        if (safeCV.projects?.length) list.push({ id: 'proj', label: 'Projects', icon: FolderGit2, items: safeCV.projects });
+        if (safeCV.education?.length) list.push({ id: 'edu', label: 'Education', icon: GraduationCap, items: safeCV.education });
+        if (safeCV.skills?.length) list.push({ id: 'skills', label: 'Skills', icon: Cpu, items: safeCV.skills });
+        if (safeCV.achievements?.length) list.push({ id: 'ach', label: 'Achievements', icon: Trophy, items: safeCV.achievements });
+        if (safeCV.hobbies?.length) list.push({ id: 'hobbies', label: 'Hobbies', icon: Heart, items: safeCV.hobbies });
 
-      return cats.filter((c) => (c.items || []).length > 0);
+        return list;
     }, [cv, extraSuggestions]);
 
-    /* -------------------------
-       Raw <-> HTML parsing
-       ------------------------- */
-    const parseRawToHtml = (text) =>
-      text
-        ? text
-            .replace(REFERENCE_REGEX, (m, t, i, n) => {
-              // t = type, i = id, n = visible name
-              return `<a href="#" data-type="${t}" data-id="${i}" contenteditable="false">${n}</a>`;
-            })
-            .replace(MARKDOWN_LINK_REGEX, (m, l, u) => {
-              return `<a href="${u}" target="_blank" rel="noopener noreferrer" class="external-link" contenteditable="false">${l}</a>`;
-            })
-        : "";
-
-    const parseHtmlToRaw = (el) => {
-      let raw = "";
-      el.childNodes.forEach((node) => {
-        if (node.nodeType === 3) {
-          raw += node.textContent;
-        } else if (node.tagName === "A") {
-          if (node.dataset && node.dataset.type) {
-            raw += `[${node.dataset.type}]<:${node.dataset.id}><${node.textContent}>`;
-          } else {
-            const href = node.getAttribute("href");
-            if (href) raw += `[${node.textContent}](${href})`;
-            else raw += node.textContent;
-          }
-        } else if (node.tagName === "BR") {
-          raw += "\n";
-        } else {
-          raw += parseHtmlToRaw(node);
+    // 2. Filter Logic (Search vs Explore)
+    const filteredCategories = useMemo(() => {
+        const lowerQuery = query?.toLowerCase() || '';
+        
+        if (lowerQuery) {
+            return categories.map(cat => ({
+                ...cat,
+                items: cat.items.filter(item => {
+                    const label = item.label || item.name || item.title || '';
+                    const detail = item.detail || item.company || item.institution || '';
+                    return label.toLowerCase().includes(lowerQuery) || detail.toLowerCase().includes(lowerQuery);
+                })
+            })).filter(cat => cat.items.length > 0);
         }
-      });
-      return raw;
-    };
+        return categories;
+    }, [categories, query]);
 
-    /* -------------------------
-       Caret positioning helper
-       ------------------------- */
-    const getCaretCoordinates = () => {
-      const sel = window.getSelection();
-      if (!sel || !sel.rangeCount) return { top: 0, left: 0 };
-      const range = sel.getRangeAt(0).cloneRange();
-      range.collapse(true);
-      const rects = range.getClientRects();
-      if (rects && rects.length) {
-        const rect = rects[0];
-        return { top: rect.bottom, left: rect.left };
-      }
-      return { top: 0, left: 0 };
-    };
-
-    /* -------------------------
-       Click handler (external link opening)
-       ------------------------- */
-    const handleClick = (e) => {
-      const t = e.target;
-      if (t && t.tagName === "A" && t.classList.contains("external-link")) {
-        const href = t.getAttribute("href");
-        if (href) {
-          e.preventDefault();
-          window.open(href, "_blank", "noopener,noreferrer");
+    // 3. Flatten for Keyboard Navigation
+    const flatItems = useMemo(() => {
+        if (query) {
+            return filteredCategories.flatMap(cat => cat.items);
         }
-      }
-    };
+        const active = categories.find(c => c.id === activeCategory);
+        return active ? active.items : [];
+    }, [filteredCategories, categories, activeCategory, query]);
 
-    /* -------------------------
-       Input handling (detect @)
-       ------------------------- */
-    const handleInput = () => {
-      const sel = window.getSelection();
-      if (!sel || !sel.rangeCount) return;
-      const node = sel.anchorNode;
-      if (!node || node.nodeType !== 3) return;
-
-      const text = node.textContent || "";
-      const offset = sel.anchorOffset;
-      const before = text.slice(0, offset);
-
-      const idx = before.lastIndexOf("@");
-      if (idx !== -1) {
-        const query = before.slice(idx + 1);
-        mentionMetaRef.current = { node, offset: idx };
-        setMenuState({
-          open: true,
-          position: getCaretCoordinates(),
-          mode: "cursor",
-          query
-        });
-      } else {
-        // hide
-        setMenuState((s) => ({ ...s, open: false, query: "" }));
-      }
-      if (editorRef.current) {
-        editorRef.current.dataset.placeholder = editorRef.current.textContent.trim().length === 0;
-      }
-    };
-
-    /* -------------------------
-       Insert selected item
-       ------------------------- */
-    const insertItem = (item, type) => {
-      // if menu opened via external API (mode === 'external'), just notify
-      if (menuState.mode === "external") {
-        setMenuState((s) => ({ ...s, open: false, query: "" }));
-        if (onMention) onMention(item, type);
-        return;
-      }
-
-      const sel = window.getSelection();
-      if (!sel || !sel.rangeCount) return;
-      const meta = mentionMetaRef.current;
-      if (!meta || !meta.node) return;
-
-      const range = document.createRange();
-      const { node, offset } = meta;
-      const currentCursor = sel.anchorOffset;
-
-      // remove the @... text from the node
-      range.setStart(node, offset);
-      range.setEnd(node, currentCursor);
-      range.deleteContents();
-
-      // create anchor node
-      const a = document.createElement("a");
-      a.href = "#";
-      a.contentEditable = false;
-      a.dataset.type = type;
-      a.dataset.id = item.id;
-      a.textContent = item.label || item.name || "";
-
-      range.insertNode(a);
-      // insert normal space after anchor so caret moves cleanly
-      const spacer = document.createTextNode("\u00A0");
-      a.after(spacer);
-
-      // move caret after space
-      range.setStartAfter(spacer);
-      range.collapse(true);
-      sel.removeAllRanges();
-      sel.addRange(range);
-
-      setMenuState({ open: false, position: { top: 0, left: 0 }, mode: "cursor", query: "" });
-      if (editorRef.current) editorRef.current.focus();
-
-      if (onMention) onMention(item, type);
-    };
-
-    /* -------------------------
-       Initialize editor content
-       ------------------------- */
+    // 4. Auto-select first category
     useEffect(() => {
-      if (!editorRef.current) return;
-      editorRef.current.innerHTML = parseRawToHtml(initialValue || "");
-      editorRef.current.dataset.placeholder = !initialValue;
-    }, [initialValue]);
+        if (!query && categories.length > 0 && !activeCategory) {
+            setActiveCategory(categories[0].id);
+        }
+    }, [categories, query, activeCategory]);
 
-    /* -------------------------
-       Blur saves content
-       ------------------------- */
-    const handleBlur = () => {
-      if (!editorRef.current) return;
-      const raw = parseHtmlToRaw(editorRef.current);
-      if (raw !== initialValue && onSave) onSave(raw);
-    };
-
-    /* -------------------------
-       Expose public API
-       ------------------------- */
+    // 5. Keyboard Handling
     useImperativeHandle(ref, () => ({
-      openMenu: (rect) => {
-        if (!rect) return;
-        setMenuState({
-          open: true,
-          position: { top: rect.bottom, left: rect.left },
-          mode: "external",
-          query: ""
-        });
-      },
-      triggerSearch: () => {
-        if (editorRef.current) editorRef.current.focus();
-      }
+        onKeyDown: ({ event }) => {
+            if (event.key === 'ArrowUp') {
+                setSelectedIndex((prev) => (prev + flatItems.length - 1) % flatItems.length);
+                return true;
+            }
+            if (event.key === 'ArrowDown') {
+                setSelectedIndex((prev) => (prev + 1) % flatItems.length);
+                return true;
+            }
+            if (event.key === 'Enter') {
+                if (flatItems[selectedIndex]) {
+                    const item = flatItems[selectedIndex];
+                    let context = 'Item';
+                    // Find context
+                    categories.forEach(c => { if(c.items.includes(item)) context = c.label; });
+                    
+                    command({ 
+                        id: item.id, 
+                        label: item.label || item.name || item.title, 
+                        context: context 
+                    });
+                    return true;
+                }
+            }
+            return false;
+        },
     }));
 
+    const selectItem = (item, categoryLabel) => {
+        command({ 
+            id: item.id, 
+            label: item.label || item.name || item.title, 
+            context: categoryLabel 
+        });
+    };
+
+    // Helper to get subtitle/detail for an item safely
+    const getItemDetail = (item) => item.detail || item.company || item.institution || item.description || '';
+
+    // --- RENDER: SEARCH MODE ---
+    if (query) {
+        return (
+            <div className="bg-white border rounded shadow-lg overflow-hidden custom-scroll" style={{minWidth: '300px', maxHeight: '300px', overflowY: 'auto'}}>
+                {filteredCategories.length === 0 ? (
+                    <div className="p-3 text-center text-muted small">No matches found</div>
+                ) : (
+                    filteredCategories.map(cat => (
+                        <div key={cat.id}>
+                            <div className="px-3 py-1 bg-light border-bottom border-top tiny fw-bold text-uppercase text-muted mt-0" style={{fontSize: '0.7rem'}}>
+                                {cat.label}
+                            </div>
+                            {cat.items.map(item => {
+                                const idx = flatItems.indexOf(item);
+                                return (
+                                    <button 
+                                        key={item.id} 
+                                        className={`w-100 text-start btn btn-sm border-0 rounded-0 px-3 py-2 d-flex flex-column ${idx === selectedIndex ? 'bg-primary text-white' : 'text-dark hover-bg-light'}`} 
+                                        onClick={() => selectItem(item, cat.label)}
+                                    >
+                                        <span className="fw-bold small text-truncate w-100">{item.label || item.name || item.title}</span>
+                                        <span className="small opacity-75 text-truncate w-100">{getItemDetail(item)}</span>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    ))
+                )}
+            </div>
+        );
+    }
+
+    // --- RENDER: EXPLORE MODE ---
     return (
-      <div className="intelligent-textarea-wrapper">
-        <style>{STYLES}</style>
-
-        <div
-          ref={editorRef}
-          className="intelligent-editor"
-          contentEditable
-          onInput={handleInput}
-          onBlur={handleBlur}
-          onClick={handleClick}
-          data-placeholder-text={placeholder}
-          spellCheck="false"
-        />
-
-        {menuState.open && (
-          <HierarchicalMenu
-            categories={categories}
-            position={menuState.position}
-            onSelect={(item, type) => insertItem(item, type)}
-            onClose={() => setMenuState((s) => ({ ...s, open: false }))}
-            searchQuery={menuState.query}
-          />
-        )}
-      </div>
+        <div className="bg-white shadow-lg border rounded-3 overflow-hidden d-flex" style={{height: '280px', width: '450px'}}>
+            {/* LEFT PANE: Categories */}
+            <div className="w-35 border-end bg-light overflow-auto custom-scroll d-flex flex-column" style={{width: '35%'}}>
+                {categories.map(cat => (
+                    <button
+                        key={cat.id}
+                        className={`w-100 btn btn-sm text-start d-flex align-items-center justify-content-between px-3 py-2 border-0 rounded-0 ${activeCategory === cat.id ? 'bg-white text-primary fw-bold shadow-inset' : 'text-muted hover-bg-white'}`}
+                        onMouseEnter={() => setActiveCategory(cat.id)}
+                        onMouseDown={(e) => e.preventDefault()}
+                    >
+                        <div className="d-flex align-items-center gap-2">
+                            <cat.icon size={14} /> {cat.label}
+                        </div>
+                        <ChevronRight size={12} className="opacity-50"/>
+                    </button>
+                ))}
+            </div>
+            
+            {/* RIGHT PANE: Items */}
+            <div className="w-65 overflow-auto custom-scroll bg-white" style={{width: '65%'}}>
+                {!activeCategory ? (
+                    <div className="h-100 d-flex align-items-center justify-content-center text-muted small fst-italic p-3 text-center">
+                        Hover a category...
+                    </div>
+                ) : (
+                    categories.find(c => c.id === activeCategory)?.items.map((item, i) => (
+                        <button
+                            key={item.id || i}
+                            className="w-100 btn btn-sm text-start px-3 py-2 border-bottom border-light hover-bg-primary-subtle"
+                            onClick={() => selectItem(item, categories.find(c => c.id === activeCategory).label)}
+                            onMouseDown={(e) => e.preventDefault()}
+                        >
+                            <div className="d-flex flex-column">
+                                <span className="fw-bold text-dark small text-truncate">
+                                    {item.label || item.name || item.title}
+                                </span>
+                                {getItemDetail(item) && (
+                                    <span className="text-muted text-truncate" style={{fontSize: '0.7em'}}>
+                                        {getItemDetail(item)}
+                                    </span>
+                                )}
+                            </div>
+                        </button>
+                    ))
+                )}
+            </div>
+        </div>
     );
-  }
-);
+});
+
+
+// ============================================================================
+// 2. CODEX PARSING UTILITIES
+// ============================================================================
+
+const CODEX_REGEX = /\[([a-zA-Z0-9_]+)\]<:([a-zA-Z0-9_]+)><(.*?)>/g;
+
+const codexToHtml = (text) => {
+    if (!text) return '';
+    let html = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+    html = html.replace(CODEX_REGEX, (match, context, id, label) => {
+        return `<span data-mention data-id="${id}" data-label="${label}" data-context="${context}" class="mention-chip">@${label}</span>`;
+    });
+    html = html.replace(/\n/g, '<br>');
+    return html;
+};
+
+const htmlToCodex = (html) => {
+    if (!html) return '';
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    
+    doc.querySelectorAll('[data-mention]').forEach(node => {
+        const id = node.getAttribute('data-id');
+        const label = node.getAttribute('data-label');
+        const context = node.getAttribute('data-context');
+        if (id && label && context) {
+            node.replaceWith(`[${context}]<:${id}><${label}>`);
+        } else {
+             node.replaceWith(node.textContent);
+        }
+    });
+
+    doc.querySelectorAll('a').forEach(node => {
+        const href = node.getAttribute('href');
+        const text = node.textContent;
+        node.replaceWith(`[${text}](${href})`);
+    });
+
+    let text = doc.body.innerHTML;
+    text = text.replace(/<p>/g, '').replace(/<\/p>/g, '\n').replace(/<br>/g, '\n');
+    
+    const textarea = document.createElement('textarea');
+    textarea.innerHTML = text;
+    return textarea.value;
+};
+
+// ============================================================================
+// 3. EXTENSIONS (Ghost, Section, MentionView)
+// ============================================================================
+
+const GhostText = Mark.create({
+    name: 'ghostText',
+    addAttributes() { return { class: { default: 'ghost-text-mark' } } },
+    parseHTML() { return [{ tag: 'span.ghost-text-mark' }] },
+    renderHTML({ HTMLAttributes }) { return ['span', mergeAttributes(HTMLAttributes, { class: 'ghost-text-mark' }), 0] },
+});
+
+const SectionTitle = Node.create({
+    name: 'sectionTitle',
+    group: 'block',
+    atom: true,
+    selectable: true,
+    draggable: true,
+    addAttributes() { return { label: { default: 'Section Title' } }; },
+    parseHTML() { return [{ tag: 'div[data-type="section-title"]' }]; },
+    renderHTML({ HTMLAttributes }) {
+        return ['div', mergeAttributes(HTMLAttributes, { 'data-type': 'section-title', class: 'section-title-block' }), HTMLAttributes.label];
+    },
+    addNodeView() {
+        return ReactNodeViewRenderer(({ node }) => (
+            <NodeViewWrapper className="section-title-wrapper mb-4 mt-2">
+                <div className="p-2 border-bottom border-3 border-dark d-flex align-items-center bg-light-subtle">
+                    <Heading1 size={24} className="text-muted me-3 opacity-50" />
+                    <h2 className="m-0 fw-bold text-dark">{node.attrs.label}</h2>
+                </div>
+            </NodeViewWrapper>
+        ));
+    }
+});
+
+const GhostSectionComponent = (props) => {
+    const { node, updateAttributes, deleteNode } = props;
+    const [isEditing, setIsEditing] = useState(false);
+    const toggleVisibility = () => updateAttributes({ isVisible: !node.attrs.isVisible });
+
+    return (
+        <NodeViewWrapper className="ghost-section-wrapper my-4">
+            <div className={`ghost-header d-flex align-items-center gap-2 p-2 rounded-top border border-dashed 
+                ${node.attrs.linkedId ? 'border-primary bg-primary-subtle text-primary' : 'border-purple bg-purple-subtle text-purple'}
+                ${node.attrs.isVisible ? 'border-bottom-0 border-solid shadow-sm' : ''} 
+            `}>
+                <button className="btn btn-sm btn-link p-0 text-inherit hover-opacity-100 opacity-75" onClick={toggleVisibility}>
+                    {node.attrs.isVisible ? <Eye size={14}/> : <EyeOff size={14} />}
+                </button>
+                {isEditing ? (
+                     <input autoFocus className="form-control form-control-sm border-0 bg-transparent p-0 fw-bold text-inherit w-100 shadow-none"
+                        value={node.attrs.label}
+                        onChange={e => updateAttributes({ label: e.target.value })}
+                        onBlur={() => setIsEditing(false)}
+                        onKeyDown={e => { if(e.key === 'Enter') setIsEditing(false); }}
+                    />
+                ) : (
+                    <span className="fw-bold small flex-grow-1 cursor-text" onClick={() => setIsEditing(true)}>{node.attrs.label || "Untitled Section"}</span>
+                )}
+                <button className="btn btn-sm btn-link p-0 opacity-50 hover-opacity-100 text-inherit" onClick={deleteNode}><Trash2 size={14}/></button>
+            </div>
+            <NodeViewContent className={`ghost-content content-div p-3 border-start border-end border-bottom rounded-bottom bg-white 
+                ${node.attrs.linkedId ? 'border-primary-light' : 'border-purple-light'}
+                ${node.attrs.isVisible ? 'border-solid' : 'border-dashed'}
+            `} />
+             <style>{`
+                .border-purple { border-color: #8b5cf6 !important; }
+                .bg-purple-subtle { background-color: #f5f3ff; color: #7c3aed; }
+                .border-purple-light { border-color: rgba(139, 92, 246, 0.3) !important; }
+                .border-primary-light { border-color: rgba(13, 110, 253, 0.3) !important; }
+                .text-inherit { color: inherit; }
+                .border-solid { border-style: solid !important; }
+                .border-dashed { border-style: dashed !important; }
+            `}</style>
+        </NodeViewWrapper>
+    );
+};
+
+const GhostSection = Node.create({
+    name: 'ghostSection',
+    group: 'block',
+    content: '(paragraph | blockquote | bulletList | orderedList | ghostSection)+', 
+    defining: true, 
+    addAttributes() {
+        return {
+            label: { default: 'New Strategy Section' },
+            linkedId: { default: null },
+            linkedLabel: { default: null },
+            linkedType: { default: null },
+            isVisible: { default: false }, 
+        };
+    },
+    parseHTML() { return [{ tag: 'div[data-type="ghost-section"]' }]; },
+    renderHTML({ HTMLAttributes }) {
+        return ['div', mergeAttributes(HTMLAttributes, { 'data-type': 'ghost-section', class: 'ghost-section-block' }), 0];
+    },
+    addNodeView() { return ReactNodeViewRenderer(GhostSectionComponent); },
+    addInputRules() {
+        return [
+            new InputRule({
+                find: /^>>>\s$/, 
+                handler: ({ state, range }) => {
+                    const { tr } = state;
+                    tr.replaceWith(range.from - 1, range.to, this.type.create({}, state.schema.nodes.paragraph.create()));
+                },
+            }),
+        ];
+    },
+});
+
+const MentionComponent = ({ node }) => {
+    const { label, context, isGhost } = node.attrs; 
+    return (
+        <NodeViewWrapper as="span" className={`mention-chip-wrapper ${isGhost ? 'ghost-mode' : ''}`}>
+            <span className={`mention-chip ${isGhost ? 'ghost' : ''}`} title={`${context || 'Reference'}: ${label}`}>
+                {isGhost && <Ghost size={10} className="me-1 opacity-50" />}
+                {label}
+            </span>
+            <style>{`
+                .mention-chip { background-color: #e7f1ff; color: #0d6efd; border-radius: 6px; padding: 2px 6px; margin: 0 2px; font-size: 0.9em; font-weight: 600; border: 1px solid rgba(13, 110, 253, 0.1); display: inline-flex; align-items: center; vertical-align: baseline; user-select: none; }
+                .mention-chip.ghost { background-color: transparent; color: #6c757d; border: 1px dashed #ced4da; }
+            `}</style>
+        </NodeViewWrapper>
+    );
+};
+
+// ============================================================================
+// 4. MAIN COMPONENT
+// ============================================================================
+
+// ACCEPT `cv` (from AnnotationEditor) AND `extraSuggestions`
+const IntelligentTextArea = forwardRef(({ initialValue, onSave, placeholder, minHeight = '150px', cv, extraSuggestions = [], onMention }, ref) => {
+    
+    const editor = useEditor({
+        extensions: [
+            StarterKit.configure({ heading: { levels: [1, 2, 3, 4] } }),
+            Placeholder.configure({ placeholder: placeholder || 'Type @ to link evidence, >>> for sections...' }),
+            Link.configure({ openOnClick: true }),
+            GhostText,
+            GhostSection,
+            SectionTitle,
+            Mention.configure({
+                HTMLAttributes: { class: 'mention-chip' },
+                renderText({ options, node }) { return `${node.attrs.label ?? node.attrs.id}`; },
+                suggestion: {
+                    // Always return a dummy item to trigger the renderer; the Component handles logic
+                    items: ({ query }) => ['trigger'], 
+                    render: () => {
+                        let component;
+                        let popup;
+                        return {
+                            onStart: props => {
+                                component = new ReactRenderer(CategorizedMentionList, {
+                                    // PASS cv AND extraSuggestions HERE
+                                    props: { ...props, cv, extraSuggestions }, 
+                                    editor: props.editor,
+                                });
+                                if (!props.clientRect) return;
+                                popup = tippy('body', {
+                                    getReferenceClientRect: props.clientRect,
+                                    appendTo: () => document.body,
+                                    content: component.element,
+                                    showOnCreate: true,
+                                    interactive: true,
+                                    trigger: 'manual',
+                                    placement: 'bottom-start',
+                                    maxWidth: 'none',
+                                    zIndex: 10000,
+                                });
+                            },
+                            onUpdate: props => {
+                                component.updateProps({ ...props, cv, extraSuggestions });
+                                if (!props.clientRect) return;
+                                popup[0].setProps({ getReferenceClientRect: props.clientRect });
+                            },
+                            onKeyDown: props => {
+                                if (props.event.key === 'Escape') {
+                                    popup[0].hide();
+                                    return true;
+                                }
+                                return component.ref?.onKeyDown(props);
+                            },
+                            onExit: () => {
+                                popup[0].destroy();
+                                component.destroy();
+                            },
+                        };
+                    },
+                },
+            }).extend({
+                addAttributes() {
+                    return {
+                        id: { default: null },
+                        label: { default: null },
+                        context: { default: null, parseHTML: el => el.getAttribute('data-context') },
+                        isGhost: { default: false, parseHTML: element => element.getAttribute('data-ghost') === 'true' },
+                    };
+                },
+                addNodeView() { return ReactNodeViewRenderer(MentionComponent); },
+            }),
+        ],
+        editorProps: {
+            attributes: {
+                class: 'ProseMirror form-control', 
+                style: `min-height: ${minHeight}; border: none; outline: none; box-shadow: none;`,
+            }
+        },
+        content: codexToHtml(initialValue),
+        onBlur: ({ editor }) => {
+            if (onSave) onSave(htmlToCodex(editor.getHTML()));
+        },
+    });
+
+    // Expose internal editor methods if ref is used
+    useImperativeHandle(ref, () => ({
+        focus: () => editor?.commands.focus(),
+        getEditor: () => editor
+    }));
+
+    // Handle external updates to initialValue
+    useEffect(() => {
+        if (editor && initialValue !== undefined) {
+            const currentCodex = htmlToCodex(editor.getHTML());
+            if (initialValue !== currentCodex) {
+                editor.commands.setContent(codexToHtml(initialValue));
+            }
+        }
+    }, [initialValue, editor]);
+
+    if (!editor) return null;
+
+    return (
+        <div className="intelligent-textarea-container border rounded bg-white focus-within-shadow">
+            <EditorContent editor={editor} className="p-2" />
+            
+            <style>{`
+                .ProseMirror { outline: none; }
+                .ProseMirror p.is-editor-empty:first-child::before { color: #adb5bd; content: attr(data-placeholder); float: left; height: 0; pointer-events: none; }
+                .focus-within-shadow:focus-within { border-color: #86b7fe !important; box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25); }
+                .ghost-text-mark { color: #6c757d; background-color: #f8f9fa; border-bottom: 2px dashed #ced4da; opacity: 0.8; }
+                .hover-bg-light:hover { background-color: #f8f9fa; }
+                .hover-bg-primary-subtle:hover { background-color: #cfe2ff !important; }
+                .shadow-inset { box-shadow: inset 0 0 0 1px rgba(0,0,0,0.1); }
+            `}</style>
+        </div>
+    );
+});
 
 export default IntelligentTextArea;
