@@ -207,9 +207,11 @@ const ParagraphStudio = ({
                     box-shadow: 0 10px 30px -5px rgba(0,0,0,0.08);
                     transform: translateY(-1px);
                 }
+                /* RESTORED OLD STYLE */
                 .reorder-mode {
-                    border: 2px solid var(--bs-primary);
-                    box-shadow: 0 0 0 4px rgba(var(--bs-primary-rgb), 0.1) !important;
+                    border: 2px dashed var(--bs-primary);
+                    box-shadow: none !important;
+                    transform: none !important;
                 }
                 .btn-dashed {
                     border: 2px dashed rgba(var(--bs-primary-rgb), 0.2);
