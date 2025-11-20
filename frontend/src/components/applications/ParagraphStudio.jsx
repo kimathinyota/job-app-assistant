@@ -1,7 +1,7 @@
 // frontend/src/components/applications/ParagraphStudio.jsx
 import React, { useState, useMemo } from 'react';
 import { 
-    Sparkles, Pencil, Plus, GripVertical, ChevronDown, ChevronUp, AlignLeft, Lightbulb,
+    Sparkles, Pencil, Plus, GripVertical, ChevronDown, AlignLeft, Lightbulb,
     Trash2 
 } from 'lucide-react';
 import ArgumentCard from './ArgumentCard.jsx';
@@ -70,94 +70,91 @@ const ParagraphStudio = ({
             style={style} 
             className={`paragraph-studio-card position-relative bg-white transition-all ${isReorderMode ? 'reorder-mode' : ''}`}
         >
-            {/* --- HEADER --- */}
+            {/* --- MODERN HEADER --- */}
             <div 
-                className={`d-flex align-items-center p-3 ${isCollapsed ? '' : 'border-bottom'}`} 
-                style={{minHeight: '72px', cursor: isReorderMode ? 'grab' : 'default'}}
+                className={`d-flex flex-column flex-md-row align-items-stretch align-items-md-center p-3 gap-3 ${isCollapsed ? '' : 'border-bottom'}`} 
+                style={{cursor: isReorderMode ? 'grab' : 'default'}}
             >
-                {/* Drag Handle (Show only in Reorder Mode) */}
-                {isReorderMode && (
-                    <div className="me-3 text-muted cursor-grab flex-shrink-0" {...attributes} {...listeners} title="Drag to reorder section">
-                        <GripVertical size={20} />
-                    </div>
-                )}
+                {/* TOP ROW: Identity (Title, Badge, Delete) */}
+                <div className="d-flex align-items-center flex-grow-1 min-w-0">
+                    
+                    {/* Drag Handle (Desktop & Mobile) */}
+                    {isReorderMode && (
+                        <div className="me-2 text-muted cursor-grab flex-shrink-0" {...attributes} {...listeners}>
+                            <GripVertical size={20} />
+                        </div>
+                    )}
 
-                {/* Toggle Expand (Fixed Centering) */}
-                <button 
-                    className="btn btn-icon btn-light rounded-circle me-3 transition-transform d-flex align-items-center justify-content-center" 
-                    onClick={() => setIsCollapsed(!isCollapsed)}
-                    style={{width: 36, height: 36, transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)'}}
-                    title={isCollapsed ? "Expand Section" : "Collapse Section"}
-                >
-                    <ChevronDown size={20} className="text-dark" />
-                </button>
+                    {/* Expand Toggle (Increased Size) */}
+                    <button 
+                        className="btn btn-icon btn-light rounded-circle me-2 flex-shrink-0 d-flex align-items-center justify-content-center" 
+                        onClick={() => setIsCollapsed(!isCollapsed)}
+                        style={{width: 42, height: 42, transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)', transition: 'transform 0.2s'}}
+                    >
+                        <ChevronDown size={24} className="text-dark" />
+                    </button>
 
-                {/* Title & Meta */}
-                <div className="flex-grow-1 d-flex flex-column justify-content-center">
-                    <div className="d-flex align-items-center gap-2">
-                        <input 
-                            type="text"
-                            className="form-control border-0 bg-transparent p-0 fw-bold text-dark shadow-none heading-font"
-                            style={{fontSize: '1.15rem', letterSpacing: '-0.02em'}}
-                            value={title}
-                            onChange={(e) => setTitle(e.target.value)}
-                            onBlur={handleTitleBlur}
-                        />
-                        {paragraph.owner === 'user' && (
-                            <span className="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2 py-1" style={{fontSize: '0.65em', letterSpacing: '0.05em'}}>
-                                CUSTOM
-                            </span>
+                    {/* Title Input Area */}
+                    <div className="flex-grow-1 min-w-0 d-flex flex-column justify-content-center me-2">
+                        <div className="d-flex align-items-center">
+                            <input 
+                                type="text"
+                                className="form-control border-0 bg-transparent p-0 fw-bold text-dark shadow-none heading-font"
+                                style={{fontSize: '1.1rem', letterSpacing: '-0.02em'}}
+                                value={title}
+                                onChange={(e) => setTitle(e.target.value)}
+                                onBlur={handleTitleBlur}
+                            />
+                            {paragraph.owner === 'user' && (
+                                <span className="badge bg-success-subtle text-success border border-success-subtle rounded-pill ms-2 flex-shrink-0 px-2" style={{fontSize: '0.6rem'}}>
+                                    CUSTOM
+                                </span>
+                            )}
+                        </div>
+                        {/* Collapsed Meta */}
+                        {isCollapsed && (
+                            <div className="d-flex align-items-center gap-2 mt-1 opacity-75">
+                                <span className="tiny d-flex align-items-center gap-1"><Lightbulb size={10}/> {ideas.length}</span>
+                                <span className="tiny d-flex align-items-center gap-1"><AlignLeft size={10}/> {paragraph.draft_text ? 'Drafted' : 'Empty'}</span>
+                            </div>
                         )}
                     </div>
-                    
-                    {/* Collapsed Summary State */}
-                    {isCollapsed && (
-                        <div className="d-flex align-items-center gap-3 mt-1 animate-fade-in">
-                            <span className="d-flex align-items-center gap-1 text-muted tiny fw-medium">
-                                <Lightbulb size={12} /> {ideas.length} Arguments
-                            </span>
-                            <span className="d-flex align-items-center gap-1 text-muted tiny fw-medium">
-                                <AlignLeft size={12} /> {paragraph.draft_text ? 'Drafted' : 'Empty'}
-                            </span>
-                        </div>
-                    )}
-                </div>
 
-                {/* Action Buttons */}
-                <div className="d-flex align-items-center flex-shrink-0">
-                    {/* View Toggle (Hidden when collapsed) */}
-                    {!isCollapsed && !isReorderMode && (
-                        <div className="d-flex bg-light rounded-pill p-1 ms-3">
-                            <button 
-                                onClick={() => setView('strategy')}
-                                className={`btn btn-sm rounded-pill d-flex align-items-center gap-2 px-3 py-1 fw-semibold transition-all ${view === 'strategy' ? 'bg-white shadow-sm text-primary' : 'text-muted hover-text-dark'}`}
-                                style={{fontSize: '0.85rem'}}
-                            >
-                                <Sparkles size={14} /> <span className="d-none d-sm-inline">Strategy</span>
-                            </button>
-                            <button 
-                                onClick={() => setView('write')}
-                                className={`btn btn-sm rounded-pill d-flex align-items-center gap-2 px-3 py-1 fw-semibold transition-all ${view === 'write' ? 'bg-white shadow-sm text-primary' : 'text-muted hover-text-dark'}`}
-                                style={{fontSize: '0.85rem'}}
-                            >
-                                <Pencil size={14} /> <span className="d-none d-sm-inline">Write</span>
-                            </button>
-                        </div>
-                    )}
-
-                    {/* Delete Button (Show only when not reordering and delete function is passed) */}
+                    {/* Delete Button (Larger Size) */}
                     {!isReorderMode && onDeleteParagraph && (
                         <button 
-                            className="btn btn-icon btn-light text-danger rounded-circle ms-3 d-flex align-items-center justify-content-center"
+                            className="btn btn-icon btn-light text-danger rounded-circle flex-shrink-0 d-flex align-items-center justify-content-center hover-bg-danger-subtle"
                             onClick={() => onDeleteParagraph(paragraph.id)}
                             disabled={isSubmitting}
-                            title="Delete Paragraph Section"
-                            style={{width: 36, height: 36}}
+                            title="Delete Section"
+                            style={{width: 42, height: 42}}
                         >
                             <Trash2 size={20} />
                         </button>
                     )}
                 </div>
+
+                {/* BOTTOM ROW (Mobile) / RIGHT SIDE (Desktop): Segmented Control */}
+                {!isCollapsed && !isReorderMode && (
+                    <div className="d-flex flex-shrink-0 w-100 w-md-auto">
+                        <div className="bg-light rounded-3 p-1 d-flex w-100">
+                            <button 
+                                onClick={() => setView('strategy')}
+                                className={`btn btn-sm flex-grow-1 flex-md-grow-0 rounded-3 d-flex align-items-center justify-content-center gap-2 px-3 py-1 fw-bold transition-all ${view === 'strategy' ? 'bg-white shadow-sm text-primary' : 'text-muted hover-text-dark'}`}
+                                style={{minWidth: '100px'}}
+                            >
+                                <Sparkles size={14} /> Strategy
+                            </button>
+                            <button 
+                                onClick={() => setView('write')}
+                                className={`btn btn-sm flex-grow-1 flex-md-grow-0 rounded-3 d-flex align-items-center justify-content-center gap-2 px-3 py-1 fw-bold transition-all ${view === 'write' ? 'bg-white shadow-sm text-primary' : 'text-muted hover-text-dark'}`}
+                                style={{minWidth: '100px'}}
+                            >
+                                <Pencil size={14} /> Write
+                            </button>
+                        </div>
+                    </div>
+                )}
             </div>
 
             {/* --- EXPANDED CONTENT --- */}
@@ -241,6 +238,13 @@ const ParagraphStudio = ({
                 @keyframes slideDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
                 .heading-font { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
                 .tiny { font-size: 0.75rem; }
+                .hover-bg-danger-subtle:hover { background-color: var(--bs-danger-bg-subtle) !important; color: var(--bs-danger) !important; }
+                
+                /* Breakpoint utility for w-md-auto */
+                @media (min-width: 768px) {
+                    .w-md-auto { width: auto !important; }
+                    .flex-md-grow-0 { flex-grow: 0 !important; }
+                }
             `}</style>
         </div>
     );

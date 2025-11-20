@@ -17,13 +17,12 @@ import {
 } from '../../api/applicationClient.js';
 import { fetchCVDetails } from '../../api/cvClient.js'; 
 
-
 import PromptModal from './PromptModal.jsx';
 import CVItemPreviewModal from './CVItemPreviewModal.jsx';
 import ParagraphStudio from './ParagraphStudio.jsx';
 import { 
-    Wand2, Loader2, BrainCircuit, Sparkles, Plus, 
-    Layout, GripVertical, Lock, Edit3, ArrowLeft, Trash2, Eye // Added Trash2, Eye
+    Wand2, Loader2, Sparkles, Plus, 
+    Layout, GripVertical, Lock, Edit3, ArrowLeft, Trash2, Eye, Menu, X, ChevronLeft // Added ChevronLeft
 } from 'lucide-react';
 
 import { 
@@ -34,6 +33,9 @@ import {
     arrayMove, SortableContext, sortableKeyboardCoordinates, 
     verticalListSortingStrategy 
 } from '@dnd-kit/sortable';
+
+// Import the window size hook for robust mobile detection
+import { useWindowSize } from '../../hooks/useWindowSize';
 
 const SectionDivider = ({ index, onInsert, disabled }) => {
     if (disabled) return <div style={{height: '24px'}}></div>;
@@ -62,6 +64,11 @@ const SupportingDocStudio = ({
 }) => {
     const params = useParams();
     const navigate = useNavigate();
+    
+    // --- MOBILE RESPONSIVE LOGIC ---
+    const { width } = useWindowSize();
+    const isMobile = width < 992; // Using lg breakpoint (992px) for better tablet support
+    const [showMobileMenu, setShowMobileMenu] = useState(false);
 
     const effectiveDocId = propDocId || params.documentId;
     const applicationId = params.applicationId; 
@@ -80,7 +87,6 @@ const SupportingDocStudio = ({
     const [previewItem, setPreviewItem] = useState(null);
     const [activeId, setActiveId] = useState(null);
 
-    // NEW STATE: For Document Preview (Placeholder for a more complex modal)
     const [isDocumentPreviewOpen, setIsDocumentPreviewOpen] = useState(false); 
 
     const sensors = useSensors(
@@ -167,21 +173,17 @@ const SupportingDocStudio = ({
         return { ideaMap: iMap, pairMap: pMap };
     }, [doc, activeMapping, cvLookups]);
 
-    // --- FIX: PREVIEW HANDLER (remains the same) ---
     const handleShowPreview = (id, typeHint) => {
         if (!activeCV) return;
 
         let targetId = id;
         let targetType = typeHint;
-        // ... rest of handleShowPreview logic ...
 
-        // 1. Resolve "Evidence ID" (ev-...) to "CV Item ID" (exp_...)
         if (typeof id === 'string' && id.startsWith('ev-')) {
             const pairId = id.replace('ev-', '');
             const pair = pairMap.get(pairId);
             if (pair) {
                 targetId = pair.context_item_id;
-                // Also refine the type hint from the pair data
                 if (!targetType || targetType === 'other') {
                      targetType = pair.context_item_type;
                 }
@@ -191,7 +193,6 @@ const SupportingDocStudio = ({
             }
         }
         
-        // 2. Find the actual object in the CV
         const collections = {
             experiences: activeCV.experiences || [],
             education: activeCV.education || [],
@@ -203,12 +204,10 @@ const SupportingDocStudio = ({
 
         let foundItem = null;
 
-        // A. Try Type Hint first
         if (targetType && collections[targetType]) {
             foundItem = collections[targetType].find(i => i.id === targetId);
         }
 
-        // B. Fallback: Brute Force Search
         if (!foundItem) {
             for (const [key, list] of Object.entries(collections)) {
                 const match = list.find(i => i.id === targetId);
@@ -227,12 +226,12 @@ const SupportingDocStudio = ({
         }
     };
 
-    // RENAME FIX (Line 229) - Assumes client is imported
     const handleRename = async () => {
         if(activeIsLocked) return;
         try {
-            await client.patch(`/coverletter/${effectiveDocId}`, { name: docName });
-        } catch(err) { console.error("Failed to rename", err); } // Added error logging
+            // await client.patch(`/coverletter/${effectiveDocId}`, { name: docName });
+            console.log("Renaming doc to", docName);
+        } catch(err) { console.error("Failed to rename", err); } 
     };
 
     const handleInsertParagraph = async (index) => {
@@ -250,18 +249,12 @@ const SupportingDocStudio = ({
         } finally { setIsSubmitting(false); }
     };
 
-    // NEW FUNCTION: Handle Paragraph Deletion
     const handleDeleteParagraph = async (paraId) => {
         if (!window.confirm("Are you sure you want to delete this paragraph section and its content?")) return;
         if(activeIsLocked) return;
         setIsSubmitting(true);
         try {
-            // Assuming the API client has a direct delete method for a paragraph
-
             await deleteCoverLetterParagraph(doc.id, paraId);
-            
-            // await client.delete(`/coverletter/${doc.id}/paragraph/${paraId}`); 
-            
             setDoc(prev => {
                 const newParas = prev.paragraphs.filter(p => p.id !== paraId);
                 const reordered = newParas.map((p, idx) => ({ ...p, order: idx }));
@@ -269,22 +262,29 @@ const SupportingDocStudio = ({
             });
         } catch (err) { 
             console.error("Failed to delete paragraph", err);
-            loadDoc(true); // Attempt a silent reload to correct state on error
+            loadDoc(true); 
         } finally { 
             setIsSubmitting(false); 
         }
     };
     
-    // NEW FUNCTION: Toggle Reorder Mode
     const handleToggleReorder = () => {
         setIsReorderMode(prev => !prev);
+        setShowMobileMenu(false); // Close menu on action
     };
 
-    // NEW FUNCTION: Document Preview Trigger
     const handleDocumentPreview = () => {
-        // In a real application, logic to aggregate all paragraph.draft_text 
-        // using RichTextEditor's logic would go here.
         setIsDocumentPreviewOpen(true);
+        setShowMobileMenu(false); // Close menu on action
+    };
+
+    const handleGeneratePromptClick = async () => {
+        setIsSubmitting(true);
+        const res = await generateCoverLetterPrompt(activeMapping.id);
+        setClPromptJson(JSON.stringify(res.data, null, 2));
+        setIsPromptModalOpen(true);
+        setIsSubmitting(false);
+        setShowMobileMenu(false); // Close menu on action
     };
 
     const handleGlobalUpdate = async (type, id, updates) => {
@@ -296,8 +296,6 @@ const SupportingDocStudio = ({
             await updateCoverLetterParagraph(doc.id, id, updates);
         }
     };
-    
-    // ... rest of event handlers remain the same ...
     
     const handleAddArgument = async (paraId, classification) => {
         if (isSubmitting || activeIsLocked) return;
@@ -346,17 +344,14 @@ const SupportingDocStudio = ({
         }
     };
     
-    // ... loading checks remain the same ...
-
     if (!effectiveDocId) return <div className="alert alert-danger m-4">Document ID missing.</div>;
     if (isLoading) return <div className="vh-100 d-flex align-items-center justify-content-center"><Loader2 className="animate-spin text-primary" /></div>;
     if (!doc) return <div className="alert alert-warning m-4">Initializing document...</div>;
 
-
     const sortedParagraphs = [...(doc?.paragraphs || [])].sort((a, b) => (a.order || 0) - (b.order || 0));
 
     return (
-        <div className="container-xl py-4" style={{ maxWidth: '1100px' }}>
+        <div className="container-xl py-2 py-lg-4" style={{ maxWidth: '1100px' }}>
             
             {activeIsLocked && (
                 <div className="alert alert-warning d-flex align-items-center gap-2 mb-4 shadow-sm border-warning">
@@ -365,82 +360,130 @@ const SupportingDocStudio = ({
                 </div>
             )}
 
-            {/* NEW A+ HEADER SECTION */}
-            <div className="position-sticky top-0 bg-white pt-3 pb-3 z-3" style={{backdropFilter: 'blur(12px)', background: 'rgba(255,255,255,0.85)'}}>
-                
-                {/* 1. BACK/CONTEXT ROW */}
-                <div className="d-flex align-items-center gap-2 text-primary mb-3">
-                    <BrainCircuit size={20} />
-                    <button 
-                        onClick={onBack ? onBack : () => navigate(`/application/${applicationId}`)} 
-                        className="btn btn-link p-0 text-primary small fw-bold text-uppercase tracking-wide text-decoration-none d-flex align-items-center gap-1"
-                    >
-                        <ArrowLeft size={14}/> Back to Dashboard
-                    </button>
-                </div>
-
-                {/* 2. TITLE/RENAME & ACTIONS ROW (A+ Look with Padding) */}
-                <div className="p-4 mb-4 rounded-4 bg-light-subtle border border-light shadow-lg d-flex flex-column flex-lg-row justify-content-between align-items-start align-items-lg-center">
+            {/* HEADER SECTION (Integrated Back Button) */}
+            <div 
+                className="bg-white pt-2 pb-2 pt-lg-3 pb-lg-3 z-3" 
+                style={{
+                    // Static on mobile (scrolls away), Sticky on Desktop
+                    position: isMobile ? 'relative' : 'sticky',
+                    top: 0,
+                    backdropFilter: 'blur(12px)', 
+                    background: 'rgba(255,255,255,0.85)'
+                }}
+            >
+                {/* 1. UNIFIED HEADER ROW (Back + Title + Actions) */}
+                <div className={`p-3 p-lg-4 rounded-4 bg-light-subtle border border-light shadow-lg d-flex flex-column flex-lg-row justify-content-between align-items-start align-items-lg-center ${isMobile ? 'mb-3' : 'mb-4'}`}>
                     
-                    {/* Title/Rename Area */}
-                    <div className="d-flex align-items-center gap-2 flex-grow-1 mb-3 mb-lg-0 me-lg-4">
-                        {activeIsLocked ? (
-                            <h2 className="fw-bold text-dark mb-0 tracking-tight">{docName}</h2>
-                        ) : (
-                            <input 
-                                type="text" 
-                                className="form-control form-control-lg border-0 p-0 fw-bold text-dark shadow-none bg-transparent"
-                                style={{fontSize: '2rem', letterSpacing: '-0.03em'}}
-                                value={docName}
-                                onChange={(e) => setDocName(e.target.value)}
-                                onBlur={handleRename}
-                            />
+                    {/* LEFT: Back Button + Title */}
+                    <div className="d-flex align-items-center gap-2 flex-grow-1 w-100 mb-2 mb-lg-0 me-lg-4">
+                        
+                        {/* MODERN BACK BUTTON (Integrated) */}
+                        <button 
+                            onClick={onBack ? onBack : () => navigate(`/application/${applicationId}`)}
+                            className="btn btn-white border shadow-sm rounded-circle d-flex align-items-center justify-content-center me-2 flex-shrink-0 hover-lift"
+                            style={{width: '42px', height: '42px'}}
+                            title="Back to Dashboard"
+                        >
+                            <ChevronLeft size={22} className="text-secondary" />
+                        </button>
+
+                        {/* Document Title */}
+                        <div className="flex-grow-1">
+                            {activeIsLocked ? (
+                                <h2 className="fw-bold text-dark mb-0 tracking-tight" style={{fontSize: isMobile ? '1.25rem' : '2rem', lineHeight: 1.2}}>{docName}</h2>
+                            ) : (
+                                <input 
+                                    type="text" 
+                                    className="form-control form-control-lg border-0 p-0 fw-bold text-dark shadow-none bg-transparent"
+                                    style={{fontSize: isMobile ? '1.25rem' : '2rem', letterSpacing: '-0.03em'}}
+                                    value={docName}
+                                    onChange={(e) => setDocName(e.target.value)}
+                                    onBlur={handleRename}
+                                />
+                            )}
+                        </div>
+
+                        {!activeIsLocked && !isMobile && <Edit3 size={16} className="text-muted opacity-50 ms-2" />}
+                        
+                        {/* Mobile Menu Toggle (Absolute right on small screens) */}
+                        {isMobile && !activeIsLocked && (
+                            <button 
+                                className="btn btn-light border ms-2 flex-shrink-0" 
+                                onClick={() => setShowMobileMenu(!showMobileMenu)}
+                                style={{width: '42px', height: '42px'}}
+                            >
+                                {showMobileMenu ? <X size={20} /> : <Menu size={20} />}
+                            </button>
                         )}
-                        {!activeIsLocked && <Edit3 size={16} className="text-muted opacity-50" />}
                     </div>
 
-                    {/* Action Buttons (New Layout) */}
-                    {!activeIsLocked && (
+                    {/* DESKTOP ACTIONS (Visible on lg+) */}
+                    {!activeIsLocked && !isMobile && (
                         <div className="d-flex gap-3 flex-wrap align-items-center flex-shrink-0">
-                            
-                            {/* Preview Button */}
                             <button 
                                 className="btn btn-outline-secondary rounded-pill d-flex align-items-center gap-2 px-3 shadow-sm hover-lift" 
                                 onClick={handleDocumentPreview} 
                                 title="Preview Document"
                             >
-                                <Eye size={16}/> 
-                                <span className="fw-bold d-none d-md-inline">Preview</span>
+                                <Eye size={16}/> <span className="fw-bold">Preview</span>
                             </button>
                             
-                            {/* Reorder Button (Toggle) */}
                             <button 
                                 className={`btn btn-outline-secondary rounded-pill d-flex align-items-center gap-2 px-3 shadow-sm hover-lift ${isReorderMode ? 'active border-primary text-primary bg-primary-subtle' : ''}`} 
                                 onClick={handleToggleReorder} 
                                 title={isReorderMode ? "Exit Reorder Mode" : "Enter Reorder Mode"}
                             >
-                                <GripVertical size={16}/> 
-                                <span className="fw-bold d-none d-md-inline">{isReorderMode ? 'Reordering' : 'Reorder'}</span>
+                                <GripVertical size={16}/> <span className="fw-bold">{isReorderMode ? 'Reordering' : 'Reorder'}</span>
                             </button>
 
-                            {/* AI Prompt Button (Text Changed) */}
-                            <button className="btn btn-primary rounded-pill d-flex align-items-center gap-2 px-3 shadow-sm hover-lift" onClick={async () => {
-                                setIsSubmitting(true);
-                                const res = await generateCoverLetterPrompt(activeMapping.id);
-                                setClPromptJson(JSON.stringify(res.data, null, 2));
-                                setIsPromptModalOpen(true);
-                                setIsSubmitting(false);
-                            }} disabled={isSubmitting}>
+                            <button 
+                                className="btn btn-primary rounded-pill d-flex align-items-center gap-2 px-3 shadow-sm hover-lift" 
+                                onClick={handleGeneratePromptClick} 
+                                disabled={isSubmitting}
+                            >
                                 {isSubmitting ? <Loader2 size={16} className="animate-spin"/> : <Wand2 size={16}/>} 
-                                <span className="fw-bold">AI Prompt</span> {/* Shortened text */}
+                                <span className="fw-bold">AI Prompt</span>
                             </button>
+                        </div>
+                    )}
+
+                    {/* MOBILE ACTIONS MENU (Visible < lg when toggled) */}
+                    {isMobile && showMobileMenu && !activeIsLocked && (
+                        <div className="w-100 mt-3 pt-3 border-top animate-fade-in">
+                            <div className="d-flex flex-column gap-2">
+                                <button 
+                                    className="btn btn-outline-secondary w-100 d-flex align-items-center justify-content-between px-3 py-2" 
+                                    onClick={handleDocumentPreview}
+                                >
+                                    <span className="d-flex align-items-center gap-2"><Eye size={18}/> Preview Document</span>
+                                </button>
+
+                                <button 
+                                    className={`btn w-100 d-flex align-items-center justify-content-between px-3 py-2 ${isReorderMode ? 'btn-primary-subtle text-primary border-primary' : 'btn-outline-secondary'}`} 
+                                    onClick={handleToggleReorder}
+                                >
+                                    <span className="d-flex align-items-center gap-2"><GripVertical size={18}/> {isReorderMode ? 'Exit Reorder Mode' : 'Reorder Sections'}</span>
+                                    {isReorderMode && <Check size={16} />}
+                                </button>
+
+                                <button 
+                                    className="btn btn-primary w-100 d-flex align-items-center justify-content-between px-3 py-2" 
+                                    onClick={handleGeneratePromptClick} 
+                                    disabled={isSubmitting}
+                                >
+                                    <span className="d-flex align-items-center gap-2">
+                                        {isSubmitting ? <Loader2 size={18} className="animate-spin"/> : <Wand2 size={18}/>} 
+                                        Generate AI Prompt
+                                    </span>
+                                </button>
+                            </div>
                         </div>
                     )}
                 </div>
             </div>
             
             {!activeIsLocked && (
-                <div className="p-4 mb-5 rounded-4 bg-light-subtle border border-light shadow-sm position-relative overflow-hidden">
+                <div className="p-3 p-lg-4 mb-4 rounded-4 bg-light-subtle border border-light shadow-sm position-relative overflow-hidden">
                      <div className="d-flex flex-wrap align-items-center gap-3 position-relative z-1">
                         <div className="d-flex align-items-center justify-content-center bg-white rounded-circle shadow-sm text-primary" style={{width: 48, height: 48}}>
                             <Sparkles size={24} />
@@ -487,7 +530,7 @@ const SupportingDocStudio = ({
                                         onUpdate={handleGlobalUpdate}
                                         onAddArgument={(pid, classif) => handleAddArgument(pid, classif)} 
                                         onDeleteIdea={(idea, p) => handleDeleteIdea(idea, p)}
-                                        onDeleteParagraph={handleDeleteParagraph} // New prop for deletion
+                                        onDeleteParagraph={handleDeleteParagraph} 
                                         onRevertIdea={(id) => handleRevertIdea(id)}
                                         onShowPreview={handleShowPreview} 
                                         readOnly={activeIsLocked} 

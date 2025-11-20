@@ -1,5 +1,4 @@
-// frontend/src/components/Navbar.jsx
-import React, { useState, useEffect, useRef } from 'react'; // Make sure useRef is imported
+import React, { useState, useEffect, useRef } from 'react'; 
 import { NavLink, Link } from 'react-router-dom';
 import { LayoutDashboard, FileText, Briefcase, Target, Sun, Moon, Settings } from 'lucide-react';
 import logoLight from '../assets/logo_light.svg';
@@ -8,11 +7,9 @@ import logoDark from '../assets/logo_dark.svg';
 const Navbar = () => {
   const [isDarkMode, setIsDarkMode] = useState(false);
 
-  // --- 1. CREATE REFS ---
   const togglerRef = useRef(null);
   const collapseRef = useRef(null);
 
-  // Handle Theme Persistence
   useEffect(() => {
     const storedTheme = localStorage.getItem('theme');
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -32,11 +29,8 @@ const Navbar = () => {
     localStorage.setItem('theme', newMode ? 'dark' : 'light');
   };
 
-  // --- 2. CREATE A CLICK HANDLER ---
   const handleNavClick = () => {
-    // Check if the collapse menu is currently open (has 'show' class)
     if (collapseRef.current && collapseRef.current.classList.contains('show')) {
-      // If it is, programmatically click the toggler button to close it
       togglerRef.current.click();
     }
   };
@@ -73,7 +67,6 @@ const Navbar = () => {
 
         {/* Mobile Toggle */}
         <button 
-          // --- 3. ATTACH THE REF ---
           ref={togglerRef}
           className="navbar-toggler" 
           type="button" 
@@ -83,14 +76,14 @@ const Navbar = () => {
           <span className="navbar-toggler-icon"></span>
         </button>
 
-        {/* Links */}
+        {/* Links & Actions Container */}
         <div 
-          // --- 3. ATTACH THE REF ---
           ref={collapseRef}
-          className="collapse navbar-collapse justify-content-center" 
+          className="collapse navbar-collapse" 
           id="navbarContent"
         >
-            <ul className="navbar-nav mb-2 mb-lg-0 gap-2">
+            {/* Main Navigation Links */}
+            <ul className="navbar-nav mx-auto mb-2 mb-lg-0 gap-2 p-2 p-lg-0">
                 {navItems.map((item) => {
                     const Icon = item.icon;
                     return (
@@ -100,8 +93,6 @@ const Navbar = () => {
                                 className={({ isActive }) => 
                                     `nav-link d-flex align-items-center gap-2 px-3 rounded-3 ${isActive ? 'active bg-primary-subtle text-primary fw-semibold' : ''}`
                                 }
-                                style={{ border: 'none', background: 'transparent' }}
-                                // --- 4. REMOVE data-bs-* and ADD onClick ---
                                 onClick={handleNavClick}
                             >
                                 <Icon size={18} />
@@ -110,20 +101,36 @@ const Navbar = () => {
                         </li>
                     );
                 })}
+                
+                {/* Mobile-Only Actions (Divider + Buttons) */}
+                <li className="nav-item d-lg-none mt-2 pt-2 border-top">
+                    <div className="d-flex align-items-center justify-content-between px-3">
+                        <span className="text-muted small fw-bold text-uppercase">Settings</span>
+                        <div className="d-flex gap-3">
+                            <button onClick={toggleTheme} className="btn btn-sm btn-light border d-flex align-items-center gap-2">
+                                {isDarkMode ? <Sun size={16} /> : <Moon size={16} />}
+                                {isDarkMode ? 'Light Mode' : 'Dark Mode'}
+                            </button>
+                            <button className="btn btn-sm btn-light border">
+                                <Settings size={16} />
+                            </button>
+                        </div>
+                    </div>
+                </li>
             </ul>
-        </div>
 
-        {/* Right Actions */}
-        <div className="d-none d-lg-flex align-items.center gap-2">
-            <button onClick={toggleTheme} className="btn btn-link nav-link p-2">
-                {isDarkMode ? <Sun size={20} /> : <Moon size={20} />}
-            </button>
-            <div className="vr mx-2"></div>
-            <button className="btn btn-link nav-link p-2">
-                <Settings size={20} />
-            </button>
-        </div>
+            {/* Desktop-Only Right Actions */}
+            <div className="d-none d-lg-flex align-items-center gap-2">
+                <button onClick={toggleTheme} className="btn btn-link nav-link p-2" title="Toggle Theme">
+                    {isDarkMode ? <Sun size={20} /> : <Moon size={20} />}
+                </button>
+                <div className="vr mx-2"></div>
+                <button className="btn btn-link nav-link p-2" title="Settings">
+                    <Settings size={20} />
+                </button>
+            </div>
 
+        </div>
       </div>
     </nav>
   );
