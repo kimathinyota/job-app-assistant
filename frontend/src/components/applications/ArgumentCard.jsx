@@ -80,7 +80,6 @@ const ModernMappingCard = ({ pair, onRemove }) => {
 };
 
 // --- 2. MODERN ENTITY ROW (For "Heavy" items: Achievements, Experience, Projects) ---
-// Solves the "Long Text" issue by using a full-width block instead of a pill
 const ModernEntityRow = ({ item, onRemove }) => {
     const Icon = getEntityIcon(item._type);
 
@@ -162,7 +161,7 @@ const ArgumentCard = ({
     // State for Card Expansion
     const [isExpanded, setIsExpanded] = useState(isUserOwned || isGapChip);
     
-    // State for Context Section Visibility (Minimize/Expand Linked Items)
+    // State for Context Section Visibility
     const [showContext, setShowContext] = useState(true);
 
     const editorRef = useRef(null);
@@ -172,7 +171,7 @@ const ArgumentCard = ({
         (idea.mapping_pair_ids || []).map(id => pairMap.get(id)).filter(Boolean)
     , [idea.mapping_pair_ids, pairMap]);
 
-    // --- SPLIT ENTITIES INTO "ROWS" (Long) AND "PILLS" (Short) ---
+    // --- SPLIT ENTITIES ---
     const { blockEntities, pillEntities } = useMemo(() => {
         const blocks = [];
         const pills = [];
@@ -188,9 +187,9 @@ const ArgumentCard = ({
             process(fullCV.experiences, 'Experience', false);
             process(fullCV.projects, 'Project', false);
             process(fullCV.education, 'Education', false);
-            process(fullCV.achievements, 'Achievement', false); // Achievements are now Blocks
-            process(fullCV.skills, 'Skill', true);              // Skills are Pills
-            process(fullCV.hobbies, 'Hobby', false);             // Hobbies are Pills
+            process(fullCV.achievements, 'Achievement', false); 
+            process(fullCV.skills, 'Skill', true);              
+            process(fullCV.hobbies, 'Hobby', false);             
         }
         return { blockEntities: blocks, pillEntities: pills };
     }, [idea.related_entity_ids, fullCV]);
@@ -214,18 +213,24 @@ const ArgumentCard = ({
             if (idea.related_entity_ids?.includes(item.id)) return;
             onUpdate(idea.id, { related_entity_ids: [...(idea.related_entity_ids || []), item.id], owner: 'user' });
         }
-        // Auto-show context if hidden when adding items
         if (!showContext) setShowContext(true);
     };
 
+    // --- HANDLER: ADD BUTTON CLICK ---
     const handleAddClick = () => {
+        // 1. Expand Card if closed
         if (!isExpanded) setIsExpanded(true);
+        
+        // 2. Expand Context area if closed
         if (!showContext) setShowContext(true);
         
-        if (editorRef.current && addButtonRef.current) {
-            const rect = addButtonRef.current.getBoundingClientRect();
-            editorRef.current.openMenu(rect);
-        }
+        // 3. Trigger the Editor menu (use Timeout to allow render if it was hidden)
+        setTimeout(() => {
+            if (editorRef.current) {
+                // Calls the method exposed in IntelligentTextArea
+                editorRef.current.openMenu(); 
+            }
+        }, 100);
     };
 
     const accentColor = isGapChip ? '#ffc107' : isUserOwned ? '#198754' : '#cbd5e1';
