@@ -220,6 +220,7 @@ const SupportingDocStudio = ({
     };
 
     const handleInsertParagraph = async (index) => {
+        console.log("👇 INSERTING PARAGRAPH AT VISUAL INDEX (ORDER):", index);
         if(activeIsLocked) return;
         setIsSubmitting(true);
         try {
@@ -243,7 +244,7 @@ const SupportingDocStudio = ({
             setIsSubmitting(false); 
         }
     };
-    
+
     const handleDeleteParagraph = async (paraId) => {
         if (!window.confirm("Are you sure you want to delete this paragraph section and its content?")) return;
         if(activeIsLocked) return;

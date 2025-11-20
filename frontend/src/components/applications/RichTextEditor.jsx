@@ -25,78 +25,93 @@ import 'tippy.js/themes/light-border.css';
 import CVItemDisplayCard from './CVItemDisplayCard.jsx';
 
 
-// --- HELPER: NOTE RENDERER (Parses Markdown Links + Internal Chips) ---
+ // --- HELPER: NOTE RENDERER (Parses HTML with Mention Chips) ---
 const RenderedNote = ({ text }) => {
     if (!text) return null;
-    const lines = text.split('\n');
 
-    // Regex for: [type]<:id><label>  OR  [Label](URL)
-    // Group 1,2,3 = Internal Ref. Group 4,5 = Markdown Link.
-    const combinedRegex = /\[([a-zA-Z0-9_]+)\]<:([a-zA-Z0-9_]+)><(.*?)>|\[([^\]]+)\]\(([^)]+)\)/g;
+    const content = useMemo(() => {
+        try {
+            // Use DOMParser to handle the HTML string safely
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(text, 'text/html');
+            
+            // Recursive function to map DOM nodes to React Elements
+            const domToReact = (nodes) => {
+                return Array.from(nodes).map((node, i) => {
+                    // Text Node (Node.TEXT_NODE === 3)
+                    if (node.nodeType === 3) {
+                        return node.textContent;
+                    }
+                    
+                    // Element Node (Node.ELEMENT_NODE === 1)
+                    if (node.nodeType === 1) {
+                        const tagName = node.tagName.toUpperCase();
+                        
+                        // 1. Handle Mention Chips
+                        if (tagName === 'SPAN' && node.classList.contains('mention-chip')) {
+                            const label = node.getAttribute('label') || node.textContent;
+                            const context = node.getAttribute('context') || 'Reference';
+                            // const type = node.getAttribute('data-type');
+                            
+                            return (
+                                <span 
+                                    key={`chip-${i}`} 
+                                    className="d-inline-flex align-items-center gap-1 px-1 mx-1 rounded border bg-white border-secondary-subtle text-primary"
+                                    style={{fontSize: '0.85em', verticalAlign: 'middle', textDecoration: 'none', fontStyle: 'normal', cursor: 'default'}}
+                                    title={`${context}: ${label}`}
+                                >
+                                    <Link2 size={10} className="opacity-50"/>
+                                    <span className="fw-semibold">{label}</span>
+                                </span>
+                            );
+                        }
+
+                        // 2. Handle Links
+                        if (tagName === 'A') {
+                            return (
+                                <a 
+                                    key={`link-${i}`} 
+                                    href={node.getAttribute('href')} 
+                                    target="_blank" 
+                                    rel="noopener noreferrer" 
+                                    className="fw-medium text-primary text-decoration-underline position-relative z-2 mx-1"
+                                    onClick={(e) => e.stopPropagation()}
+                                >
+                                    {node.textContent}
+                                </a>
+                            );
+                        }
+
+                        // 3. Handle Blocks (Paragraphs/Divs)
+                        if (tagName === 'P' || tagName === 'DIV') {
+                            return (
+                                <div key={`block-${i}`} className="mb-1">
+                                    {domToReact(node.childNodes)}
+                                </div>
+                            );
+                        }
+                        
+                        // 4. Handle Breaks
+                        if (tagName === 'BR') return <br key={`br-${i}`} />;
+
+                        // 5. Default: Render children (preserves Bold/Italic if strictly mapped, otherwise just text content for simple notes)
+                        // For notes, we usually just want text + chips, but recursion allows simple formatting if needed.
+                        return <span key={`gen-${i}`}>{domToReact(node.childNodes)}</span>;
+                    }
+                    return null;
+                });
+            };
+
+            return domToReact(doc.body.childNodes);
+        } catch (e) {
+            console.error("Error parsing note HTML", e);
+            return text; // Fallback to raw text
+        }
+    }, [text]);
 
     return (
         <div className="small text-dark mb-0 ps-3 fst-italic strategy-note-content" style={{ lineHeight: '1.8' }}>
-            {lines.map((line, i) => {
-                const parts = [];
-                let lastIndex = 0;
-                let match;
-
-                // Reset regex state for each line
-                combinedRegex.lastIndex = 0;
-
-                while ((match = combinedRegex.exec(line)) !== null) {
-                    // Push preceding text
-                    if (match.index > lastIndex) {
-                        parts.push(line.substring(lastIndex, match.index));
-                    }
-
-                    // Check which format matched
-                    if (match[1]) {
-                        // MATCH: Internal Reference [type]<:id><label>
-                        const type = match[1];
-                        const id = match[2];
-                        const label = match[3];
-
-                        parts.push(
-                            <span 
-                                key={`internal-${i}-${match.index}`} 
-                                className="d-inline-flex align-items-center gap-1 px-1 mx-1 rounded border bg-white border-secondary-subtle text-primary"
-                                style={{fontSize: '0.85em', verticalAlign: 'middle', textDecoration: 'none', fontStyle: 'normal'}}
-                                title={`${type}: ${label}`}
-                            >
-                                <Link2 size={10} className="opacity-50"/>
-                                <span className="fw-semibold">{label}</span>
-                            </span>
-                        );
-                    } else if (match[4]) {
-                        // MATCH: Markdown Link [Label](URL)
-                        const label = match[4];
-                        const url = match[5];
-
-                        parts.push(
-                            <a 
-                                key={`external-${i}-${match.index}`} 
-                                href={url} 
-                                target="_blank" 
-                                rel="noopener noreferrer" 
-                                className="fw-medium text-primary text-decoration-underline position-relative z-2 mx-1"
-                                onClick={(e) => e.stopPropagation()}
-                            >
-                                {label}
-                            </a>
-                        );
-                    }
-
-                    lastIndex = combinedRegex.lastIndex;
-                }
-
-                // Push remaining text
-                if (lastIndex < line.length) {
-                    parts.push(line.substring(lastIndex));
-                }
-
-                return <div key={i} className="mb-1">{parts.length > 0 ? parts : line || <br />}</div>;
-            })}
+            {content}
         </div>
     );
 };

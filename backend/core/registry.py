@@ -1397,32 +1397,37 @@ class Registry:
         self._update("coverletters", cover)
         return idea
     
-    # --- UPDATED METHOD ---
+# --- UPDATED METHOD ---
     def add_cover_letter_paragraph(self, cover_id: str, idea_ids: List[str], purpose: str, draft_text: Optional[str] = None, order: Optional[int] = None) -> Paragraph:
         cover = self.get_cover_letter(cover_id)
         if not cover:
             raise ValueError("CoverLetter not found")
         
-        # Determine insertion order
-        if order is not None:
-            target_order = order
-            # Shift existing paragraphs down
-            for p in cover.paragraphs:
-                if p.order >= target_order:
-                    p.order += 1
-        else:
-            # Default to appending at the end (0-based)
-            target_order = len(cover.paragraphs)
+        # 1. Create the new paragraph object
+        # We initially give it 0; the re-indexing step below will set the real order.
+        new_para = Paragraph.create(order=0, idea_ids=idea_ids, purpose=purpose)
+        new_para.draft_text = draft_text 
 
-        # Create new paragraph
-        para = Paragraph.create(order=target_order, idea_ids=idea_ids, purpose=purpose)
-        para.draft_text = draft_text 
+        # 2. Sort existing paragraphs to ensure our insertion index aligns with the visual order
+        #    (This fixes issues where the DB list might be out of sync with 'order' fields)
+        cover.paragraphs.sort(key=lambda x: x.order if x.order is not None else 999)
+
+        # 3. Insert (or Append) the new paragraph at the specific index
+        if order is not None and 0 <= order <= len(cover.paragraphs):
+            cover.paragraphs.insert(order, new_para)
+        else:
+            cover.paragraphs.append(new_para)
         
-        cover.paragraphs.append(para)
+        # 4. Robust Re-indexing: Reset 'order' for the entire list to 0, 1, 2...
+        #    This guarantees no duplicates, gaps, or shift errors.
+        for idx, para in enumerate(cover.paragraphs):
+            para.order = idx
+        
         cover.touch()
         self._update("coverletters", cover)
-        return para
-    
+        
+        # The new_para now has the correct 'order' set by the loop above
+        return new_para
 
     # --- COVER LETTER NESTED CRUD ---
     def update_cover_letter_idea(self, cover_id: str, idea_id: str, update_data: IdeaUpdate):
