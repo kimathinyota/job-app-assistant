@@ -29,16 +29,17 @@ const CategorizedMentionList = forwardRef((props, ref) => {
         const list = [];
 
         // Add Mappings/Evidence if available (from extraSuggestions)
+        // context is set to 'Evidence' for UI, but we'll lowercase it for the ID check later
         if (extraSuggestions && extraSuggestions.length > 0) {
             list.push({ 
                 id: 'map', 
                 label: 'Evidence', 
-                icon: Lightbulb, // or Target
+                icon: Lightbulb, 
                 items: extraSuggestions.map(s => ({
                     id: s.id,
                     label: s.evidence || s.label || 'Evidence',
                     detail: s.requirement || s.subtitle,
-                    context: 'Evidence'
+                    context: 'Evidence' 
                 }))
             });
         }
@@ -260,7 +261,7 @@ const htmlToCodex = (html) => {
 };
 
 // ============================================================================
-// 3. EXTENSIONS (Ghost, Section, MentionView)
+// 3. EXTENSIONS
 // ============================================================================
 
 const GhostText = Mark.create({
@@ -388,7 +389,6 @@ const MentionComponent = ({ node }) => {
 // 4. MAIN COMPONENT
 // ============================================================================
 
-// ACCEPT `cv` (from AnnotationEditor) AND `extraSuggestions`
 const IntelligentTextArea = forwardRef(({ initialValue, onSave, placeholder, minHeight = '150px', cv, extraSuggestions = [], onMention }, ref) => {
     
     const editor = useEditor({
@@ -403,15 +403,43 @@ const IntelligentTextArea = forwardRef(({ initialValue, onSave, placeholder, min
                 HTMLAttributes: { class: 'mention-chip' },
                 renderText({ options, node }) { return `${node.attrs.label ?? node.attrs.id}`; },
                 suggestion: {
-                    // Always return a dummy item to trigger the renderer; the Component handles logic
+                    // Items function needs to return a generic array to trigger the renderer
                     items: ({ query }) => ['trigger'], 
+                    
+                    // --- KEY FIX: Override command to insert text AND trigger onMention ---
+                    command: ({ editor, range, props }) => {
+                        // 1. Insert the mention into the text editor
+                        editor
+                            .chain()
+                            .focus()
+                            .insertContentAt(range, [
+                                {
+                                    type: 'mention',
+                                    attrs: props,
+                                },
+                                {
+                                    type: 'text',
+                                    text: ' ',
+                                },
+                            ])
+                            .run();
+
+                        // 2. Trigger the external callback for ArgumentCard linking
+                        if (onMention) {
+                            // ArgumentCard expects "evidence" (lowercase) for mappings, but "Experience" (Title) for others.
+                            // Our Categories send "Evidence" (Title) as context for display, so we normalize it here.
+                            const typeForCallback = props.context === 'Evidence' ? 'evidence' : props.context;
+                            onMention(props, typeForCallback);
+                        }
+                    },
+
                     render: () => {
                         let component;
                         let popup;
                         return {
                             onStart: props => {
                                 component = new ReactRenderer(CategorizedMentionList, {
-                                    // PASS cv AND extraSuggestions HERE
+                                    // Pass props including cv and extraSuggestions
                                     props: { ...props, cv, extraSuggestions }, 
                                     editor: props.editor,
                                 });
@@ -471,10 +499,17 @@ const IntelligentTextArea = forwardRef(({ initialValue, onSave, placeholder, min
         },
     });
 
-    // Expose internal editor methods if ref is used
+    // Expose internal editor methods if ref is used (e.g. for Add button)
     useImperativeHandle(ref, () => ({
         focus: () => editor?.commands.focus(),
-        getEditor: () => editor
+        getEditor: () => editor,
+        openMenu: (rect) => {
+            // Tiptap Suggestion plugin doesn't expose a simple "open at rect" method cleanly 
+            // without triggering a char, but we can simulate a trigger or focus.
+            // For now, focusing is the safest baseline.
+            editor?.commands.focus();
+            editor?.commands.insertContent('@');
+        }
     }));
 
     // Handle external updates to initialValue
