@@ -22,17 +22,8 @@ import CVItemPreviewModal from './CVItemPreviewModal.jsx';
 import ParagraphStudio from './ParagraphStudio.jsx';
 import { 
     Wand2, Loader2, Sparkles, Plus, 
-    Layout, GripVertical, Lock, Edit3, ArrowLeft, Trash2, Eye, Menu, X, ChevronLeft // Added ChevronLeft
+    Layout, Lock, Edit3, ArrowLeft, Trash2, Eye, Menu, X, ChevronLeft, GripVertical 
 } from 'lucide-react';
-
-import { 
-    DndContext, closestCenter, KeyboardSensor, PointerSensor, 
-    useSensor, useSensors, DragOverlay 
-} from '@dnd-kit/core';
-import { 
-    arrayMove, SortableContext, sortableKeyboardCoordinates, 
-    verticalListSortingStrategy 
-} from '@dnd-kit/sortable';
 
 // Import the window size hook for robust mobile detection
 import { useWindowSize } from '../../hooks/useWindowSize';
@@ -67,7 +58,7 @@ const SupportingDocStudio = ({
     
     // --- MOBILE RESPONSIVE LOGIC ---
     const { width } = useWindowSize();
-    const isMobile = width < 992; // Using lg breakpoint (992px) for better tablet support
+    const isMobile = width < 992; 
     const [showMobileMenu, setShowMobileMenu] = useState(false);
 
     const effectiveDocId = propDocId || params.documentId;
@@ -85,14 +76,8 @@ const SupportingDocStudio = ({
     const [clPromptJson, setClPromptJson] = useState('');
     const [isPromptModalOpen, setIsPromptModalOpen] = useState(false);
     const [previewItem, setPreviewItem] = useState(null);
-    const [activeId, setActiveId] = useState(null);
 
     const [isDocumentPreviewOpen, setIsDocumentPreviewOpen] = useState(false); 
-
-    const sensors = useSensors(
-        useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-        useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
-    );
 
     const activeJob = propJob || data?.job;
     const activeCV = propCV || data?.cv;
@@ -238,17 +223,27 @@ const SupportingDocStudio = ({
         if(activeIsLocked) return;
         setIsSubmitting(true);
         try {
-            const res = await addCoverLetterParagraph(doc.id, [], "Untitled Section", "", "user");
+            // Pass 'index' as the last argument (order)
+            const res = await addCoverLetterParagraph(doc.id, [], "Untitled Section", "", "user", index);
             const newPara = res.data;
+            
             setDoc(prev => {
                 const oldParas = [...prev.paragraphs];
+                // Insert locally to match backend state
                 oldParas.splice(index, 0, newPara);
+                // Re-normalize local orders (though backend has already shifted them, this ensures UI consistency)
                 const reordered = oldParas.map((p, idx) => ({ ...p, order: idx }));
                 return { ...prev, paragraphs: reordered };
             });
-        } finally { setIsSubmitting(false); }
+        } catch(err) {
+            console.error("Failed to insert paragraph:", err);
+            // If insertion fails, reloading ensures we don't show a desynced state
+            loadDoc(true);
+        } finally { 
+            setIsSubmitting(false); 
+        }
     };
-
+    
     const handleDeleteParagraph = async (paraId) => {
         if (!window.confirm("Are you sure you want to delete this paragraph section and its content?")) return;
         if(activeIsLocked) return;
@@ -270,12 +265,12 @@ const SupportingDocStudio = ({
     
     const handleToggleReorder = () => {
         setIsReorderMode(prev => !prev);
-        setShowMobileMenu(false); // Close menu on action
+        setShowMobileMenu(false); 
     };
 
     const handleDocumentPreview = () => {
         setIsDocumentPreviewOpen(true);
-        setShowMobileMenu(false); // Close menu on action
+        setShowMobileMenu(false); 
     };
 
     const handleGeneratePromptClick = async () => {
@@ -284,7 +279,7 @@ const SupportingDocStudio = ({
         setClPromptJson(JSON.stringify(res.data, null, 2));
         setIsPromptModalOpen(true);
         setIsSubmitting(false);
-        setShowMobileMenu(false); // Close menu on action
+        setShowMobileMenu(false); 
     };
 
     const handleGlobalUpdate = async (type, id, updates) => {
@@ -330,25 +325,50 @@ const SupportingDocStudio = ({
         loadDoc(true);
     };
 
-    const handleDragEnd = (event) => {
-        const { active, over } = event;
-        setActiveId(null);
-        if (active.id !== over.id) {
-            setDoc((items) => {
-                const oldIndex = items.paragraphs.findIndex(p => p.id === active.id);
-                const newIndex = items.paragraphs.findIndex(p => p.id === over.id);
-                const newOrder = arrayMove(items.paragraphs, oldIndex, newIndex);
-                newOrder.forEach((p, idx) => updateCoverLetterParagraph(items.id, p.id, { order: idx }));
-                return { ...items, paragraphs: newOrder };
-            });
+    // --- NEW: MOVE PARAGRAPH LOGIC (Replaces DragEnd) ---
+    const sortedParagraphs = useMemo(() => 
+        [...(doc?.paragraphs || [])].sort((a, b) => (a.order || 0) - (b.order || 0)),
+    [doc?.paragraphs]);
+
+    const handleMoveParagraph = async (index, direction) => {
+        if (activeIsLocked) return;
+        
+        const newIndex = direction === 'up' ? index - 1 : index + 1;
+        // Boundary Check
+        if (newIndex < 0 || newIndex >= sortedParagraphs.length) return;
+
+        // 1. Create a copy and swap elements
+        const newParagraphs = [...sortedParagraphs];
+        [newParagraphs[index], newParagraphs[newIndex]] = [newParagraphs[newIndex], newParagraphs[index]];
+        
+        // 2. Re-assign order property based on new array index
+        const reorderedWithCorrectIndices = newParagraphs.map((p, idx) => ({ ...p, order: idx }));
+        
+        // 3. Optimistic UI update
+        setDoc(prev => ({ ...prev, paragraphs: reorderedWithCorrectIndices }));
+
+        // 4. Identify the two items that changed and persist them
+        const p1 = reorderedWithCorrectIndices[index];   // Item moved from newIndex -> index
+        const p2 = reorderedWithCorrectIndices[newIndex]; // Item moved from index -> newIndex
+
+        setIsSubmitting(true);
+        try {
+            await Promise.all([
+                updateCoverLetterParagraph(doc.id, p1.id, { order: p1.order }),
+                updateCoverLetterParagraph(doc.id, p2.id, { order: p2.order })
+            ]);
+        } catch (err) {
+            console.error("Failed to update order:", err);
+            alert("Failed to save order. Reloading...");
+            loadDoc(true);
+        } finally {
+            setIsSubmitting(false);
         }
     };
-    
+
     if (!effectiveDocId) return <div className="alert alert-danger m-4">Document ID missing.</div>;
     if (isLoading) return <div className="vh-100 d-flex align-items-center justify-content-center"><Loader2 className="animate-spin text-primary" /></div>;
     if (!doc) return <div className="alert alert-warning m-4">Initializing document...</div>;
-
-    const sortedParagraphs = [...(doc?.paragraphs || [])].sort((a, b) => (a.order || 0) - (b.order || 0));
 
     return (
         <div className="container-xl py-2 py-lg-4" style={{ maxWidth: '1100px' }}>
@@ -433,7 +453,7 @@ const SupportingDocStudio = ({
                                 onClick={handleToggleReorder} 
                                 title={isReorderMode ? "Exit Reorder Mode" : "Enter Reorder Mode"}
                             >
-                                <GripVertical size={16}/> <span className="fw-bold">{isReorderMode ? 'Reordering' : 'Reorder'}</span>
+                                <GripVertical size={16}/> <span className="fw-bold">{isReorderMode ? 'Done' : 'Reorder'}</span>
                             </button>
 
                             <button 
@@ -463,7 +483,6 @@ const SupportingDocStudio = ({
                                     onClick={handleToggleReorder}
                                 >
                                     <span className="d-flex align-items-center gap-2"><GripVertical size={18}/> {isReorderMode ? 'Exit Reorder Mode' : 'Reorder Sections'}</span>
-                                    {isReorderMode && <Check size={16} />}
                                 </button>
 
                                 <button 
@@ -510,45 +529,42 @@ const SupportingDocStudio = ({
                 </div>
             )}
 
-            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={(e) => setActiveId(e.active.id)} onDragEnd={(e) => !activeIsLocked && handleDragEnd(e)}>
-                <SortableContext items={sortedParagraphs.map(p => p.id)} strategy={verticalListSortingStrategy} disabled={!isReorderMode || activeIsLocked}>
-                    
-                    <SectionDivider index={0} onInsert={handleInsertParagraph} disabled={activeIsLocked} />
-
-                    <div className="d-flex flex-column">
-                        {sortedParagraphs.map((para, index) => (
-                            <React.Fragment key={para.id}>
-                                <div className="mb-0">
-                                    <ParagraphStudio
-                                        paragraph={para}
-                                        jobFeatures={activeJob?.features || []}
-                                        fullCV={activeCV}
-                                        ideaMap={ideaMap}
-                                        pairMap={pairMap}
-                                        isSubmitting={isSubmitting}
-                                        isReorderMode={isReorderMode}
-                                        onUpdate={handleGlobalUpdate}
-                                        onAddArgument={(pid, classif) => handleAddArgument(pid, classif)} 
-                                        onDeleteIdea={(idea, p) => handleDeleteIdea(idea, p)}
-                                        onDeleteParagraph={handleDeleteParagraph} 
-                                        onRevertIdea={(id) => handleRevertIdea(id)}
-                                        onShowPreview={handleShowPreview} 
-                                        readOnly={activeIsLocked} 
-                                    />
-                                </div>
-                                <SectionDivider index={index + 1} onInsert={handleInsertParagraph} disabled={activeIsLocked} />
-                            </React.Fragment>
-                        ))}
-                    </div>
-                </SortableContext>
-                <DragOverlay>
-                    {activeId ? <div className="bg-white p-3 rounded-4 shadow-lg border border-primary-subtle"><GripVertical className="d-inline me-2"/> Moving...</div> : null}
-                </DragOverlay>
-            </DndContext>
+            {/* LIST OF PARAGRAPHS (Now Simple List, No DnD) */}
+            <div className="d-flex flex-column">
+                <SectionDivider index={0} onInsert={handleInsertParagraph} disabled={activeIsLocked} />
+                
+                {sortedParagraphs.map((para, index) => (
+                    <React.Fragment key={para.id}>
+                        <div className="mb-0">
+                            <ParagraphStudio
+                                paragraph={para}
+                                jobFeatures={activeJob?.features || []}
+                                fullCV={activeCV}
+                                ideaMap={ideaMap}
+                                pairMap={pairMap}
+                                isSubmitting={isSubmitting}
+                                isReorderMode={isReorderMode}
+                                onUpdate={handleGlobalUpdate}
+                                onAddArgument={(pid, classif) => handleAddArgument(pid, classif)} 
+                                onDeleteIdea={(idea, p) => handleDeleteIdea(idea, p)}
+                                onDeleteParagraph={handleDeleteParagraph} 
+                                onRevertIdea={(id) => handleRevertIdea(id)}
+                                onShowPreview={handleShowPreview} 
+                                readOnly={activeIsLocked}
+                                // Move Props
+                                onMoveUp={() => handleMoveParagraph(index, 'up')}
+                                onMoveDown={() => handleMoveParagraph(index, 'down')}
+                                isFirst={index === 0}
+                                isLast={index === sortedParagraphs.length - 1}
+                            />
+                        </div>
+                        <SectionDivider index={index + 1} onInsert={handleInsertParagraph} disabled={activeIsLocked} />
+                    </React.Fragment>
+                ))}
+            </div>
 
             <PromptModal isOpen={isPromptModalOpen} jsonString={clPromptJson} onClose={() => setIsPromptModalOpen(false)} />
             
-            {/* Placeholder Modal for Full Document Preview */}
             <PromptModal 
                 isOpen={isDocumentPreviewOpen} 
                 jsonString={`// Full Document Preview:\n// The document compiler is not yet fully implemented in this studio. The final document would be generated here by compiling all visible paragraphs (and their content/headings).\n\n// First paragraph content start:\n${sortedParagraphs[0]?.draft_text || '...'}`} 

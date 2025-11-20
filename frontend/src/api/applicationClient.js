@@ -115,14 +115,22 @@ export const addCoverLetterIdea = (coverId, title, mappingPairIds, annotation) =
 };
 
 
-export const addCoverLetterParagraph = (coverId, ideaIds, purpose) => {
+// --- UPDATED FUNCTION ---
+export const addCoverLetterParagraph = (coverId, ideaIds, purpose, draftText = "", owner = "user", order = null) => {
     let params = `purpose=${encodeURIComponent(purpose)}`;
-    ideaIds.forEach(id => {
-        params += `&idea_ids=${encodeURIComponent(id)}`;
-    });
+    
+    if (ideaIds && ideaIds.length > 0) {
+        ideaIds.forEach(id => {
+            params += `&idea_ids=${encodeURIComponent(id)}`;
+        });
+    }
+    
+    if (draftText) params += `&draft_text=${encodeURIComponent(draftText)}`;
+    if (owner) params += `&owner=${encodeURIComponent(owner)}`;
+    if (order !== null) params += `&order=${order}`;
+
     return apiClient.post(`/coverletter/${coverId}/paragraph?${params}`);
 };
-
 
 // --- Prompt Endpoints (routes/prompt.py) ---
 export const generateCvPrompt = (baseCvId, jobId, selectedSkillIds) => { // <-- 1. Add selectedSkillIds

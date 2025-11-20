@@ -1,6 +1,6 @@
 // frontend/src/components/applications/ArgumentCard.jsx
-import React, { useState, useMemo, useRef } from 'react';
-import { User, Trash2, ChevronDown, ChevronUp, ChevronRight, GripVertical, RefreshCcw, Plus, Link as LinkIcon, Target, FileText, Quote, BrainCircuit, Award, Briefcase, GraduationCap, Cpu, Heart, FolderGit2 } from 'lucide-react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { User, Trash2, ChevronDown, ChevronUp, ChevronRight, RefreshCcw, Plus, Link as LinkIcon, Target, FileText, Quote, BrainCircuit, Award, Briefcase, GraduationCap, Cpu, Heart, FolderGit2 } from 'lucide-react';
 import AnnotationEditorImport from './AnnotationEditor.jsx';
 
 // --- WRAPPER ---
@@ -152,8 +152,8 @@ const ArgumentCard = ({
     fullCV,
     onUpdate,
     onDelete,
-    onRevert,
-    dragHandleProps
+    onRevert
+    // dragHandleProps REMOVED
 }) => {
     const isGapChip = idea.title.startsWith('❓');
     const isUserOwned = idea.owner === 'user';
@@ -164,21 +164,36 @@ const ArgumentCard = ({
     // State for Context Section Visibility
     const [showContext, setShowContext] = useState(true);
 
+    // --- OPTIMISTIC LOCAL STATE (Fixes Stale Closure Bug) ---
+    const [localMappingIds, setLocalMappingIds] = useState(idea.mapping_pair_ids || []);
+    const [localEntityIds, setLocalEntityIds] = useState(idea.related_entity_ids || []);
+
+    // Sync local state when props change (e.g., server confirmation)
+    useEffect(() => {
+        setLocalMappingIds(idea.mapping_pair_ids || []);
+    }, [idea.mapping_pair_ids]);
+
+    useEffect(() => {
+        setLocalEntityIds(idea.related_entity_ids || []);
+    }, [idea.related_entity_ids]);
+
+
     const editorRef = useRef(null);
     const addButtonRef = useRef(null);
 
+    // Use LOCAL state for display to be instant
     const attachedPairs = useMemo(() => 
-        (idea.mapping_pair_ids || []).map(id => pairMap.get(id)).filter(Boolean)
-    , [idea.mapping_pair_ids, pairMap]);
+        (localMappingIds).map(id => pairMap.get(id)).filter(Boolean)
+    , [localMappingIds, pairMap]);
 
-    // --- SPLIT ENTITIES ---
+    // --- SPLIT ENTITIES (Uses LOCAL state) ---
     const { blockEntities, pillEntities } = useMemo(() => {
         const blocks = [];
         const pills = [];
         
-        if (idea.related_entity_ids && fullCV) {
+        if (localEntityIds && fullCV) {
             const process = (list, type, isPill) => list?.forEach(i => {
-                if (idea.related_entity_ids.includes(i.id)) {
+                if (localEntityIds.includes(i.id)) {
                     const enriched = {...i, _type: type};
                     isPill ? pills.push(enriched) : blocks.push(enriched);
                 }
@@ -192,7 +207,7 @@ const ArgumentCard = ({
             process(fullCV.hobbies, 'Hobby', false);             
         }
         return { blockEntities: blocks, pillEntities: pills };
-    }, [idea.related_entity_ids, fullCV]);
+    }, [localEntityIds, fullCV]);
 
     const totalLinkedCount = attachedPairs.length + blockEntities.length + pillEntities.length;
 
@@ -205,15 +220,43 @@ const ArgumentCard = ({
         }));
     }, [pairMap]);
 
+    // --- FIXED HANDLER: Uses Functional Updates & Optimistic State ---
     const handleMention = (item, type) => {
         if (type === 'evidence') {
-            if (idea.mapping_pair_ids?.includes(item.id)) return;
-            onUpdate(idea.id, { mapping_pair_ids: [...(idea.mapping_pair_ids || []), item.id], owner: 'user' });
+            setLocalMappingIds(prev => {
+                if (prev.includes(item.id)) return prev;
+                const newIds = [...prev, item.id];
+                // Send the NEW accumulator to backend
+                onUpdate(idea.id, { mapping_pair_ids: newIds, owner: 'user' });
+                return newIds;
+            });
         } else {
-            if (idea.related_entity_ids?.includes(item.id)) return;
-            onUpdate(idea.id, { related_entity_ids: [...(idea.related_entity_ids || []), item.id], owner: 'user' });
+            setLocalEntityIds(prev => {
+                if (prev.includes(item.id)) return prev;
+                const newIds = [...prev, item.id];
+                // Send the NEW accumulator to backend
+                onUpdate(idea.id, { related_entity_ids: newIds, owner: 'user' });
+                return newIds;
+            });
         }
         if (!showContext) setShowContext(true);
+    };
+
+    // --- HANDLER: REMOVE (Optimistic) ---
+    const handleRemoveMapping = (pairId) => {
+        setLocalMappingIds(prev => {
+            const newIds = prev.filter(pid => pid !== pairId);
+            onUpdate(idea.id, { mapping_pair_ids: newIds, owner: 'user' });
+            return newIds;
+        });
+    };
+
+    const handleRemoveEntity = (entityId) => {
+        setLocalEntityIds(prev => {
+            const newIds = prev.filter(eid => eid !== entityId);
+            onUpdate(idea.id, { related_entity_ids: newIds, owner: 'user' });
+            return newIds;
+        });
     };
 
     // --- HANDLER: ADD BUTTON CLICK ---
@@ -239,7 +282,7 @@ const ArgumentCard = ({
         <div className={`card shadow-sm mb-0 transition-all overflow-visible`} style={{border: '1px solid #e2e8f0', borderLeft: `4px solid ${accentColor}`}}>
             {/* HEADER */}
             <div className="card-header border-0 d-flex align-items-center p-2 bg-transparent gap-2">
-                <div className="text-muted cursor-grab px-1" {...dragHandleProps}><GripVertical size={14} /></div>
+                {/* DRAG HANDLE REMOVED HERE */}
                 
                 <div className="flex-grow-1 d-flex align-items-center gap-2 overflow-hidden">
                     {isUserOwned && <User size={14} className="text-success" />}
@@ -301,7 +344,7 @@ const ArgumentCard = ({
                                         <ModernMappingCard 
                                             key={pair.id} 
                                             pair={pair} 
-                                            onRemove={() => onUpdate(idea.id, { mapping_pair_ids: idea.mapping_pair_ids.filter(pid => pid !== pair.id), owner: 'user' })} 
+                                            onRemove={() => handleRemoveMapping(pair.id)} 
                                         />
                                     ))}
                                 </div>
@@ -312,7 +355,7 @@ const ArgumentCard = ({
                                         <ModernEntityRow
                                             key={ent.id}
                                             item={ent}
-                                            onRemove={() => onUpdate(idea.id, { related_entity_ids: idea.related_entity_ids.filter(eid => eid !== ent.id), owner: 'user' })}
+                                            onRemove={() => handleRemoveEntity(ent.id)}
                                         />
                                     ))}
                                 </div>
@@ -323,7 +366,7 @@ const ArgumentCard = ({
                                         <ModernEntityPill 
                                             key={ent.id} 
                                             item={ent} 
-                                            onRemove={() => onUpdate(idea.id, { related_entity_ids: idea.related_entity_ids.filter(eid => eid !== ent.id), owner: 'user' })} 
+                                            onRemove={() => handleRemoveEntity(ent.id)} 
                                         />
                                     ))}
                                 </div>

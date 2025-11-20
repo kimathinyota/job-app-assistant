@@ -59,21 +59,26 @@ def add_idea(cover_id: str, title: str, request: Request,
         raise HTTPException(status_code=404, detail=str(e))
 
 @router.post("/{cover_id}/paragraph")
-def add_paragraph(cover_id: str, purpose: str, request: Request, 
-                  idea_ids: List[str] = [],  # <-- THIS IS THE FIX
-                  draft_text: Optional[str] = None):
-    """Add a paragraph structure based on existing ideas (used for generation outline)."""
+def add_paragraph(
+    cover_id: str, 
+    purpose: str, 
+    request: Request, 
+    idea_ids: List[str] = Query([]), 
+    draft_text: Optional[str] = None,
+    order: Optional[int] = Query(None) # <-- ADDED
+):
+    """Add a paragraph structure. Accepts optional order for insertion."""
     try:
         registry = request.app.state.registry
         return registry.add_cover_letter_paragraph(
             cover_id, 
             idea_ids=idea_ids, 
             purpose=purpose, 
-            draft_text=draft_text
+            draft_text=draft_text,
+            order=order # <-- PASS TO REGISTRY
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
-
 # --- 2. ADD THESE NEW UPDATE (PATCH) ROUTES ---
 
 @router.patch("/{cover_id}/idea/{idea_id}")

@@ -1397,13 +1397,29 @@ class Registry:
         self._update("coverletters", cover)
         return idea
     
-    def add_cover_letter_paragraph(self, cover_id: str, idea_ids: List[str], purpose: str, draft_text: Optional[str] = None) -> Paragraph:
+    # --- UPDATED METHOD ---
+    def add_cover_letter_paragraph(self, cover_id: str, idea_ids: List[str], purpose: str, draft_text: Optional[str] = None, order: Optional[int] = None) -> Paragraph:
         cover = self.get_cover_letter(cover_id)
         if not cover:
             raise ValueError("CoverLetter not found")
         
-        para = cover.add_paragraph(idea_ids=idea_ids, purpose=purpose)
-        para.draft_text = draft_text # Optionally set draft text
+        # Determine insertion order
+        if order is not None:
+            target_order = order
+            # Shift existing paragraphs down
+            for p in cover.paragraphs:
+                if p.order >= target_order:
+                    p.order += 1
+        else:
+            # Default to appending at the end (0-based)
+            target_order = len(cover.paragraphs)
+
+        # Create new paragraph
+        para = Paragraph.create(order=target_order, idea_ids=idea_ids, purpose=purpose)
+        para.draft_text = draft_text 
+        
+        cover.paragraphs.append(para)
+        cover.touch()
         self._update("coverletters", cover)
         return para
     
