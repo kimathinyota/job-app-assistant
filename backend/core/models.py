@@ -802,3 +802,67 @@ class AIPromptResponse(BaseModel):
     cv_id: str
     prompt_type: Literal["CV", "CoverLetter"]
     structured_payload: Union[CVGenerationPrompt, CoverLetterGenerationPrompt]
+
+
+# ---------------------------------------------------------------------
+# PROMPT PAYLOAD MODELS (The Context Assembler Schema)
+# ---------------------------------------------------------------------
+
+class PromptReferenceItem(BaseModel):
+    """
+    A single normalized unit of data (Job Feature or CV Item).
+    The AI uses this 'Bank' to look up details by ID.
+    """
+    id: str
+    type: Literal["experience", "education", "project", "skill", "achievement", "hobby", "job_feature", "value", "unknown", "cv_item"]
+    name: str
+    detail: str 
+    metadata: Optional[Dict[str, Any]] = None 
+
+class PromptSegment(BaseModel):
+    """A parsed chunk of the user's writing."""
+    type: Literal["text", "context_injection", "structural_instruction"]
+    content: str
+
+class PromptEvidenceLink(BaseModel):
+    """A connection the user has explicitly made (The 'Strong' Evidence)."""
+    requirement_ref: Optional[str] = None # ID pointing to reference_bank
+    evidence_ref: Optional[str] = None    # ID pointing to reference_bank
+    annotation: Optional[str] = None      # Reasoning
+
+class PromptArgument(BaseModel):
+    """A strategic point within a paragraph."""
+    topic: str
+    user_strategy_notes: Optional[str] = None
+    evidence_links: List[PromptEvidenceLink] = Field(default_factory=list)
+
+class PromptParagraph(BaseModel):
+    order: int
+    purpose: str
+    user_draft_segments: List[PromptSegment] = Field(default_factory=list)
+    key_arguments: List[PromptArgument] = Field(default_factory=list) 
+
+class CoverLetterPromptPayload(BaseModel):
+    """
+    The Master Payload.
+    Contains EVERYTHING the AI needs to write a perfect letter.
+    """
+    # 1. The Stage (Job & Profile)
+    job_context: Dict[str, Any]
+    candidate_profile_summary: Dict[str, Any]
+    
+    # 2. The Database (All distinct entities, un-duplicated)
+    reference_bank: Dict[str, PromptReferenceItem] 
+    
+    # 3. The Plan (User's explicit structure & notes)
+    outline: List[PromptParagraph]
+    
+    # 4. The "Strong" Data Graph (Explicit Mappings)
+    available_mappings: List[PromptEvidenceLink] = Field(default_factory=list)
+    
+    # 5. The "Unused" Potential (IDs that exist in bank but aren't mapped)
+    # This tells the AI: "Here is extra stuff you can use if you need more evidence"
+    unmapped_job_requirements: List[str] = Field(default_factory=list)
+    unused_cv_items: List[str] = Field(default_factory=list)
+    
+    global_instructions: List[str]

@@ -4,6 +4,7 @@ import { Briefcase, BookOpen, Smile } from 'lucide-react'; // <--- Added Icons
 import AchievementDisplayGrid from '../cv/AchievementDisplayGrid';
 import SelectedSkillsDisplay from '../cv/SelectedSkillsDisplay';
 
+
 // This component renders the full details of any single CV item
 const CVItemDisplayCard = ({
     item,

@@ -77,6 +77,9 @@ export const deleteMappingPair = (mappingId, pairId) => {
     return apiClient.delete(`/mapping/${mappingId}/pair/${pairId}`);
 };
 
+
+
+
 // --- CoverLetter Endpoints (routes/coverletter.py) ---
 export const createCoverLetter = (jobId, baseCvId, mappingId) => {
      const params = new URLSearchParams({ 
@@ -84,7 +87,15 @@ export const createCoverLetter = (jobId, baseCvId, mappingId) => {
         base_cv_id: baseCvId, 
         mapping_id: mappingId 
     });
-    return apiClient.post(`/coverletter/?${params.toString()}`);
+    return apiClient.post(`/coverletter/${coverId}/?${params.toString()}`);
+};
+
+// --- CoverLetter Endpoints (routes/coverletter.py) ---
+export const updateCoverLetterMetadata = (coverId, name) => {
+     const params = new URLSearchParams({ 
+        name: name
+    });
+    return apiClient.patch(`/coverletter/${coverId}/metadata?${params.toString()}`);
 };
 export const fetchCoverLetterDetails = (coverId) => apiClient.get(`/coverletter/${coverId}`);
 

@@ -14,7 +14,8 @@ import {
     fetchApplicationDetails, 
     fetchJobDetails,         
     fetchMappingDetails,
-    deleteCoverLetterParagraph      
+    deleteCoverLetterParagraph,
+    updateCoverLetterMetadata      
 } from '../../api/applicationClient.js';
 import { fetchCVDetails } from '../../api/cvClient.js'; 
 
@@ -208,7 +209,11 @@ const SupportingDocStudio = ({ documentId: propDocId, job: propJob, mapping: pro
 
     const handleRename = async () => {
         if(activeIsLocked) return;
-        try { console.log("Renaming doc to", docName); } catch(err) { console.error("Failed to rename", err); } 
+        try { 
+            console.log("Renaming doc to", docName); 
+            await updateCoverLetterMetadata(doc.id, docName);
+
+        } catch(err) { console.error("Failed to rename", err); } 
     };
 
     const handleInsertParagraph = async (index) => {

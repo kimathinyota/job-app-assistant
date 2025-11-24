@@ -3,7 +3,7 @@
 
 from fastapi import APIRouter, HTTPException, Query, Request # <-- 1. Import Query
 from backend.core.registry import Registry
-from backend.core.models import AIPromptResponse # Import the response model
+from backend.core.models import AIPromptResponse, CoverLetterPromptPayload # Import the response model
 from typing import Optional, List # <-- 2. Import Optional and List
 
 router = APIRouter()
@@ -29,14 +29,18 @@ def generate_cv_prompt(
         raise HTTPException(status_code=404, detail=str(e))
     
     
-@router.post("/generate-coverletter-prompt", response_model=AIPromptResponse)
-def generate_cover_letter_prompt(mapping_id: str, request: Request):
+@router.get("/cover-letter-payload/{cover_id}", response_model=CoverLetterPromptPayload)
+def get_cover_letter_ai_payload(cover_id: str, request: Request):
     """
-    Generates a structured JSON prompt payload for an AI service to draft a Cover Letter.
-    Requires an existing Mapping and related Cover Letter Ideas/Job/CV data.
+    Generates the advanced 'Greedy' Context Assembler payload.
+    Provides the AI with the Full Graph (Mapped + Unmapped) to allow creative connections.
     """
     try:
         registry = request.app.state.registry
-        return registry.generate_coverletter_prompt(mapping_id)
+        return registry.construct_advanced_cover_letter_prompt(cover_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        # Log the full error in production
+        print(f"Error generating prompt payload: {e}")
+        raise HTTPException(status_code=500, detail="Internal Server Error while assembling prompt.")

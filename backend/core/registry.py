@@ -5,6 +5,7 @@ from backend.core.database import TinyDBManager
 from tinydb import where
 from backend.core.models import *
 import logging # <-- Import logging
+from bs4 import BeautifulSoup
 
 # Set up a logger for the registry
 log = logging.getLogger(__name__)
@@ -2075,5 +2076,220 @@ class Registry:
     def get_cv_for_application(self, app_id: str):
         app = self.get_application(app_id)
         return self.get_cv(app.base_cv_id) if app else None
+    
+
+     def _parse_codex_html(self, html_content: str, reference_accumulator: Dict[str, Any], cv: CV) -> List[PromptSegment]:
+        """
+        Parses the RichTextEditor HTML.
+        Separates 'Visible Text' (Draft) from 'Context Injection' (Ghost Text).
+        Extracts @mentions and auto-registers them in the bank.
+        """
+        if not html_content:
+            return []
+
+        soup = BeautifulSoup(html_content, "html.parser")
+        segments = []
+
+        # --- Helper to register references found in text ---
+        def register_reference(ref_id, context, label):
+            if ref_id in reference_accumulator: return
+            
+            found_item = None
+            for list_name in ['experiences', 'projects', 'education', 'skills', 'achievements', 'hobbies']:
+                try:
+                    found_item = self._get_nested_entity(cv, list_name, ref_id)
+                    if found_item: break
+                except: continue
+            
+            detail_text = "(Detail not found)"
+            if found_item:
+                d_list = []
+                if hasattr(found_item, 'description') and found_item.description: d_list.append(found_item.description)
+                if hasattr(found_item, 'text') and found_item.text: d_list.append(found_item.text)
+                if hasattr(found_item, 'title'): d_list.append(f"Role: {found_item.title}")
+                if hasattr(found_item, 'company'): d_list.append(f"Company: {found_item.company}")
+                detail_text = "\n".join(d_list)
+
+            reference_accumulator[ref_id] = PromptReferenceItem(
+                id=ref_id, type="cv_item", name=label, detail=detail_text
+            )
+
+        for element in soup.recursiveChildGenerator():
+            # 1. Plain Text
+            if element.name is None: 
+                text = element.strip()
+                if text:
+                    parent = element.parent
+                    is_ghost = parent and parent.has_attr("class") and "ghost-text-mark" in parent["class"]
+                    segments.append(PromptSegment(
+                        type="context_injection" if is_ghost else "text", 
+                        content=f"User Thought: {text}" if is_ghost else text
+                    ))
+            
+            # 2. Mention Chips
+            elif element.name == "span" and "mention-chip" in (element.get("class") or []):
+                is_ghost = element.get("isghost") == "true" or element.get("data-ghost") == "true"
+                ref_id = element.get("id")
+                label = element.get("label") or element.get_text()
+                
+                if ref_id: register_reference(ref_id, element.get("context"), label)
+                
+                # Ghost references are instructions ("Talk about X"). Visible are text ("I worked at X").
+                content_str = f"{label} (ID: {ref_id})"
+                segments.append(PromptSegment(
+                    type="context_injection" if is_ghost else "text",
+                    content=f"Reference: {content_str}" if is_ghost else content_str
+                ))
+
+            # 3. Section Titles
+            elif element.name == "div" and element.get("data-type") == "section-title":
+                segments.append(PromptSegment(type="text", content=f"\n## {element.get_text()}\n"))
+
+        return segments
+
+    def construct_advanced_cover_letter_prompt(self, cover_id: str) -> CoverLetterPromptPayload:
+        """
+        Builds the 'Greedy' Prompt Payload.
+        It loads ALL relevant context (Mapped & Unmapped) so the AI can be fully creative.
+        """
+        cover = self.get_cover_letter(cover_id)
+        job = self.get_job(cover.job_id)
+        cv = self.get_cv(cover.base_cv_id)
+        mapping = self.get_mapping(cover.mapping_id)
+
+        if not cover or not job or not cv: raise ValueError("Missing core assets")
+
+        reference_bank: Dict[str, PromptReferenceItem] = {}
+        mapped_req_ids = set()
+        mapped_ev_ids = set()
+
+        # --- A. Helper: Add Item to Bank ---
+        def add_to_bank(item_id, kind="cv_item", specific_obj=None):
+            if not item_id or item_id in reference_bank: return
+            
+            obj = specific_obj
+            if not obj:
+                # Try to find if not provided
+                if kind == "job_feature":
+                    obj = next((f for f in job.features if f.id == item_id), None)
+                else:
+                    for lst in ['experiences', 'projects', 'education', 'skills', 'achievements', 'hobbies']:
+                        try:
+                            obj = self._get_nested_entity(cv, lst, item_id)
+                            if obj: break
+                        except: continue
+            
+            if obj:
+                # Build Detail String
+                details = []
+                if kind == "job_feature":
+                    details.append(obj.description)
+                else:
+                    if hasattr(obj, 'title'): details.append(f"Role: {obj.title}")
+                    if hasattr(obj, 'company'): details.append(f"Company: {obj.company}")
+                    if hasattr(obj, 'institution'): details.append(f"Institution: {obj.institution}")
+                    if hasattr(obj, 'description') and obj.description: details.append(obj.description)
+                    if hasattr(obj, 'text') and obj.text: details.append(obj.text) # Achievements
+                    # Add skills if linked
+                    if hasattr(obj, 'skill_ids'):
+                        skill_names = [s.name for s in cv.skills if s.id in obj.skill_ids]
+                        if skill_names: details.append(f"Skills: {', '.join(skill_names)}")
+
+                reference_bank[item_id] = PromptReferenceItem(
+                    id=item_id, 
+                    type=kind, 
+                    name=getattr(obj, 'title', getattr(obj, 'name', getattr(obj, 'description', 'Item'))), 
+                    detail="\n".join(details)
+                )
+
+        # --- B. Greedy Hydration (Load EVERYTHING) ---
+        
+        # 1. Load ALL Job Features
+        all_req_ids = []
+        for feat in job.features:
+            add_to_bank(feat.id, "job_feature", feat)
+            all_req_ids.append(feat.id)
+
+        # 2. Load ALL Significant CV Items (Exp, Proj, Edu)
+        all_cv_ids = []
+        for item in (cv.experiences + cv.projects + cv.education):
+            add_to_bank(item.id, "cv_item", item)
+            all_cv_ids.append(item.id)
+        
+        # --- C. Process Explicit Mappings ---
+        available_mappings = []
+        for pair in mapping.pairs:
+            mapped_req_ids.add(pair.feature_id)
+            mapped_ev_ids.add(pair.context_item_id)
+            
+            available_mappings.append(PromptEvidenceLink(
+                requirement_ref=pair.feature_id,
+                evidence_ref=pair.context_item_id,
+                annotation=pair.annotation
+            ))
+
+        # --- D. Calculate "Unmapped Potential" ---
+        unmapped_reqs = [rid for rid in all_req_ids if rid not in mapped_req_ids]
+        unused_cv_items = [cid for cid in all_cv_ids if cid not in mapped_ev_ids]
+
+        # --- E. Process Outline (Structure) ---
+        prompt_paragraphs = []
+        sorted_paras = sorted(cover.paragraphs, key=lambda p: p.order)
+
+        for para in sorted_paras:
+            # 1. Parse User Text
+            segments = self._parse_codex_html(para.draft_text, reference_bank, cv)
+            
+            # 2. Process Linked Ideas (The Graph)
+            para_args = []
+            for idea_id in para.idea_ids:
+                idea = next((i for i in cover.ideas if i.id == idea_id), None)
+                if not idea: continue
+                
+                # Ensure explicit links are in bank (if not already)
+                for eid in idea.related_entity_ids: add_to_bank(eid)
+                
+                evidence = []
+                for pid in idea.mapping_pair_ids:
+                    pair = next((p for p in mapping.pairs if p.id == pid), None)
+                    if pair:
+                        evidence.append(PromptEvidenceLink(
+                            requirement_ref=pair.feature_id, evidence_ref=pair.context_item_id, annotation=pair.annotation
+                        ))
+                
+                para_args.append(PromptArgument(
+                    topic=idea.title, user_strategy_notes=idea.annotation, evidence_links=evidence
+                ))
+
+            prompt_paragraphs.append(PromptParagraph(
+                order=para.order, purpose=para.purpose, user_draft_segments=segments, key_arguments=para_args
+            ))
+
+        # --- F. Global Instructions ---
+        instructions = [
+            "ROLE: Expert Career Writer.",
+            "TASK: Write a highly tailored cover letter.",
+            "DATA SOURCES:",
+            "  1. 'reference_bank': The Dictionary. Look up ALL IDs here (e.g., 'exp_123') for full details. NEVER invent details.",
+            "  2. 'outline': The Skeleton. If provided, follow this structure exactly.",
+            "  3. 'available_mappings': The Strongest Links. Prioritize these connections.",
+            "  4. 'unmapped_job_requirements' & 'unused_cv_items': The Hidden Gems. If a paragraph feels thin, OR if you see a connection the user missed, pull from these lists to strengthen the letter.",
+            "EXECUTION:",
+            "  - If 'user_draft_segments' has text, polish it while keeping the user's voice.",
+            "  - If 'user_draft_segments' has 'context_injection' (ghost text), use it as a directive but do not print it.",
+            "  - If a paragraph is empty, generate it entirely using the 'key_arguments' AND any relevant 'available_mappings'.",
+            "  - If the entire outline is empty, ARCHITECT the letter yourself using the strongest matches from 'available_mappings'."
+        ]
+
+        return CoverLetterPromptPayload(
+            job_context={"title": job.title, "company": job.company, "notes": job.notes},
+            candidate_profile_summary={"name": f"{cv.first_name} {cv.last_name}", "title": cv.title},
+            reference_bank=reference_bank,
+            outline=prompt_paragraphs,
+            available_mappings=available_mappings,
+            unmapped_job_requirements=unmapped_reqs,
+            unused_cv_items=unused_cv_items,
+            global_instructions=instructions
+        )
     
 
