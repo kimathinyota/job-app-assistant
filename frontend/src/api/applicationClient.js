@@ -233,3 +233,8 @@ export const deleteCoverLetterParagraph = (coverId, paraId) => {
     return apiClient.delete(`/coverletter/${coverId}/paragraph/${paraId}`);
 };
 
+// --- NEW: CONTEXT ASSEMBLER ENDPOINT ---
+export const fetchCoverLetterPromptPayload = (coverId) => {
+    return apiClient.get(`/prompt/coverletter-payload/${coverId}`);
+};
+

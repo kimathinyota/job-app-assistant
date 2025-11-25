@@ -2078,7 +2078,7 @@ class Registry:
         return self.get_cv(app.base_cv_id) if app else None
     
 
-     def _parse_codex_html(self, html_content: str, reference_accumulator: Dict[str, Any], cv: CV) -> List[PromptSegment]:
+    def _parse_codex_html(self, html_content: str, reference_accumulator: Dict[str, Any], cv: CV) -> List[PromptSegment]:
         """
         Parses the RichTextEditor HTML.
         Separates 'Visible Text' (Draft) from 'Context Injection' (Ghost Text).
@@ -2265,20 +2265,25 @@ class Registry:
                 order=para.order, purpose=para.purpose, user_draft_segments=segments, key_arguments=para_args
             ))
 
-        # --- F. Global Instructions ---
+        # --- F. Global Instructions (UPDATED) ---
         instructions = [
-            "ROLE: Expert Career Writer.",
-            "TASK: Write a highly tailored cover letter.",
+            "ROLE: Expert Career Writer. You are writing a persuasive cover letter on behalf of the candidate.",
+            "TASK: Write a highly tailored, narrative-driven letter that bridges the candidate's past to the company's future.",
+            
             "DATA SOURCES:",
             "  1. 'reference_bank': The Dictionary. Look up ALL IDs here (e.g., 'exp_123') for full details. NEVER invent details.",
             "  2. 'outline': The Skeleton. If provided, follow this structure exactly.",
             "  3. 'available_mappings': The Strongest Links. Prioritize these connections.",
             "  4. 'unmapped_job_requirements' & 'unused_cv_items': The Hidden Gems. If a paragraph feels thin, OR if you see a connection the user missed, pull from these lists to strengthen the letter.",
-            "EXECUTION:",
-            "  - If 'user_draft_segments' has text, polish it while keeping the user's voice.",
+            
+            "EXECUTION & TONE:",
+            "  - **Contextualize Everything:** Never assume the reader knows the candidate's history. When introducing an experience (e.g., 'exp_123'), explicitly state the Role, Company, and a brief context naturally (e.g., 'During my time as a Senior Engineer at TechCorp, a cloud solutions provider...'). Do not say 'As seen in my CV'.",
+            "  - **Hidden STAR Framework:** You MUST use the STAR method (Situation, Task, Action, Result) to structure your arguments, but **DO NOT use labels** like 'Situation:' or 'Task:'. Write flowing, cohesive paragraphs. The STAR structure should be the *invisible skeleton* of the narrative.",
+            "  - **Persuasive Flow:** Connect the 'Why Me' arguments directly to the company's needs. Don't just list skills; explain *how* those skills solve the company's specific problems (found in job_context).",
+            "  - If 'user_draft_segments' has text, polish it to meet these standards while keeping the user's voice.",
             "  - If 'user_draft_segments' has 'context_injection' (ghost text), use it as a directive but do not print it.",
-            "  - If a paragraph is empty, generate it entirely using the 'key_arguments' AND any relevant 'available_mappings'.",
-            "  - If the entire outline is empty, ARCHITECT the letter yourself using the strongest matches from 'available_mappings'."
+            "  - If a paragraph is empty, generate it entirely using the 'key_arguments' AND any relevant 'available_mappings', applying the narrative STAR framework.",
+            "  - If the entire outline is empty, ARCHITECT the letter yourself using the strongest matches from 'available_mappings' and generate more of these mappings if there are not enough."
         ]
 
         return CoverLetterPromptPayload(

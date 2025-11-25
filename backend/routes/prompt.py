@@ -29,7 +29,7 @@ def generate_cv_prompt(
         raise HTTPException(status_code=404, detail=str(e))
     
     
-@router.get("/cover-letter-payload/{cover_id}", response_model=CoverLetterPromptPayload)
+@router.get("/coverletter-payload/{cover_id}", response_model=CoverLetterPromptPayload)
 def get_cover_letter_ai_payload(cover_id: str, request: Request):
     """
     Generates the advanced 'Greedy' Context Assembler payload.

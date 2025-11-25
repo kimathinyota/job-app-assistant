@@ -15,8 +15,13 @@ import {
 
 const PromptModal = ({ isOpen, jsonString, onClose }) => {
     const [activeTab, setActiveTab] = useState('manual');
-    const [copyTextState, setCopyTextState] = useState('Copy'); // 'Copy' | 'Copied!'
+    
+    // Individual copy states
+    const [copyTextState, setCopyTextState] = useState('Copy'); 
     const [copyJsonState, setCopyJsonState] = useState('Copy'); 
+    
+    // Main "Copy All" state
+    const [copyAllState, setCopyAllState] = useState('Copy All'); 
 
     // Main instructions for AI
     const userInstructions = `You are an expert career assistant and copywriter. Your task is to generate a tailored document (like a CV or cover letter) based on the structured JSON payload I provide below. Please follow all instructions, use the provided data, and generate only the requested document.`;
@@ -40,22 +45,63 @@ const PromptModal = ({ isOpen, jsonString, onClose }) => {
         }
     };
 
+    // --- ROBUST COPY FUNCTION (Fix for non-secure context) ---
     const copyToClipboard = (text, stateSetter) => {
-        navigator.clipboard.writeText(text).then(() => {
-            stateSetter('Copied!');
-            setTimeout(() => stateSetter('Copy'), 2000);
-        }).catch(err => {
-            console.error('Failed to copy text: ', err);
-        });
+        // 1. Try Modern API
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(() => {
+                if (stateSetter) {
+                    stateSetter('Copied!');
+                    setTimeout(() => stateSetter(stateSetter === setCopyAllState ? 'Copy All' : 'Copy'), 2000);
+                }
+            }).catch(err => {
+                console.warn('Clipboard API failed, trying fallback...', err);
+                fallbackCopy(text, stateSetter);
+            });
+        } else {
+            // 2. Use Fallback immediately if API is missing
+            fallbackCopy(text, stateSetter);
+        }
+    };
+
+    const fallbackCopy = (text, stateSetter) => {
+        try {
+            const textArea = document.createElement("textarea");
+            textArea.value = text;
+            
+            // Avoid scrolling to bottom
+            textArea.style.top = "0";
+            textArea.style.left = "0";
+            textArea.style.position = "fixed";
+
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+
+            const successful = document.execCommand('copy');
+            document.body.removeChild(textArea);
+            
+            if (successful) {
+                if (stateSetter) {
+                    stateSetter('Copied!');
+                    // Revert back to original label after 2s
+                    setTimeout(() => stateSetter(stateSetter === setCopyAllState ? 'Copy All' : 'Copy'), 2000);
+                } else {
+                    alert('Copied to clipboard!');
+                }
+            } else {
+                throw new Error("execCommand returned false");
+            }
+        } catch (err) {
+            console.error('Fallback copy failed', err);
+            alert('Failed to copy. Please manually select and copy the text.');
+        }
     };
 
     const handleCopyPromptAndJson = () => {
         const fullPrompt = `${userInstructions}\n\n${jsonString}`;
-        navigator.clipboard.writeText(fullPrompt).then(() => {
-            alert('✅ Prompt and JSON copied to clipboard!\n\nNext step: Paste it into ChatGPT.');
-        }).catch(err => {
-            alert('Failed to copy text.');
-        });
+        // Use the robust copy function with the specific state setter for the main button
+        copyToClipboard(fullPrompt, setCopyAllState); 
     };
 
     const handleOpenChatGPT = () => {
@@ -181,10 +227,11 @@ const PromptModal = ({ isOpen, jsonString, onClose }) => {
                                             <p className="small text-muted mb-0">Includes role instructions & structured JSON data.</p>
                                         </div>
                                         <button 
-                                            className="btn btn-white border shadow-sm ms-auto fw-medium text-primary"
+                                            className={`btn border shadow-sm ms-auto fw-medium d-flex align-items-center gap-2 transition-all ${copyAllState === 'Copied!' ? 'btn-success text-white' : 'btn-white text-primary'}`}
                                             onClick={handleCopyPromptAndJson}
                                         >
-                                            Copy All
+                                            {copyAllState === 'Copied!' ? <Check size={16} /> : null}
+                                            {copyAllState}
                                         </button>
                                     </div>
                                 </div>

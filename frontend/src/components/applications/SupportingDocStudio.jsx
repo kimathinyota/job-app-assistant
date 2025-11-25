@@ -15,7 +15,8 @@ import {
     fetchJobDetails,         
     fetchMappingDetails,
     deleteCoverLetterParagraph,
-    updateCoverLetterMetadata      
+    updateCoverLetterMetadata,
+    fetchCoverLetterPromptPayload      
 } from '../../api/applicationClient.js';
 import { fetchCVDetails } from '../../api/cvClient.js'; 
 
@@ -328,11 +329,18 @@ const SupportingDocStudio = ({ documentId: propDocId, job: propJob, mapping: pro
 
     const handleGeneratePromptClick = async () => {
         setIsSubmitting(true);
-        const res = await generateCoverLetterPrompt(activeMapping.id);
-        setClPromptJson(JSON.stringify(res.data, null, 2));
-        setIsPromptModalOpen(true);
-        setIsSubmitting(false);
-        setShowMobileMenu(false); 
+        try {
+            // Using the new Context Assembler endpoint
+            const res = await fetchCoverLetterPromptPayload(doc.id);
+            setClPromptJson(JSON.stringify(res.data, null, 2));
+            setIsPromptModalOpen(true);
+        } catch (err) {
+            console.error("Failed to generate prompt:", err);
+            alert("Failed to generate the prompt payload.");
+        } finally {
+            setIsSubmitting(false);
+            setShowMobileMenu(false);
+        }
     };
 
     const handleGlobalUpdate = async (type, id, updates) => {
