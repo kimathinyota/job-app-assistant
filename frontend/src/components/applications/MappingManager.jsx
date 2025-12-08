@@ -43,15 +43,28 @@ const LoadingOverlay = ({ mode }) => (
         <p className="text-muted small mb-0">Using strategy: <span className="fw-medium text-dark">"{mode.replace(/_/g, ' ')}"</span></p>
     </div>
 );
-
+// Add this helper function
+const getConfidenceColor = (score) => {
+    if (score >= 0.8) return 'bg-success text-success'; // High
+    if (score >= 0.5) return 'bg-warning text-warning'; // Medium
+    return 'bg-secondary text-secondary'; // Low
+};
 const SuggestionItem = ({ suggestion, onAccept, onIgnore, isProcessing }) => {
     const [note, setNote] = useState(suggestion.annotation || "");
     const [isEditing, setIsEditing] = useState(false);
+
+    // Convert 0.85 to 85
+    const confidence = Math.round(suggestion.strength * 100); 
+    const colorClass = getConfidenceColor(suggestion.strength);
 
     return (
         <div className="p-4 border-bottom hover-bg-white transition-all">
             <div className="mb-3">
                 <span className="badge bg-primary bg-opacity-10 text-primary border border-primary-subtle mb-2 text-uppercase" style={{fontSize: '0.65rem'}}>Match Found</span>
+                {/* NEW: Visual Confidence Badge */}
+                <span className={`badge bg-opacity-10 border ${colorClass} bg-opacity-10 border-opacity-25`} style={{fontSize: '0.65rem'}}>
+                    {confidence}% Confidence
+                </span>
                 <p className="mb-0 fw-medium text-dark lh-sm text-wrap">{suggestion.feature_text}</p>
             </div>
             

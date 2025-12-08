@@ -151,6 +151,7 @@ const JobModal = ({ initialJobId, isOpen, onClose, onJobUpdated }) => {
         };
 
         try {
+            console.log("Submitting job payload:", jobPayload);
             await upsertJob(jobPayload);
             onJobUpdated();
             handleClose();
@@ -336,6 +337,17 @@ const JobModal = ({ initialJobId, isOpen, onClose, onJobUpdated }) => {
                                                     <option value="responsibility">Responsibility</option>
                                                     <option value="nice_to_have">Nice to Have</option>
                                                     <option value="qualification">Qualification</option>
+
+                                                    <option value="hard_skill">Hard Skill</option>
+                                                    <option value="soft_skill">Soft Skill</option>
+                                                    <option value="experience">Experience</option>
+                                                    <option value="employer_mission">Employer Mission</option>
+
+                                                    <option value="employer_culture">Employer Culture</option>
+                                                    <option value="role_value">Role Value</option>
+                                                    <option value="benefit">Benefit</option>
+
+                                                    <option value="other">Other</option>
                                                 </select>
                                                 <button 
                                                     type="button" 

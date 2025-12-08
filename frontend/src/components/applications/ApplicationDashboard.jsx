@@ -11,6 +11,7 @@ import {
     createCoverLetter, updateApplication, fetchCoverLetterDetails 
 } from '../../api/applicationClient';
 import { fetchCVDetails } from '../../api/cvClient';
+import NewDocumentModal from './NewDocumentModal'; // <--- Import the new Modal
 
 const ApplicationDashboard = () => {
     const { applicationId } = useParams();
@@ -18,6 +19,7 @@ const ApplicationDashboard = () => {
     
     const [data, setData] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
+    const [isModalOpen, setIsModalOpen] = useState(false); // <--- State for Modal
     
     // Note: activeDocId logic is removed because we now navigate to a separate route for docs
 
@@ -79,6 +81,40 @@ const ApplicationDashboard = () => {
     }, [applicationId]);
 
     // --- HANDLERS ---
+
+    const handleCreateDocClick = () => {
+        setIsModalOpen(true);
+    };
+
+    const handleCreateDocSubmit = async (name, layout, questions) => {
+        try {
+            // 1. Create the base document
+            const res = await createCoverLetter(data.app.job_id, data.app.base_cv_id, data.app.mapping_id, name);
+            const newDoc = res.data;
+            
+            // 2. Apply the selected layout strategy
+            if (layout === 'qa') {
+                // Call the new Q&A endpoint
+                await client.post(`/coverletter/${newDoc.id}/autofill_qa`, { questions: questions });
+            } else if (layout !== 'blank') {
+                // Call the existing autofill endpoint
+                await client.post(`/coverletter/${newDoc.id}/autofill?strategy=${layout}&mode=reset`);
+            }
+            
+            // 3. Link to Application
+            const newIds = [...(data.app.supporting_document_ids || []), newDoc.id];
+            await updateApplication(data.app.id, { supporting_document_ids: newIds });
+            
+            setIsModalOpen(false);
+            
+            // 4. Navigate
+            navigate(`/application/${applicationId}/doc/${newDoc.id}`);
+            
+        } catch (err) {
+            console.error(err);
+            alert("Failed to create document.");
+        }
+    };
 
     const handleCreateDoc = async () => {
         const name = prompt("Document Name (e.g., 'Selection Criteria', 'Personal Statement'):", "Supporting Document");
@@ -254,7 +290,7 @@ const ApplicationDashboard = () => {
                         {!data.app.is_locked && (
                             <button 
                                 className="btn btn-sm btn-outline-dark rounded-pill d-flex align-items-center gap-2 px-3"
-                                onClick={handleCreateDoc}
+                                onClick={handleCreateDocClick}
                             >
                                 <Plus size={14} /> New Document
                             </button>
@@ -306,6 +342,13 @@ const ApplicationDashboard = () => {
                     )}
                 </div>
             </div>
+
+            {/* Modal */}
+            <NewDocumentModal 
+                isOpen={isModalOpen} 
+                onClose={() => setIsModalOpen(false)} 
+                onCreate={handleCreateDocSubmit}
+            />
 
             <style>{`
                 .hover-lift:hover { transform: translateY(-2px); }
