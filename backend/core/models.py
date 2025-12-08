@@ -242,13 +242,19 @@ class DerivedCV(CV):
 # Job description & matching
 # ---------------------------------------------------------------------
 
+
 class JobDescriptionFeature(BaseEntity):
     type: Literal[
-        "requirement",
         "responsibility",
-        "value",
-        "nice_to_have",
+        "hard_skill",
+        "soft_skill",
+        "experience",
         "qualification",
+        "requirement",
+        "nice_to_have",
+        "employer_mission",
+        "employer_culture",
+        "role_value",
         "benefit",
         "other",
     ] = "requirement"
@@ -280,11 +286,16 @@ class JobFeatureInput(BaseModel):
     """Payload for a single feature. ID is optional (for new features)."""
     id: Optional[str] = None # Will be null for new features
     type: Literal[
-        "requirement",
         "responsibility",
-        "value",
-        "nice_to_have",
+        "hard_skill",
+        "soft_skill",
+        "experience",
         "qualification",
+        "requirement",
+        "nice_to_have",
+        "employer_mission",
+        "employer_culture",
+        "role_value",
         "benefit",
         "other",
     ] = "requirement"
@@ -320,6 +331,10 @@ class MappingPair(BaseEntity):
     # experience_text: Optional[str] = None # <-- REMOVE THIS
     context_item_text: Optional[str] = None # <-- ADD THIS
     # --- END CHANGES ---
+
+    # --- ADD THIS LINE ---
+    strength: Optional[float] = None 
+    # ---------------------
     
     annotation: Optional[str] = None
 
