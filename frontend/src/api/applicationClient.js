@@ -2,7 +2,7 @@
 import axios from 'axios';
 
 const API_BASE_URL = 'http://192.168.1.161:8000/api'; // <-- THIS IS THE FIX
-
+// const API_BASE_URL = "http://localhost:8000/api"
 const apiClient = axios.create({
     baseURL: API_BASE_URL,
     headers: {
@@ -87,7 +87,8 @@ export const createCoverLetter = (jobId, baseCvId, mappingId) => {
         base_cv_id: baseCvId, 
         mapping_id: mappingId 
     });
-    return apiClient.post(`/coverletter/${coverId}/?${params.toString()}`);
+
+    return apiClient.post(`/coverletter/?${params.toString()}`);
 };
 
 // --- CoverLetter Endpoints (routes/coverletter.py) ---

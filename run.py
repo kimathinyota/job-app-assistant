@@ -38,3 +38,10 @@ if __name__ == "__main__":
         port=8000, 
         reload=False  # Must be False
     )
+
+    # uvicorn.run(
+    #     "backend.main:app",
+    #     host="127.0.0.1",  # or "localhost"
+    #     port=8000,
+    #     reload=False
+    # )

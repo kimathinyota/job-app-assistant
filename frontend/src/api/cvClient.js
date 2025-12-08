@@ -1,6 +1,7 @@
 import axios from 'axios';
 
 const API_BASE_URL = 'http://192.168.1.161:8000/api'; // <-- THIS IS THE FIX
+// const API_BASE_URL = "http://localhost:8000/api"
 
 
 const apiClient = axios.create({
