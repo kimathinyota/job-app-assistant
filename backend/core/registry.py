@@ -194,6 +194,14 @@ class Registry:
             job.company = payload.company
             job.job_url = payload.job_url
             job.application_end_date = payload.application_end_date
+
+            job.date_closing=payload.date_closing,       # Map directly
+            job.date_posted=payload.date_posted,         # Map directly
+            job.date_extracted=payload.date_extracted,   # Map directly
+            job.description=payload.description,         # Map directly
+
+
+
             job.location = payload.location
             job.salary_range = payload.salary_range
             job.notes = payload.notes
@@ -215,7 +223,11 @@ class Registry:
                 location=payload.location,
                 salary_range=payload.salary_range,
                 notes=payload.notes,
-                features=processed_features
+                features=processed_features,
+                date_closing=payload.date_closing,       # Map directly
+                date_posted=payload.date_posted,         # Map directly
+                date_extracted=payload.date_extracted,   # Map directly
+                description=payload.description,         # Map directly
             )
             return self._insert("jobs", job)
 

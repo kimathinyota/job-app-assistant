@@ -275,6 +275,14 @@ class JobDescription(BaseEntity):
     notes: Optional[str] = None
     # --- END NEW FIELDS ---
 
+    date_closing: Optional[str] = None 
+    date_posted: Optional[str] = None      # <--- ADDED
+    date_extracted: Optional[str] = None   # <--- ADDED
+    
+    # --- CONTENT ---
+    description: Optional[str] = None           # <--- ADDED: Raw text
+    displayed_description: Optional[str] = None # <--- ADDED: HTML/Formatted
+
     def add_feature(self, description: str, type: str = "requirement") -> JobDescriptionFeature:
         f = JobDescriptionFeature.create(description=description, type=type)
         self.features.append(f)
@@ -314,6 +322,14 @@ class JobUpsertPayload(BaseModel):
     location: Optional[str] = None
     salary_range: Optional[str] = None
     notes: Optional[str] = None
+
+    date_closing: Optional[str] = None 
+    date_posted: Optional[str] = None      # <--- ADDED
+    date_extracted: Optional[str] = None   # <--- ADDED
+    
+    # --- CONTENT ---
+    description: Optional[str] = None           # <--- ADDED: Raw text
+    displayed_description: Optional[str] = None # <--- ADDED: HTML/Formatted
     
     # The frontend will send the *full* list of features.
     # The backend will replace the old list with this new one.
