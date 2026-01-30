@@ -14,7 +14,9 @@ import {
     Briefcase,
     Star,
     AlertCircle,
-    ListChecks
+    ListChecks,
+    Clock, // <--- Added
+    Eye    // <--- Added
 } from 'lucide-react';
 
 const JobCard = ({ 
@@ -25,6 +27,7 @@ const JobCard = ({
     onStartApplication, 
     onEdit,
     onDelete,
+    onViewDescription // <--- New Prop
 }) => {
 
     const hasApplication = Boolean(application);
@@ -45,6 +48,11 @@ const JobCard = ({
         const foundCv = cvs.find(cv => cv.id === application.base_cv_id);
         return foundCv ? foundCv.name : "Unknown CV"; 
     };
+
+    // --- DATE LOGIC ---
+    // Prefer the explicitly scraped 'date_closing', fallback to legacy 'application_end_date'
+    const closingDate = job.date_closing || job.application_end_date;
+    const postedDate = job.date_posted;
 
     // Helper to style feature types
     const getFeatureStyle = (type) => {
@@ -148,22 +156,43 @@ const JobCard = ({
                             <Banknote size={14} className="text-success opacity-75" /> {job.salary_range}
                         </span>
                     )}
-                    {job.application_end_date && (
-                        <span className="badge bg-white text-secondary border fw-normal d-flex align-items-center gap-2 py-2 px-3 rounded-pill">
+                    
+                    {/* UPDATED DATE LOGIC */}
+                    {postedDate && (
+                        <span className="badge bg-white text-secondary border fw-normal d-flex align-items-center gap-2 py-2 px-3 rounded-pill" title="Date Posted">
+                            <Clock size={14} className="text-info opacity-75" /> 
+                            <span className="text-muted opacity-75 me-1">Posted:</span>
+                            {new Date(postedDate).toLocaleDateString(undefined, {month:'short', day:'numeric'})}
+                        </span>
+                    )}
+                    {closingDate && (
+                        <span className="badge bg-white text-secondary border fw-normal d-flex align-items-center gap-2 py-2 px-3 rounded-pill" title="Closing Date">
                             <Calendar size={14} className="text-warning opacity-75" /> 
                             <span className="text-muted opacity-75 me-1">Due:</span>
-                            {new Date(job.application_end_date).toLocaleDateString(undefined, {month:'short', day:'numeric'})}
+                            {new Date(closingDate).toLocaleDateString(undefined, {month:'short', day:'numeric'})}
                         </span>
                     )}
                 </div>
 
                 {/* --- Features Snippet (Fixed Types) --- */}
                 <div className="flex-grow-1 mb-3">
+                    <div className="d-flex justify-content-between align-items-center mb-2">
+                        <h6 className="text-xs fw-bold text-uppercase text-muted mb-0 d-flex align-items-center gap-1">
+                            <FileText size={12}/> Key Highlights
+                        </h6>
+                        {/* VIEW DESCRIPTION BUTTON */}
+                        {(job.displayed_description || job.description) && (
+                            <button 
+                                onClick={() => onViewDescription(job)}
+                                className="btn btn-link p-0 text-primary text-xs text-decoration-none d-flex align-items-center gap-1 hover-underline"
+                            >
+                                <Eye size={12} /> View Desc
+                            </button>
+                        )}
+                    </div>
+
                     {job.features && job.features.length > 0 ? (
                         <div className="bg-light bg-opacity-50 rounded-3 p-3 custom-scroll border border-dashed" style={{ maxHeight: '140px', overflowY: 'auto' }}>
-                            <h6 className="text-xs fw-bold text-uppercase text-muted mb-2 d-flex align-items-center gap-1">
-                                <FileText size={12}/> Key Highlights
-                            </h6>
                             <ul className="list-unstyled mb-0">
                                 {job.features.map(feature => {
                                     const style = getFeatureStyle(feature.type);

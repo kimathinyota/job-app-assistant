@@ -8,7 +8,8 @@ import {
     LayoutGrid, 
     Filter,
     CheckCircle2,
-    CircleDashed
+    CircleDashed,
+    FileText // <--- Used in modal
 } from 'lucide-react';
 
 import { 
@@ -33,13 +34,16 @@ const SavedJobsView = ({ defaultCvId, onNavigateToWorkspace }) => {
     // --- UI States ---
     const [searchQuery, setSearchQuery] = useState('');
     const [isSearchOpen, setIsSearchOpen] = useState(false);
-    const [statusFilter, setStatusFilter] = useState('all'); // 'all', 'pending', 'started'
+    const [statusFilter, setStatusFilter] = useState('all'); 
 
     // --- Modal States ---
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [modalJobId, setModalJobId] = useState(null); 
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
     const [itemToDelete, setItemToDelete] = useState(null);
+    
+    // --- NEW: Description Viewer State ---
+    const [viewingDescJob, setViewingDescJob] = useState(null);
 
     const loadData = async () => {
         setLoading(true);
@@ -76,18 +80,15 @@ const SavedJobsView = ({ defaultCvId, onNavigateToWorkspace }) => {
         return map;
     }, [applications]);
 
-    // 1. Compute Counts for Tabs
     const counts = useMemo(() => {
         const pending = jobs.filter(j => !applicationMap.has(j.id)).length;
         const started = jobs.filter(j => applicationMap.has(j.id)).length;
         return { all: jobs.length, pending, started };
     }, [jobs, applicationMap]);
 
-    // 2. Filter & Sort Logic
     const processedJobs = useMemo(() => {
         let result = [...jobs];
 
-        // A. Search Filter
         if (searchQuery.trim()) {
             const term = searchQuery.toLowerCase();
             result = result.filter(job => 
@@ -96,21 +97,18 @@ const SavedJobsView = ({ defaultCvId, onNavigateToWorkspace }) => {
             );
         }
 
-        // B. Status Filter
         if (statusFilter === 'pending') {
             result = result.filter(job => !applicationMap.has(job.id));
         } else if (statusFilter === 'started') {
             result = result.filter(job => applicationMap.has(job.id));
         }
 
-        // C. Priority Sort (Pending First)
-        // If 'all' is selected, we sort so that pending jobs are at the top
         if (statusFilter === 'all') {
             result.sort((a, b) => {
                 const aHasApp = applicationMap.has(a.id);
                 const bHasApp = applicationMap.has(b.id);
                 if (aHasApp === bHasApp) return 0;
-                return aHasApp ? 1 : -1; // Pending (false) comes before Started (true)
+                return aHasApp ? 1 : -1; 
             });
         }
 
@@ -124,6 +122,10 @@ const SavedJobsView = ({ defaultCvId, onNavigateToWorkspace }) => {
     const handleJobUpdated = () => { loadData(); };
     const handleOpenDeleteModal = (job) => { setItemToDelete(job); setIsDeleteModalOpen(true); };
     const handleCloseDeleteModal = () => { setItemToDelete(null); setIsDeleteModalOpen(false); };
+
+    // --- NEW: Description Handler ---
+    const handleViewDescription = (job) => { setViewingDescJob(job); };
+    const handleCloseDescModal = () => { setViewingDescJob(null); };
 
     const handleConfirmDelete = async () => {
         if (!itemToDelete) return;
@@ -162,7 +164,6 @@ const SavedJobsView = ({ defaultCvId, onNavigateToWorkspace }) => {
                     from { opacity: 0; transform: translateY(-10px); }
                     to { opacity: 1; transform: translateY(0); }
                 }
-                /* Segmented Control Styles */
                 .status-pill {
                     cursor: pointer;
                     font-size: 0.85rem;
@@ -183,13 +184,15 @@ const SavedJobsView = ({ defaultCvId, onNavigateToWorkspace }) => {
                     color: white;
                     box-shadow: 0 2px 4px rgba(15, 23, 42, 0.2);
                 }
+                /* Modal Description Styles */
+                .job-desc-content h1, .job-desc-content h2, .job-desc-content h3 { font-size: 1.1rem; font-weight: bold; margin-top: 1rem; margin-bottom: 0.5rem; }
+                .job-desc-content ul { padding-left: 1.5rem; margin-bottom: 1rem; }
+                .job-desc-content p { margin-bottom: 0.75rem; }
                 `}
             </style>
 
             {/* 1. Header Section */}
             <div className="d-flex flex-column flex-xl-row justify-content-between align-items-xl-center mb-4 gap-3">
-                
-                {/* Title & Stats */}
                 <div className="d-flex align-items-center gap-3">
                     <div className="bg-primary bg-opacity-10 p-2 rounded-circle text-primary">
                         <LayoutGrid size={20} />
@@ -200,10 +203,7 @@ const SavedJobsView = ({ defaultCvId, onNavigateToWorkspace }) => {
                             Manage your saved opportunities
                         </p>
                     </div>
-                    
                     <div className="vr mx-2 d-none d-md-block opacity-25"></div>
-
-                    {/* Modern Segmented Control / Filter Pills */}
                     <div className="d-flex gap-1 p-1 bg-white border rounded-pill shadow-sm">
                         <button 
                             className={`status-pill d-flex align-items-center gap-2 ${statusFilter === 'all' ? 'active' : ''}`}
@@ -226,7 +226,6 @@ const SavedJobsView = ({ defaultCvId, onNavigateToWorkspace }) => {
                     </div>
                 </div>
 
-                {/* Actions */}
                 <div className="d-flex gap-2">
                     <button 
                         onClick={() => setIsSearchOpen(!isSearchOpen)}
@@ -302,6 +301,7 @@ const SavedJobsView = ({ defaultCvId, onNavigateToWorkspace }) => {
                                         onStartApplication={handleStartApplication}
                                         onEdit={() => handleOpenEditModal(job.id)} 
                                         onDelete={() => handleOpenDeleteModal(job)}
+                                        onViewDescription={handleViewDescription} // <--- Passed Handler
                                     />
                                 </div>
                             </div>
@@ -327,6 +327,44 @@ const SavedJobsView = ({ defaultCvId, onNavigateToWorkspace }) => {
                     itemName={itemToDelete.title}
                     itemType="job"
                 />
+            )}
+
+            {/* NEW: Description Modal */}
+            {viewingDescJob && (
+                <div className="modal show d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}} tabIndex="-1" onClick={handleCloseDescModal}>
+                    <div className="modal-dialog modal-lg modal-dialog-scrollable modal-dialog-centered" onClick={e => e.stopPropagation()}>
+                        <div className="modal-content border-0 shadow-lg">
+                            <div className="modal-header border-bottom-0 bg-light bg-opacity-50">
+                                <div className="d-flex align-items-center gap-3">
+                                    <div className="bg-white p-2 rounded border shadow-sm text-primary">
+                                        <FileText size={20} />
+                                    </div>
+                                    <div>
+                                        <h5 className="modal-title fw-bold text-dark">{viewingDescJob.title}</h5>
+                                        <div className="text-muted small">{viewingDescJob.company}</div>
+                                    </div>
+                                </div>
+                                <button type="button" className="btn-close" onClick={handleCloseDescModal}></button>
+                            </div>
+                            <div className="modal-body p-4 bg-white">
+                                {viewingDescJob.displayed_description ? (
+                                    <div 
+                                        className="job-desc-content text-secondary"
+                                        style={{ fontSize: '0.95rem', lineHeight: '1.6' }}
+                                        dangerouslySetInnerHTML={{ __html: viewingDescJob.displayed_description }} 
+                                    />
+                                ) : (
+                                    <div className="text-secondary" style={{ whiteSpace: 'pre-wrap', fontSize: '0.95rem', lineHeight: '1.6' }}>
+                                        {viewingDescJob.description || "No description available."}
+                                    </div>
+                                )}
+                            </div>
+                            <div className="modal-footer border-top-0 bg-light bg-opacity-50">
+                                <button type="button" className="btn btn-secondary" onClick={handleCloseDescModal}>Close</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             )}
         </div>
     );
