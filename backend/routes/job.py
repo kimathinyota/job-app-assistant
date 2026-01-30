@@ -4,8 +4,33 @@ from fastapi import APIRouter, HTTPException, Request
 from backend.core.registry import Registry
 from backend.core.models import JobDescriptionUpdate, JobUpsertPayload # Import the update model
 from typing import Optional
-
+from pydantic import BaseModel
 router = APIRouter()
+
+class JobTextRequest(BaseModel):
+    text: str
+
+@router.post("/parse")
+async def parse_job_description(request: Request, job_request: JobTextRequest):
+    """
+    Parses a raw job description using the loaded Llama 3 model.
+    """
+    parser = getattr(request.app.state, "job_parser", None)
+    
+    if not parser:
+        raise HTTPException(
+            status_code=503, 
+            detail="Model is not loaded on the server. Check server logs."
+        )
+    
+    # Run inference (this is blocking CPU code, so fast/short requests are okay, 
+    # but for heavy loads you might want to run this in a threadpool)
+    result = parser.parse(job_request.text)
+    
+    if "error" in result and result["error"] != "Failed to generate valid JSON":
+         raise HTTPException(status_code=400, detail=result["error"])
+
+    return result
 
 @router.post("/")
 def create_job(title: str, company: str, request: Request, notes: Optional[str] = None):

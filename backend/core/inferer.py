@@ -13,6 +13,610 @@ from sklearn.metrics.pairwise import cosine_similarity
 from collections import defaultdict
 
 log = logging.getLogger(__name__)
+import time
+import json
+
+# Try to import Llama, handle if missing
+try:
+    from llama_cpp import Llama
+except ImportError:
+    Llama = None
+
+log = logging.getLogger(__name__)
+
+class JobDescriptionParser:
+    def __init__(self, model_path: str, context_size: int = 8192, n_threads: int = 4):
+        if Llama is None:
+            raise ImportError("llama-cpp-python is not installed. Please install it to use the parser.")
+        
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"Model file not found at: {model_path}")
+
+        log.info(f"⏳ Loading Llama model from {model_path}...")
+        t0 = time.time()
+        
+        # Initialize the Model
+        self.llm = Llama(
+            model_path=model_path,
+            n_ctx=context_size,
+            n_threads=n_threads,
+            n_gpu_layers=-1, # CPU only as requested
+            verbose=True   # Reduce logs in production
+        )
+        
+        log.info(f"✅ Model Loaded in {time.time() - t0:.2f} seconds!")
+
+   
+    # ==========================================
+    #  1. SKILLS SCOUT AGENT (Definition-Based)
+    # ==========================================
+    PROMPT_SKILLS = """You are a Specialized Skills Extraction Engine.
+    
+### OBJECTIVE:
+Scan the provided Job Description text and identify every technical tool and interpersonal trait mentioned.
+
+### DEFINITIONS (What to look for):
+1.  **hard_skill**: Look for proper nouns representing software, programming languages, hardware, platforms, frameworks, or specific methodologies. (e.g., specific names of tools).
+2.  **soft_skill**: Look for adjectives or phrases describing personal character, work style, or interpersonal abilities.
+
+### EXTRACTION LOGIC:
+* Scan the text sentence by sentence.
+* If a sentence mentions a tool (e.g., "Must know X"), extract "X" as a `hard_skill`.
+* If a sentence lists multiple skills (e.g., "X, Y, and Z"), separate them into distinct items.
+* **Atomisation:** If a responsibility says "Manage data using X", ignore the "Manage data" part and strictly extract "X".
+* **Preferred Flag:** If the skill appears in a section titled "Nice to Have", "Bonus", or "Preferred", set the boolean flag `preferred` to true. Otherwise false.
+
+### OUTPUT FORMAT (Strict JSON):
+Return a single JSON object with a key "features" containing a list of objects.
+Each object must have:
+- "type": either "hard_skill" or "soft_skill"
+- "description": the extracted string (verbatim from text)
+- "preferred": boolean
+
+NO MARKDOWN. NO PREAMBLE. RAW JSON ONLY.
+"""
+
+    # ==========================================
+    #  2. RECRUITER AGENT (Definition-Based)
+    # ==========================================
+    PROMPT_REQUIREMENTS = """You are a Recruitment Criteria Analyzer.
+
+### OBJECTIVE:
+Analyze the Job Description to extract the mandatory barriers to entry and educational background.
+
+### DEFINITIONS (What to look for):
+1.  **experience**: Look for sentences containing NUMBERS relating to time or history. Look for phrases like "years of experience", "track record", "history of", or "previous work in".
+2.  **qualification**: Look for proper nouns indicating certification bodies, academic degrees, or government licenses.
+3.  **requirement**: Look for logical constraints, citizenship status, travel requirements, shift patterns, or physical requirements.
+
+### EXTRACTION LOGIC:
+* **differentiation**:
+    * If it mentions a duration (e.g., "3 years"), it is `experience`.
+    * If it mentions a paper credential (e.g., "MBA"), it is `qualification`.
+    * If it mentions a condition of employment (e.g., "Must be US Citizen"), it is `requirement`.
+* **Verbatim:** Copy the requirement text exactly as written.
+* **Preferred Flag:** Check if the section header implies it is optional/preferred.
+
+### OUTPUT FORMAT (Strict JSON):
+Return a single JSON object with a key "features" containing a list of objects.
+Each object must have:
+- "type": "experience", "qualification", or "requirement"
+- "description": the extracted string
+- "preferred": boolean
+
+NO MARKDOWN. NO PREAMBLE. RAW JSON ONLY.
+"""
+
+    # ==========================================
+    #  3. CULTURE ANALYST AGENT (Definition-Based)
+    # ==========================================
+    PROMPT_EMPLOYER = """You are a Corporate Identity Analyst.
+
+### OBJECTIVE:
+Extract statements that define the company's identity, values, and working environment.
+
+### DEFINITIONS (What to look for):
+1.  **employer_mission**: Look for the "About Us" section. Look for statements starting with "We are", "Our mission", "We believe", or "Our goal". This describes *what* the company does and *why*.
+2.  **employer_culture**: Look for descriptors of the internal environment. Look for words like "inclusive", "fast-paced", "remote-first", "collaborative", or "family-oriented".
+
+### EXTRACTION LOGIC:
+* Extract full, complete sentences.
+* Do not extract generic responsibilities here. Only extract text about the *Company* itself.
+
+### OUTPUT FORMAT (Strict JSON):
+Return a single JSON object with a key "features" containing a list of objects.
+Each object must have:
+- "type": "employer_mission" or "employer_culture"
+- "description": the extracted string (verbatim)
+- "preferred": false
+
+NO MARKDOWN. NO PREAMBLE. RAW JSON ONLY.
+"""
+
+    # ==========================================
+    #  4. JOB ANALYST AGENT (Definition-Based)
+    # ==========================================
+    PROMPT_RESPONSIBILITIES = """You are a Job Duty Auditor.
+
+### OBJECTIVE:
+Extract every single actionable task listed in the job description.
+
+### DEFINITIONS (What to look for):
+1.  **responsibility**: Look for bullet points starting with action verbs (e.g., Manage, Design, Build, Coordinate, Assist). Look in sections titled "Responsibilities", "Duties", "What you will do", or "Role Overview".
+
+### EXTRACTION LOGIC (Anti-Laziness):
+* **Exhaustive Extraction:** You must extract EVERY bullet point found in the duties section.
+* **Verbatim Protocol:** Copy the text EXACTLY as it appears.
+* **Prohibited:** Do not summarize. Do not shorten. **Do not use ellipses (...)**. If a sentence is long, capture the whole string.
+
+### OUTPUT FORMAT (Strict JSON):
+Return a single JSON object with a key "features" containing a list of objects.
+Each object must have:
+- "type": "responsibility"
+- "description": the extracted string (verbatim)
+- "preferred": false
+
+NO MARKDOWN. NO PREAMBLE. RAW JSON ONLY.
+"""
+
+    # ==========================================
+    #  5. HR GENERALIST (METADATA) AGENT (Definition-Based)
+    # ==========================================
+    PROMPT_CORE = """You are a Compensation and Benefits Specialist.
+
+### OBJECTIVE:
+Extract the core metadata of the job listing and the benefits package.
+
+### DEFINITIONS (What to look for):
+1.  **title**: The name of the role. Usually at the very top of the text.
+2.  **company**: The name of the organization hiring. Look at the top, bottom, or in copyright footers.
+3.  **location**: The physical city, state, or "Remote"/"Hybrid" status.
+4.  **salary_range**: Specific monetary figures (e.g., $50k, £30/hr). If not found, return null.
+5.  **benefit**: Look for perks listed in "Benefits" or "What we offer" (e.g., 401k, PTO, Health, Snacks).
+6.  **role_value**: High-level impact statements (e.g., "You will lead the expansion").
+
+### EXTRACTION LOGIC:
+* For metadata (title, company, location, salary), extract the most specific string found.
+* For benefits, extract each item as a separate feature object.
+
+### OUTPUT FORMAT (Strict JSON):
+Return a single JSON object with keys: "title", "company", "location", "salary_range", and "features".
+"features" must be a list of objects with:
+- "type": "benefit" or "role_value"
+- "description": the extracted string
+- "preferred": boolean
+
+NO MARKDOWN. NO PREAMBLE. RAW JSON ONLY.
+"""
+
+    
+    def _repair_json(self, json_str: str) -> str:
+        """Attempts to fix common JSON truncation errors."""
+        json_str = json_str.strip()
+        
+        # 1. Close unclosed string quotes
+        # Count quotes. If odd, we are inside a string.
+        if json_str.count('"') % 2 != 0:
+            json_str += '"'
+            
+        # 2. Close unclosed feature objects
+        if json_str.endswith(","):
+            json_str = json_str[:-1] # Remove trailing comma
+        if json_str.endswith("}") and not json_str.endswith("]}") and "features" in json_str:
+            # We might have closed an object but not the list
+            pass 
+            
+        # 3. Bruteforce closure
+        # If it doesn't end with '}', try adding closures until it parses or we give up
+        closers = ["}", "]}", ""]
+        
+        for c in closers:
+            try:
+                candidate = json_str + c
+                json.loads(candidate)
+                return candidate
+            except:
+                continue
+                
+        # Fallback: Just append "]}" and hope
+        if not json_str.endswith("}"):
+             return json_str + "]}"
+             
+        return json_str
+
+
+    def _run_inference(self, prompt_template: str, job_text: str, max_tokens: int = 1024) -> dict:
+        full_prompt = f"""<|start_header_id|>system<|end_header_id|>
+
+{prompt_template}<|eot_id|><|start_header_id|>user<|end_header_id|>
+
+### JOB DESCRIPTION:
+{job_text}<|eot_id|><|start_header_id|>assistant<|end_header_id|>"""
+        
+        output = self.llm(
+            full_prompt,
+            max_tokens=max_tokens,
+            stop=["<|eot_id|>"],
+            temperature=0.0,
+            echo=False,
+            repeat_penalty=1.05,
+            top_p=0.95
+        )
+        
+        result_text = output['choices'][0]['text'].strip()
+        
+        # Cleanup Markdown
+        if "```" in result_text:
+            result_text = result_text.split("```")[-1]
+            if result_text.startswith("json"): result_text = result_text[4:]
+            result_text = result_text.split("```")[0]
+            
+        result_text = result_text.strip()
+        
+        # Find JSON start
+        start_idx = result_text.find("{")
+        if start_idx != -1:
+            result_text = result_text[start_idx:]
+
+        print(f"🔍 Raw LLM Output: {result_text}")  # Log last 100 chars for debugging
+        
+        # Attempt Repair
+        try:
+            return json.loads(result_text)
+        except json.JSONDecodeError:
+            log.warning(f"⚠️ JSON Decode Error. Attempting repair on: {result_text[-50:]}...")
+            fixed_text = self._repair_json(result_text)
+            try:
+                return json.loads(fixed_text)
+            except:
+                log.error("❌ Failed to repair JSON.")
+                return {}
+    
+
+
+    def slow_parse(self, job_text: str) -> dict:
+        """
+        Orchestrates the 5 specialized agents.
+        """
+        log.info("🐢 Starting Slow Parse (5-Step Process)...")
+        start_time = time.time()
+
+        # 1. Run the Agents
+        skills_data = self._run_inference(self.PROMPT_SKILLS, job_text)
+        reqs_data = self._run_inference(self.PROMPT_REQUIREMENTS, job_text)
+        empl_data = self._run_inference(self.PROMPT_EMPLOYER, job_text)
+        resp_data = self._run_inference(self.PROMPT_RESPONSIBILITIES, job_text, max_tokens=2048)
+        core_data = self._run_inference(self.PROMPT_CORE, job_text)
+
+        # 2. Merge Results
+        final_result = {
+            "title": core_data.get("title"),
+            "company": core_data.get("company"),
+            "location": core_data.get("location"),
+            "salary_range": core_data.get("salary_range"),
+            "features": [],
+            "_meta": {}
+        }
+
+        # Combine all features lists safely
+        all_features = (
+            (skills_data.get("features") or []) +
+            (reqs_data.get("features") or []) +
+            (empl_data.get("features") or []) +
+            (resp_data.get("features") or []) +
+            (core_data.get("features") or [])
+        )
+
+        # 3. Safe Deduplication
+        seen = set()
+        unique_features = []
+        
+        for f in all_features:
+            if not isinstance(f, dict):
+                continue
+            
+            raw_desc = f.get("description")
+            if not raw_desc: 
+                continue 
+                
+            desc = str(raw_desc).strip()
+            sig = (f.get("type"), desc.lower())
+            
+            if sig not in seen:
+                seen.add(sig)
+                f["description"] = desc 
+                unique_features.append(f)
+
+        final_result["features"] = unique_features
+        final_result["_meta"]["generation_time_sec"] = round(time.time() - start_time, 2)
+        final_result["_meta"]["method"] = "slow_parse_v1"
+        
+        log.info(f"✅ Slow Parse Complete in {final_result['_meta']['generation_time_sec']}s")
+        return final_result
+    
+
+    
+   # ==========================================
+    #  AGENT 1: THE CANDIDATE PROFILE (WHO)
+    # ==========================================
+    PROMPT_CANDIDATE = """You are a Technical Resume Screener.
+
+### OBJECTIVE:
+Extract CANDIDATE ATTRIBUTES (what they know/have). You must ignore Daily Duties (what they do).
+
+### SEMANTIC DEFINITIONS:
+1. "hard_skill":
+   - MATCH: Specific Proper Nouns representing Tools, Technologies, Standards, or Methodologies.
+   - CATEGORIES: Software names, Hardware/Machinery names, Regulatory Frameworks, Technical Protocols.
+   - REJECT: General business processes, administrative tasks, or sentences describing a duty (e.g., "Managing the team").
+
+2. "soft_skill":
+   - MATCH: Adjectives or short phrases defining personal character or work style.
+   - CONSTRAINT: Max 3 words.
+
+3. "certification":
+   - MATCH: **Paper Credentials ONLY**. Academic Degrees, Professional Certifications, Government Licenses, Security Clearances.
+   - REJECT: Phrases like "Knowledge of", "Experience in", or "Ability to".
+
+### OUTPUT SCHEMA (STRICT JSON):
+You must output a single, raw JSON object matching this exact structure:
+{
+  "features": [
+    {
+      "type": "string (Must be one of: hard_skill, soft_skill, certification)",
+      "description": "string (The extracted text verbatim)",
+    }
+  ]
+}
+DO NOT RETURN MARKDOWN. DO NOT USE ```json BLOCKS. JUST THE RAW JSON.
+"""
+
+    # ==========================================
+    #  AGENT 2: THE JOB EXECUTION (WHAT)
+    # ==========================================
+    PROMPT_JOB = """You are a Job Analyst.
+
+### OBJECTIVE:
+Extract DAILY DUTIES and LOGISTICAL CONSTRAINTS.
+
+### SEMANTIC DEFINITIONS:
+1. "responsibility":
+   - DEFINITION: **Actions**. Things the employee DOES on a daily basis.
+   - SIGNAL: Bullet points or sentences starting with **Action Verbs**.
+   - RULE: If it describes a task to be performed, it is a Responsibility.
+
+2. "requirement":
+   - DEFINITION: **All Mandatory Constraints** (Logistics, Legal, Status, OR History).
+   - LIKE:
+     a) **Logistics/Legal:** Citizenship, Visa, Criminal checks, Shifts, Travel %, Location.
+     b) **History/Experience:** Years of experience, Proven track record, Previous tenure.
+   - **CRITICAL INSTRUCTION:** If the requirement is historical (Time/Experience based), you MUST append " (experience)" to the end of the string.
+   - REJECT: Any bullet point starting with an Action Verb (Move those to Responsibility).
+
+### OUTPUT SCHEMA (STRICT JSON):
+You must output a single, raw JSON object matching this exact structure:
+{
+  "features": [
+    {
+      "type": "string (Must be one of: responsibility, requirement)",
+      "description": "string (The extracted text verbatim)",
+    }
+  ]
+}
+DO NOT RETURN MARKDOWN. DO NOT USE ```json BLOCKS. JUST THE RAW JSON.
+"""
+
+    # ==========================================
+    #  AGENT 3: THE VALUE PROPOSITION (WHY/WHERE)
+    # ==========================================
+    PROMPT_VALUE = """You are a Compensation Analyst.
+
+### OBJECTIVE:
+Extract Rewards and Metadata.
+
+### METADATA:
+- "title": Specific role name.
+- "company": Organization name.
+- "location": City, State, or Remote status.
+- "salary_range":
+   - DEFINITION: The specific amount of money the job pays.
+   - LOOK FOR: Currency symbols (£, $, €) and numbers.
+   - MATCH: ** You may ONLY extract items that appear listed under headers like "Salary", "Compensation", "Pay", "Remuneration" or immediately following labels like "Salary:".
+   - EXAMPLES: "£30,000 - £40,000", "$50k per year", "£12.50/hr", "€600 per day".
+
+### FEATURE DEFINITIONS:
+
+1. "employer_culture":
+   - MATCH: Adjectives or phrases or slogans describing the company culture or vibe, ETHOS, VALUES, ETHICS
+2. "employer_mission":
+   - MATCH: High-level purpose statements describing what the company does and why.
+3. "perk":
+   - LIKE: Bonus, Pension, Health coverage, Time off, Lifestyle perks (Gym, Food), Equipment, Discounts.
+   - MATCH: ** You may ONLY extract items that appear listed under headers like "Benefits", "Perks", "Rewards", "What we offer", "from us?", "offers", "what you get", "What you can expect from us" or immediately following labels like "Benefit:".
+
+
+### OUTPUT SCHEMA (STRICT JSON):
+You must output a single, raw JSON object matching this exact structure:
+{
+  "title": "string or null",
+  "company": "string or null",
+  "location": "string or null",
+  "salary_range": "string or null",
+  "features": [
+    {
+      "type": "string (Must be one of: employer_culture, employer_mission, perk)",
+      "description": "string (The extracted text)",
+    }
+  ]
+}
+DO NOT RETURN MARKDOWN. DO NOT USE ```json BLOCKS. JUST THE RAW JSON.
+"""
+
+    def medium_parse(self, job_text: str) -> dict:
+        log.info("🐇 Starting Medium Parse (3-Agent Architecture v34)...")
+        start_time = time.time()
+
+        # 1. Run 3 Agents Sequentially
+        candidate_data = self._run_inference(self.PROMPT_CANDIDATE, job_text, max_tokens=2500)
+        job_data = self._run_inference(self.PROMPT_JOB, job_text, max_tokens=2500)
+        value_data = self._run_inference(self.PROMPT_VALUE, job_text, max_tokens=1500)
+
+        # 2. Initialize Final Result
+        final_result = {
+            "title": value_data.get("title"),
+            "company": value_data.get("company"),
+            "location": value_data.get("location"),
+            "salary_range": value_data.get("salary_range"),
+            "features": [],
+            "_meta": {}
+        }
+
+        # 3. Combine Features
+        all_features = (
+            (candidate_data.get("features") or []) +
+            (job_data.get("features") or []) +
+            (value_data.get("features") or [])
+        )
+
+        # 4. Dedup, Clean, and Validate
+        seen = set()
+        unique_features = []
+        
+        VALID_TYPES = [
+            "responsibility", "hard_skill", "soft_skill", "experience",
+            "qualification", "requirement", "nice_to_have", 
+            "employer_mission", "employer_culture", "role_value", 
+            "benefit", "other"
+        ]
+
+        for f in all_features:
+            if not isinstance(f, dict): continue
+            
+            # Safe String Handling
+            raw_val = f.get("description")
+            if raw_val is None: continue 
+            clean_desc = str(raw_val).strip()
+            
+            if not clean_desc: continue
+            
+            feat_type = f.get("type")
+
+            # --- MAPPING LOGIC ---
+            if feat_type == "certification":
+                feat_type = "qualification"
+            if feat_type == "perk":
+                feat_type = "benefit"
+            # ---------------------
+
+            # Validate Type
+            if feat_type not in VALID_TYPES:
+                # If Agent 1 returned 'requirement' (with experience suffix), it's valid.
+                if feat_type == "requirement": 
+                    pass 
+                else: 
+                    continue
+            
+            # Anti-Hallucination Checks
+            if clean_desc.lower().startswith("we are looking"): continue
+            if clean_desc == final_result.get("location"): continue
+            
+            sig = (feat_type, clean_desc.lower())
+            
+            if sig not in seen:
+                seen.add(sig)
+                f["type"] = feat_type
+                f["description"] = clean_desc
+                f["preferred"] = bool(f.get("preferred", False))
+                unique_features.append(f)
+
+        final_result["features"] = unique_features
+        final_result["_meta"]["generation_time_sec"] = round(time.time() - start_time, 2)
+        final_result["_meta"]["method"] = "medium_parse_v34_refined"
+        
+        log.info(f"✅ Medium Parse Complete in {final_result['_meta']['generation_time_sec']}s")
+        return final_result
+    
+    def parse(self, job_text: str) -> dict:
+        return self.medium_parse(job_text)
+        # return self.slow_parse(job_text)
+    
+
+    
+
+
+
+#     def parse(self, job_text: str) -> dict:
+#         """
+#         Runs the Llama model on the job text and returns a Python dictionary.
+#         """
+#         if not job_text or not job_text.strip():
+#             return {"error": "Empty job text provided"}
+
+#         # Llama-3 specific formatting
+#         # NEW (Fix)
+#         full_prompt = f"""<|start_header_id|>system<|end_header_id|>
+
+# {self.system_prompt}<|eot_id|><|start_header_id|>user<|end_header_id|>
+
+# ### JOB DESCRIPTION:
+# {job_text}<|eot_id|><|start_header_id|>assistant<|end_header_id|>"""
+
+#         log.info("🤖 Analyzing Job Description...")
+#         start_gen = time.time()
+        
+#         output = self.llm(
+#             full_prompt,
+#             max_tokens=4096,      # Increased from 2048 to ensure full JSON fits
+#             stop=["<|eot_id|>"],
+#             temperature=0.1, 
+#             echo=False,
+#             repeat_penalty=1.05,  # <--- NEW: Penalizes repeating lines
+#             top_p=0.9,             # <--- NEW: Helps break out of loops
+#             top_k=50
+#         )
+        
+#         generation_time = time.time() - start_gen
+#         result_text = output['choices'][0]['text'].strip()
+        
+#         # Clean up potential Markdown formatting if the model adds it
+#         # Clean up potential Markdown formatting
+#         if result_text.startswith("```json"):
+#             result_text = result_text.replace("```json", "").replace("```", "")
+        
+#         result_text = result_text.strip()
+
+#         # --- REPAIR LOGIC START ---
+#         # 1. Fix missing closing brace (The error you are seeing)
+#         if result_text.endswith("]") and not result_text.endswith("}"):
+#             log.warning("⚠️ Llama forgot the closing brace. Auto-repairing...")
+#             result_text += "}"
+        
+#         # 2. Fix missing list closure (Common fallback)
+#         if not result_text.endswith("}") and not result_text.endswith("]"):
+#              # If it just stopped in the middle of nowhere, try to close everything
+#              result_text += "]}"
+#         # --- REPAIR LOGIC END ---
+
+#         try:
+#             parsed_json = json.loads(result_text)
+
+#             # --- CLEANUP LOGIC ---
+#             # Your model is outputting "description": null, which might break things later.
+#             # Let's remove those useless features.
+#             if "features" in parsed_json and isinstance(parsed_json["features"], list):
+#                 parsed_json["features"] = [
+#                     f for f in parsed_json["features"] 
+#                     if f.get("description") is not None and f.get("description") != "None"
+#                 ]
+
+#             parsed_json["_meta"] = {"generation_time_sec": round(generation_time, 2)}
+#             return parsed_json
+
+#         except json.JSONDecodeError:
+#             log.error(f"Failed to decode JSON. Raw output: {result_text}")
+#             return {"error": "Failed to generate valid JSON", "raw_output": result_text}
+        
+
 
 # =====================================================
 # Utilities
