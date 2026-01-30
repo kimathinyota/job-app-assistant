@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Cpu, Layers, Award, Link, ChevronDown, ChevronUp, Briefcase } from 'lucide-react';
+import { Cpu, Layers, Award, Link, ChevronDown, ChevronUp, Briefcase, BookOpen, Smile} from 'lucide-react';
 import SkillLinker from './SkillLinker';
 import SelectedSkillsDisplay from './SelectedSkillsDisplay';
 import AchievementManagerPanel from './AchievementManagerPanel'; // 1. IMPORT PANEL
