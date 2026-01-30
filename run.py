@@ -32,16 +32,16 @@ if __name__ == "__main__":
         log.warning("Could not set 'spawn' start method (might be already set).")
     # --- END OF FIX ---
 
-    uvicorn.run(
-        "backend.main:app", 
-        host="0.0.0.0", 
-        port=8000, 
-        reload=False  # Must be False
-    )
-
     # uvicorn.run(
-    #     "backend.main:app",
-    #     host="127.0.0.1",  # or "localhost"
-    #     port=8000,
-    #     reload=False
+    #     "backend.main:app", 
+    #     host="0.0.0.0", 
+    #     port=8000, 
+    #     reload=False  # Must be False
     # )
+
+    uvicorn.run(
+        "backend.main:app",
+        host="localhost",  # or "localhost"
+        port=8000,
+        reload=False
+    )
