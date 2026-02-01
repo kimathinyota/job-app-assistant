@@ -335,6 +335,34 @@ class JobUpsertPayload(BaseModel):
     # The backend will replace the old list with this new one.
     features: List[JobFeatureInput] = Field(default_factory=list)
 
+
+
+# 1. Atomic Lineage Step (The Breadcrumb)
+class LineageItem(BaseModel):
+    id: str
+    type: str   # e.g., "project", "achievement"
+    name: str   # e.g., "E-Commerce App"
+
+# 2. A Single Segment Match (The Evidence Atom)
+class MatchCandidate(BaseModel):
+    segment_text: str          # The exact text matched
+    segment_type: str          # e.g., "description", "title"
+    score: float               # Confidence for this specific segment
+    lineage: List[LineageItem] # Full path to this segment
+
+# The Meta Container (Stores the "Why")
+class MatchingMeta(BaseModel):
+    # The primary evidence that won the match
+    best_match: MatchCandidate
+    
+    # Other segments in the same item that also matched (Supporting Evidence)
+    # e.g. You matched the Title, but also matched a Bullet Point.
+    supporting_matches: List[MatchCandidate] = Field(default_factory=list)
+    
+    # Forensic note for quick display
+    summary_note: str
+
+
 class MappingPair(BaseEntity):
     feature_id: str
     # --- START CHANGES ---
@@ -353,6 +381,9 @@ class MappingPair(BaseEntity):
     # ---------------------
     
     annotation: Optional[str] = None
+
+    meta: Optional[MatchingMeta] = None
+
 
 
 class Mapping(BaseEntity):

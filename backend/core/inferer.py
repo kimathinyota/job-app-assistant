@@ -1,5 +1,5 @@
 from __future__ import annotations
-from .models import JobDescription, CV, MappingPair, JobDescriptionFeature, Skill
+from .models import JobDescription, CV, MappingPair, JobDescriptionFeature, Skill, MappingPair, MatchingMeta, MatchCandidate, LineageItem
 from typing import List, Dict, Any, Tuple, Optional
 import logging
 import numpy as np
@@ -659,22 +659,16 @@ def intelligent_segmentation(text: str, nlp_model=None) -> List[str]:
             
     return final_segments
 
+
+
 # =====================================================
 # 1. Custom Model Definition & Embedder
 # =====================================================
 
 class DebertaMultiLabel(nn.Module):
-    """
-    Exact architecture used in your training script.
-    Required to load the state_dict correctly.
-    """
     def __init__(self, model_name, num_classes):
         super().__init__()
-        self.backbone = AutoModel.from_pretrained(
-            model_name, 
-            trust_remote_code=False,
-            use_safetensors=False
-        )
+        self.backbone = AutoModel.from_pretrained(model_name, trust_remote_code=False)
         hidden_size = self.backbone.config.hidden_size
         self.classifier = nn.Linear(hidden_size, num_classes)
     
@@ -685,11 +679,6 @@ class DebertaMultiLabel(nn.Module):
         return logits
 
 class JobSegmentEmbedder:
-    """
-    Wraps the fine-tuned DeBERTa model but acts as an Encoder.
-    It strips the classification head logic and returns the [CLS] embedding
-    from the backbone, leveraging your domain-specific training.
-    """
     def __init__(self, checkpoint_path: str, model_name: str = "microsoft/deberta-v3-small"):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.tokenizer = None
@@ -697,128 +686,89 @@ class JobSegmentEmbedder:
         
         log.info(f"Loading custom Job Segment Model from {checkpoint_path}...")
         try:
-            # 1. Load Tokenizer
             self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-
-            # 2. Load Model Architecture
-            # Hardcoded 12 classes as defined in your training script TAXONOMY
             self.model = DebertaMultiLabel(model_name, num_classes=12)
-            
-            # 3. Load State Dict
             if os.path.exists(checkpoint_path):
                 checkpoint = torch.load(checkpoint_path, map_location=self.device)
-                # Handle case where checkpoint saves 'model_state' key or full dict
                 state_dict = checkpoint.get('model_state', checkpoint)
                 self.model.load_state_dict(state_dict)
                 self.model.to(self.device)
-                self.model.eval() # Set to eval mode (disable dropout)
-                log.info(f"Custom DeBERTa Model loaded successfully on {self.device}.")
+                self.model.eval()
             else:
-                log.error(f"Checkpoint not found at {checkpoint_path}. Semantic matching will be disabled.")
+                log.error(f"Checkpoint not found. Semantic matching disabled.")
                 self.model = None
-
         except Exception as e:
-            log.error(f"Failed to load custom model: {e}", exc_info=True)
+            log.error(f"Failed to load custom model: {e}")
             self.model = None
 
     def encode(self, texts: List[str]) -> Optional[np.ndarray]:
-        """
-        Returns numpy array of embeddings (shape: [N, hidden_size]).
-        """
-        if not self.model or not texts:
-            return None
-            
+        if not self.model or not texts: return None
         embeddings = []
-        batch_size = 16 # Keep small for CPU safety
-        
+        batch_size = 16 
         for i in range(0, len(texts), batch_size):
             batch = texts[i : i + batch_size]
             try:
-                encoded_input = self.tokenizer(
-                    batch, 
-                    padding=True, 
-                    truncation=True, 
-                    max_length=128, 
-                    return_tensors='pt'
-                )
-                
+                encoded_input = self.tokenizer(batch, padding=True, truncation=True, max_length=128, return_tensors='pt')
                 input_ids = encoded_input['input_ids'].to(self.device)
                 attention_mask = encoded_input['attention_mask'].to(self.device)
-                
                 with torch.no_grad():
-                    # Pass through backbone only
                     outputs = self.model.backbone(input_ids=input_ids, attention_mask=attention_mask)
-                    # Extract [CLS] token (first token of last hidden state)
-                    # This vector contains the "semantic summary" the model learned
                     cls_vectors = outputs.last_hidden_state[:, 0, :].cpu().numpy()
-                    
                 embeddings.append(cls_vectors)
-            except Exception as e:
-                log.error(f"Encoding error on batch {i}: {e}")
+            except Exception:
                 return None
-
-        if embeddings:
-            return np.vstack(embeddings)
-        return None
+        return np.vstack(embeddings) if embeddings else None
 
 # =====================================================
-# 2. Atomic Evidence Model
+# 2. Atomic Evidence Model (Structured Lineage)
 # =====================================================
+
 class CVEvidence:
     """
-    Represents a Micro-Segment of a CV Entity.
+    Represents a Unique Semantic Atom.
+    Stores STRUCTURED LINEAGE (List of Dicts) for direct Pydantic conversion.
     """
-    def __init__(self, 
-                 parent_item: Any, 
-                 item_type: str, 
-                 segment_text: str, 
-                 parent_context: str,
-                 parent_title: str):
+    def __init__(self, text: str, item_type: str, lineage_path: List[Dict[str, str]]):
+        self.text = text
+        self.item_type = item_type
         
-        self.parent_item = parent_item
-        # This ID ties all segments together to the parent entity
-        self.parent_id: str = getattr(parent_item, "id", f"cv-{item_type}-{hash(parent_title)}")
-        
-        self.item_type: str = item_type 
-        self.text: str = segment_text
-        self.parent_context: str = parent_context 
-        self.parent_title: str = parent_title
+        # Occurrences store the full path to the evidence
+        # path format: [{"id": "123", "type": "project", "name": "App"}, ...]
+        self.occurrences: List[List[Dict[str, str]]] = []
+        self.add_occurrence(lineage_path)
 
         self.vector_tfidf: Optional[np.ndarray] = None
         self.vector_embedding: Optional[np.ndarray] = None
 
+    def add_occurrence(self, path: List[Dict[str, str]]):
+        # Deduplicate based on the ID of the leaf node
+        if not path: return
+        leaf_id = path[-1]['id']
+        for occ in self.occurrences:
+            if occ[-1]['id'] == leaf_id:
+                return
+        self.occurrences.append(path)
+
 # =====================================================
-# 3. MappingInferer (Aggregated Logic)
+# 3. MappingInferer (Unlimited Results)
 # =====================================================
+
 class MappingInferer:
     def __init__(self):
-        # Default tuning parameters (will be overridden by API kwargs)
         self.default_min_score = 0.28
-        self.default_top_k = 3
-        
-        # Model Components
         self.embedder: Optional[JobSegmentEmbedder] = None
         self.tfidf: Optional[TfidfVectorizer] = None
         self.nlp: Optional[Any] = None
-        
-        # Path to your trained model checkpoint
         self.CHECKPOINT_PATH = "backend/core/job_model/checkpoints/model_best.pt"
 
-        # Type Matrix: Boost score if the Requirement Type matches the Evidence Type
         self.type_matrix = {
-            ("hard_skill", "skill"): 0.20,
-            ("soft_skill", "skill"): 0.15,
-            ("responsibility", "achievement"): 0.15, 
-            ("hard_skill", "achievement"): 0.15, # Skills proven by achievements
-            ("responsibility", "experience"): 0.10,
-            ("hard_skill", "project"): 0.10,
-            ("qualification", "education"): 0.15,
-            ("qualification", "certification"): 0.15,
-            ("benefit", "hobby"): 0.05
+            ("hard_skill", "skill"): 0.20, ("soft_skill", "skill"): 0.15,
+            ("responsibility", "achievement"): 0.15, ("hard_skill", "achievement"): 0.15,
+            ("responsibility", "experience"): 0.10, ("hard_skill", "project"): 0.10,
+            ("qualification", "education"): 0.15, ("benefit", "hobby"): 0.05
         }
 
     def load_models(self):
-        """Called by main.py startup."""
         log.info("Loading spaCy model...")
         try:
             import spacy
@@ -828,114 +778,127 @@ class MappingInferer:
                 import spacy.cli
                 spacy.cli.download("en_core_web_sm")
                 self.nlp = spacy.load("en_core_web_sm")
-            except Exception as e:
-                log.warning(f"Could not load spaCy: {e}. Lemmatization disabled.")
-
+            except Exception:
+                pass
         log.info("Initializing JobSegmentEmbedder...")
         self.embedder = JobSegmentEmbedder(self.CHECKPOINT_PATH)
 
     def _preprocess_cv(self, cv: CV) -> List[CVEvidence]:
         """
-        Deconstructs CV into ISOLATED ATOMIC pieces.
-        Prioritizes Titles and Names as standalone vectors.
+        Deconstructs CV into atoms with STRUCTURED breadcrumb chains.
         """
-        pool: List[CVEvidence] = []
+        atom_registry: Dict[Tuple[str, str], CVEvidence] = {}
         
-        # Lookup maps
-        skill_map = {s.id: s for s in getattr(cv, "skills", [])}
-        ach_map = {a.id: a for a in getattr(cv, "achievements", [])}
+        # 1. Build Context Map (ID -> List[Dict] Chain)
+        context_chains = {}
+        for exp in getattr(cv, "experiences", []):
+            context_chains[exp.id] = [{"id": exp.id, "type": "experience", "name": f"{exp.title} at {exp.company}"}]
+        for edu in getattr(cv, "education", []):
+            context_chains[edu.id] = [{"id": edu.id, "type": "education", "name": f"{edu.degree}"}]
+        for hobby in getattr(cv, "hobbies", []):
+            context_chains[hobby.id] = [{"id": hobby.id, "type": "hobby", "name": hobby.name}]
 
-        # --- Helper: Safely add children (Achievements/Skills) ---
-        def add_children(parent_obj, parent_type, parent_title):
-            # 1. Achievements
-            ach_ids = getattr(parent_obj, "achievement_ids", [])
-            for ach_id in ach_ids:
+        ach_map = {a.id: a for a in getattr(cv, "achievements", [])}
+        skill_map = {s.id: s for s in getattr(cv, "skills", [])}
+
+        def register_atom(text, item_type, path_chain):
+            norm_text = normalize_text(text)
+            if not norm_text: return
+            key = (norm_text, item_type)
+            
+            if key in atom_registry:
+                atom_registry[key].add_occurrence(path_chain)
+            else:
+                atom = CVEvidence(norm_text, item_type, path_chain)
+                atom_registry[key] = atom
+
+        def add_children(parent_obj, parent_chain):
+            # Achievements
+            for ach_id in getattr(parent_obj, "achievement_ids", []):
                 ach = ach_map.get(ach_id)
                 if ach and getattr(ach, 'text', None):
-                    # Combine text + context
-                    context_str = getattr(ach, 'context', '') or ''
-                    display_text = f"{ach.text} {context_str}".strip()
-                    # We do NOT inject parent title here anymore to keep signal pure for keywords,
-                    # but we keep it in metadata for the note.
-                    pool.append(CVEvidence(parent_obj, "achievement", normalize_text(display_text), parent_type, parent_title))
+                    ach_chain = parent_chain + [{
+                        "id": ach.id, 
+                        "type": "achievement", 
+                        "name": (ach.text[:20] + "...") 
+                    }]
+                    full_text = f"{ach.text} {getattr(ach, 'context', '') or ''}".strip()
+                    register_atom(full_text, "achievement", ach_chain)
 
-            # 2. Linked Skills
-            sk_ids = getattr(parent_obj, "skill_ids", [])
-            for sk_id in sk_ids:
+                    # Skills inside Achievements
+                    for sk_id in getattr(ach, "skill_ids", []):
+                        sk = skill_map.get(sk_id)
+                        if sk:
+                            sk_chain = ach_chain + [{"id": sk.id, "type": "skill", "name": sk.name}]
+                            register_atom(sk.name, "skill", sk_chain)
+
+            # Direct Skills
+            for sk_id in getattr(parent_obj, "skill_ids", []):
                 sk = skill_map.get(sk_id)
-                if sk and getattr(sk, 'name', None):
-                    # Pure Name
-                    pool.append(CVEvidence(parent_obj, "skill", normalize_text(sk.name), parent_type, parent_title))
+                if sk:
+                    sk_chain = parent_chain + [{"id": sk.id, "type": "skill", "name": sk.name}]
+                    register_atom(sk.name, "skill", sk_chain)
 
         # --- 1. Experiences ---
         for exp in getattr(cv, "experiences", []):
-            title = getattr(exp, 'title', '')
-            company = getattr(exp, 'company', '')
-            display_title = f"{title} at {company}"
-
-            # A. ISOLATED TITLE (The "Role" Signal)
-            if title:
-                pool.append(CVEvidence(exp, "experience", normalize_text(title), "Work History", display_title))
+            base_chain = context_chains[exp.id] 
+            if exp.title:
+                register_atom(exp.title, "experience", base_chain) 
             
-            # B. Description Segments
-            desc = getattr(exp, 'description', '') or ''
-            segments = intelligent_segmentation(desc, self.nlp)
-            for seg in segments:
-                # Keep segment pure, don't mix with title in vector text
-                pool.append(CVEvidence(exp, "experience", normalize_text(seg), "Work History", display_title))
-            
-            add_children(exp, "Work History", display_title)
+            for seg in intelligent_segmentation(getattr(exp, 'description', '') or '', self.nlp):
+                seg_id = f"seg-{hash(seg)}"
+                seg_chain = base_chain + [{"id": seg_id, "type": "description", "name": "Description"}]
+                register_atom(seg, "experience", seg_chain)
+            add_children(exp, base_chain)
 
         # --- 2. Projects ---
         for proj in getattr(cv, "projects", []):
-            title = getattr(proj, 'title', '')
+            base_chain = []
+            found_parent = False
+            for rel_id in getattr(proj, "related_experience_ids", []) + getattr(proj, "related_education_ids", []) + getattr(proj, "related_hobby_ids", []):
+                if rel_id in context_chains:
+                    base_chain = context_chains[rel_id] + [{"id": proj.id, "type": "project", "name": proj.title}]
+                    found_parent = True
+                    break 
             
-            # A. ISOLATED TITLE
-            if title:
-                pool.append(CVEvidence(proj, "project", normalize_text(title), "Project", title))
+            if not found_parent:
+                base_chain = [{"id": proj.id, "type": "project", "name": proj.title}]
 
-            # B. Description Segments
-            desc = getattr(proj, 'description', '') or ''
-            segments = intelligent_segmentation(desc, self.nlp)
-            for seg in segments:
-                pool.append(CVEvidence(proj, "project", normalize_text(seg), "Project", title))
-            
-            add_children(proj, "Project", title)
+            if proj.title:
+                register_atom(proj.title, "project", base_chain)
+
+            for seg in intelligent_segmentation(getattr(proj, 'description', '') or '', self.nlp):
+                seg_id = f"seg-{hash(seg)}"
+                seg_chain = base_chain + [{"id": seg_id, "type": "description", "name": "Description"}]
+                register_atom(seg, "project", seg_chain)
+            add_children(proj, base_chain)
 
         # --- 3. Education ---
         for edu in getattr(cv, "education", []):
-            deg = getattr(edu, 'degree', '')
-            field = getattr(edu, 'field', '')
-            inst = getattr(edu, 'institution', '')
-            
-            display_title = f"{deg} - {inst}"
-            
-            # A. ISOLATED DEGREE + FIELD
-            core_text = f"{deg} {field}".strip()
+            base_chain = context_chains[edu.id]
+            core_text = f"{edu.degree} {getattr(edu, 'field', '')}".strip()
             if core_text:
-                pool.append(CVEvidence(edu, "education", normalize_text(core_text), "Education", display_title))
-            
-            # B. Full Text (Degree + Field + Institution)
-            full_text = f"{deg} in {field} from {inst}"
-            pool.append(CVEvidence(edu, "education", normalize_text(full_text), "Education", display_title))
+                register_atom(core_text, "education", base_chain)
+            add_children(edu, base_chain)
 
         # --- 4. Hobbies ---
         for hobby in getattr(cv, "hobbies", []):
-            name = getattr(hobby, 'name', '')
-            desc = getattr(hobby, 'description', '') or ''
-            
-            if name:
-                pool.append(CVEvidence(hobby, "hobby", normalize_text(name), "Hobby", name))
-            if desc:
-                 pool.append(CVEvidence(hobby, "hobby", normalize_text(desc), "Hobby", name))
+            base_chain = context_chains[hobby.id]
+            if hobby.name:
+                register_atom(hobby.name, "hobby", base_chain)
+            for seg in intelligent_segmentation(getattr(hobby, 'description', '') or '', self.nlp):
+                seg_id = f"seg-{hash(seg)}"
+                seg_chain = base_chain + [{"id": seg_id, "type": "description", "name": "Description"}]
+                register_atom(seg, "hobby", seg_chain)
+            add_children(hobby, base_chain)
 
-        # --- 5. Global Skills (ISOLATED) ---
+        # --- 5. Global Skills ---
         for sk in getattr(cv, "skills", []):
-            name = getattr(sk, 'name', '')
-            if name:
-                pool.append(CVEvidence(sk, "skill", normalize_text(name), "Skillset", name))
+            if sk.name:
+                chain = [{"id": sk.id, "type": "skill", "name": sk.name}]
+                register_atom(sk.name, "skill", chain)
 
-        return pool
+        return list(atom_registry.values())
 
     def _build_vectors(self, req_texts: List[str], cv_texts: List[str]):
         corpus = req_texts + cv_texts
@@ -957,17 +920,20 @@ class MappingInferer:
         return req_tfidf, req_emb, cv_tfidf, cv_emb
 
     def infer_mappings(self, job: JobDescription, cv: CV, min_score: Optional[float] = None, top_k: Optional[int] = None, **kwargs) -> List[MappingPair]:
-        
         active_min_score = min_score if min_score is not None else self.default_min_score
-        active_top_k = top_k if top_k is not None else self.default_top_k
+        
+        # NOTE: top_k logic has been removed to ensure ALL valid matches are returned 
+        # for proper CV Generation. Frontend will handle slicing.
 
         if not self.embedder: self.load_models()
 
-        job_features = [f for f in getattr(job, "features", []) if f.description]
+        job_features = [
+            f for f in getattr(job, "features", []) 
+            if f.description and f.type not in ['benefit', 'other']
+        ]
         evidence_pool = self._preprocess_cv(cv)
 
-        if not job_features or not evidence_pool:
-            return []
+        if not job_features or not evidence_pool: return []
 
         req_texts = [normalize_text(f.description) for f in job_features]
         cv_texts = [normalize_text(e.text) for e in evidence_pool]
@@ -979,36 +945,21 @@ class MappingInferer:
         
         for i, req in enumerate(job_features):
             
-            # Aggregate scores by Parent ID
-            entity_scores = defaultdict(list) 
-            
+            # 1. Collect All Valid Matches (Quality Gate)
+            candidates = []
             for j, ev in enumerate(evidence_pool):
-                # A. Similarity
                 tfidf_sim = float(cosine_similarity([r_tf[i]], [c_tf[j]])[0][0])
                 emb_sim = 0.0
                 if r_emb is not None and c_emb is not None:
                     emb_sim = float(cosine_similarity([r_emb[i]], [c_emb[j]])[0][0])
                 
-                # --- SCORING STRATEGY (V4 - Strict) ---
-                if tfidf_sim > 0.7:
-                    base_score = tfidf_sim
-                else:
-                    # Weighted average: 30% Keyword, 70% Semantic
-                    base_score = (0.3 * tfidf_sim) + (0.7 * emb_sim) if emb_sim else tfidf_sim
+                if tfidf_sim > 0.7: base_score = tfidf_sim
+                else: base_score = (0.3 * tfidf_sim) + (0.7 * emb_sim) if emb_sim else tfidf_sim
 
-                # --- SMART SAFEGUARD ---
-                # 1. Hard Skills / Qualifications: ZERO Tolerance for missing keywords
-                # This fixes "Striker" matching "AWS" (Skill).
                 if req.type in ["hard_skill", "qualification", "tool"]:
-                    if tfidf_sim < 0.1: 
-                        base_score = 0.0 # KILL IT.
-                
-                # 2. General Safeguard: Penalty for pure hallucinations
-                # This fixes "Maintain App" matching "Architect Library" (Responsibility).
-                elif tfidf_sim < 0.05: 
-                    base_score = base_score * 0.4 # Heavy penalty
+                    if tfidf_sim < 0.1: base_score = 0.0
+                elif tfidf_sim < 0.05: base_score = base_score * 0.4 
 
-                # B. Type Bonus (Only applied if the base score survives)
                 type_bonus = 0.0
                 if base_score > 0.35:
                      type_bonus = self.type_matrix.get((req.type, ev.item_type), 0.0)
@@ -1016,65 +967,107 @@ class MappingInferer:
                 final_score = min(base_score + type_bonus, 1.0)
                 
                 if final_score >= active_min_score:
-                    entity_scores[ev.parent_id].append({
-                        "score": final_score,
-                        "segment_text": ev.text,
-                        "evidence_obj": ev
-                    })
+                    candidates.append({"score": final_score, "evidence": ev})
 
-            # Aggregation & Note Generation
-            final_candidates = []
+            # 2. Group by Root Parent (Deduplication)
+            # We group candidates by the ID of the root item in their lineage chain
+            parent_groups = defaultdict(list)
+            for cand in candidates:
+                root_id = cand['evidence'].occurrences[0][0]['id']
+                parent_groups[root_id].append(cand)
+
+            # 3. Create MappingPairs for Groups
+            group_results = []
             
-            for parent_id, hits in entity_scores.items():
-                best_segment_score = max(h["score"] for h in hits)
-                hits.sort(key=lambda x: x["score"], reverse=True)
-                top_hits = hits[:2] 
-                primary_ev = top_hits[0]["evidence_obj"]
+            for pid, group_hits in parent_groups.items():
+                group_hits.sort(key=lambda x: x['score'], reverse=True)
                 
-                # --- NOTE CLEANUP ---
-                if primary_ev.item_type.lower() == primary_ev.parent_context.lower().replace(" ", ""):
-                     note = f"Matched via {primary_ev.item_type.title()}: \"{primary_ev.parent_title}\". "
-                elif primary_ev.item_type == "experience" and primary_ev.parent_context == "Work History":
-                     note = f"Matched via Experience: \"{primary_ev.parent_title}\". "
-                else:
-                     note = f"Matched via {primary_ev.item_type.title()} in {primary_ev.parent_context} ({primary_ev.parent_title}). "
-                
-                details = []
-                for h in top_hits:
-                    txt = h['segment_text']
-                    if len(txt) > 100: txt = txt[:97] + "..."
-                    # Avoid repeating title in excerpts
-                    if txt.lower() not in primary_ev.parent_title.lower(): 
-                        details.append(f"'{txt}'")
-                
-                if details:
-                    note += f"Relevant excerpts: {'; '.join(details)}."
-                
-                confidence_pct = int(best_segment_score * 100)
-                note += f" (Match Confidence: {confidence_pct}%)"
-                
-                if best_segment_score > 0.85:
-                    note += " - Strong Match"
+                best_hit = group_hits[0]
+                best_ev = best_hit['evidence']
+                best_path = best_ev.occurrences[0] # List[Dict]
 
-                final_candidates.append({
-                    "score": best_segment_score,
-                    "evidence": primary_ev,
-                    "note": note
-                })
+                # --- SMART NOTE GENERATION WITH STRUCTURED DATA ---
+                
+                # A. Convert all lineages to strings for text processing
+                raw_locations_str = []
+                for occ in best_ev.occurrences:
+                     path_str = " > ".join([f"{step['type'].title()}: {step['name']}" for step in occ])
+                     raw_locations_str.append(path_str)
+                
+                # B. Apply Text Filtering Logic (Remove redundant prefixes)
+                unique_locs = sorted(list(set(raw_locations_str)), key=len, reverse=True)
+                final_locs = []
+                for loc in unique_locs:
+                    is_redundant = any(loc in accepted for accepted in final_locs)
+                    if not is_redundant:
+                        final_locs.append(loc)
 
-            final_candidates.sort(key=lambda x: x["score"], reverse=True)
-            
-            for candidate in final_candidates[:active_top_k]:
-                ev = candidate["evidence"]
-                pair = MappingPair.create(
-                    feature_id=req.id,
-                    context_item_id=ev.parent_id,
-                    context_item_type=ev.item_type,
-                    feature_text=req.description,
-                    context_item_text=ev.parent_title, 
-                    strength=candidate["score"],
-                    annotation=candidate["note"] 
+                primary_loc_str = final_locs[0]
+                others = final_locs[1:]
+                
+                excerpt = best_ev.text[:72] + "..." if len(best_ev.text) > 75 else best_ev.text
+                note = f"Excerpt: \"{excerpt}\" ({primary_loc_str})"
+                
+                if others:
+                    extras = "; ".join(others[:2])
+                    if len(others) > 2: extras += f"; +{len(others)-2} more"
+                    note += f" [Also found in: {extras}]"
+                
+                confidence = int(best_hit['score'] * 100)
+                note += f" [Confidence: {confidence}%]"
+                if best_hit['score'] > 0.85: note += " - Strong Match"
+                
+                # -----------------------------------------------------------
+
+                # A. Build Best Match Candidate (Pydantic)
+                best_candidate = MatchCandidate(
+                    segment_text=best_ev.text,
+                    segment_type=best_ev.item_type,
+                    score=best_hit['score'],
+                    lineage=[LineageItem(**step) for step in best_path]
                 )
-                mappings.append(pair)
+
+                # B. Build Supporting Candidates (Limit to top 2 for display sanity, but keep parent group integrity)
+                supporting = []
+                seen_texts = {best_ev.text}
+                for hit in group_hits[1:]:
+                    ev = hit['evidence']
+                    if ev.text not in seen_texts and len(supporting) < 2:
+                        path = ev.occurrences[0]
+                        supporting.append(MatchCandidate(
+                            segment_text=ev.text,
+                            segment_type=ev.item_type,
+                            score=hit['score'],
+                            lineage=[LineageItem(**step) for step in path]
+                        ))
+                        seen_texts.add(ev.text)
+
+                # C. Build Meta Container
+                meta_obj = MatchingMeta(
+                    best_match=best_candidate,
+                    supporting_matches=supporting,
+                    summary_note=note # Detailed smart note
+                )
+
+                # D. Create Mapping Pair
+                root_container = best_path[0]
+                
+                pair = MappingPair(
+                    feature_id=req.id,
+                    feature_text=req.description,
+                    context_item_id=root_container['id'],
+                    context_item_type=root_container['type'],
+                    context_item_text=root_container['name'],
+                    strength=best_hit['score'],
+                    meta=meta_obj,
+                    annotation=meta_obj.summary_note # Backward compatibility
+                )
+                
+                group_results.append(pair)
+
+            # 4. Final Processing: Sort and Return ALL
+            # Sort by strength so the generator sees best options first
+            group_results.sort(key=lambda x: x.strength, reverse=True)
+            mappings.extend(group_results)
 
         return mappings
