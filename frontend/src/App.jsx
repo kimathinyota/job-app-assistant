@@ -1,22 +1,23 @@
-// frontend/src/App.jsx
 import React from 'react';
 import { Routes, Route, useLocation } from 'react-router-dom';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import 'bootstrap/dist/js/bootstrap.bundle.min.js'; 
 import './index.css'; 
 
-// Components
+// --- Components ---
 import Layout from './components/Layout';
 import DashboardHome from './components/DashboardHome';
 import CVManagerPage from './components/CVManagerPage';
-import AppTrackerPage from './components/AppTrackerPage';
+import AppTrackerPage from './components/AppTrackerPage'; // The Kanban/List of Applications
 import GoalTrackerPage from './components/GoalTrackerPage';
-import ApplicationWorkspace from './components/applications/ApplicationWorkspace';
-import ApplicationDashboard from './components/applications/ApplicationDashboard';
-import SupportingDocStudio from './components/applications/SupportingDocStudio';
+import JobLibrary from './components/JobLibrary'; 
 
+// Applications & Jobs
+// NOTE: JobLibrary is your new "Job Library" component
+import ApplicationDashboard from './components/applications/ApplicationDashboard';
 import MappingManager from './components/applications/MappingManager';
 import TailoredCVManager from './components/applications/TailoredCVManager';
+import SupportingDocStudio from './components/applications/SupportingDocStudio';
 
 // This component wraps pages that need the standard container
 const PageWrapper = ({ children }) => (
@@ -32,53 +33,58 @@ function App() {
   return (
     <Layout>
       <Routes>
+        {/* 1. HOME */}
         <Route 
           path="/" 
           element={<PageWrapper><DashboardHome /></PageWrapper>} 
         />
+
+        {/* 2. JOB LIBRARY (New Separate Route) */}
+        <Route 
+          path="/jobs" 
+          element={<PageWrapper><JobLibrary /></PageWrapper>} 
+        />
+
+        {/* 3. APPLICATION TRACKER (The Kanban Board) */}
         <Route 
           path="/applications" 
           element={<PageWrapper><AppTrackerPage /></PageWrapper>} 
         />
-        <Route 
-          path="/applications/:applicationId" 
-          element={<ApplicationDashboard />} 
-        />
+
+        {/* 4. SPECIFIC APPLICATION WORKSPACE (Deep Dive) */}
+        {/* We use /application (singular) to match the navigation in JobLibrary */}
+        <Route path="/application/:applicationId" element={<ApplicationDashboard />} />
         
-        {/* --- UPDATED CV ROUTES --- */}
-        {/* This route handles the base /cv URL */}
+        {/* Workspace Sub-routes */}
+        <Route path="/application/:applicationId/mapping" element={<MappingManager />} />
+        <Route path="/application/:applicationId/cv" element={<TailoredCVManager />} />
+        <Route path="/application/:applicationId/doc/:documentId" element={<SupportingDocStudio />} />
+
+        {/* 5. CV MANAGER (Standard & Specific ID) */}
         <Route 
           path="/cv" 
           element={
             <PageWrapper>
-              <CVManagerPage key={location.pathname} initialSection={cvState.initialSection} />
+              <CVManagerPage key="cv-base" initialSection={cvState.initialSection} />
             </PageWrapper>
           } 
         />
-        {/* This new route handles /cv/cv_id */}
         <Route 
           path="/cv/:cvId" 
           element={
             <PageWrapper>
-              <CVManagerPage key={location.pathname} initialSection={cvState.initialSection} />
+              <CVManagerPage key="cv-id" initialSection={cvState.initialSection} />
             </PageWrapper>
           } 
         />
-        {/* --- END OF UPDATE --- */}
 
+        {/* 6. GOALS */}
         <Route 
           path="/goals" 
           element={<PageWrapper><GoalTrackerPage /></PageWrapper>} 
         />
 
-        {/* THE NEW DASHBOARD ROUTES */}
-        <Route path="/application/:applicationId" element={<ApplicationDashboard />} />
-        <Route path="/application/:applicationId/mapping" element={<MappingManager />} />
-        <Route path="/application/:applicationId/cv" element={<TailoredCVManager />} />
-        <Route path="/application/:applicationId/doc/:documentId" element={<SupportingDocStudio />} />
       </Routes>
-
-
     </Layout>
   );
 }

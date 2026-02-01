@@ -31,7 +31,7 @@ const AppTrackerPage = () => {
 
     // 4. Re-create the navigation function locally
     const handleNavigateToWorkspace = (appId) => {
-        navigate(`/applications/${appId}`);
+        navigate(`/application/${appId}`);
     };
 
     // 5. The entire return block (UI) is identical to your original file.

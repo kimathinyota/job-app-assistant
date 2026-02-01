@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'; 
 import { NavLink, Link } from 'react-router-dom';
-import { LayoutDashboard, FileText, Briefcase, Target, Sun, Moon, Settings } from 'lucide-react';
+import { LayoutDashboard, FileText, Briefcase, Target, Sun, Moon, Settings, KanbanSquare } from 'lucide-react';
 import logoLight from '../assets/logo_light.svg';
 import logoDark from '../assets/logo_dark.svg';
 
@@ -37,7 +37,8 @@ const Navbar = () => {
 
   const navItems = [
     { to: '/', label: 'Overview', icon: LayoutDashboard },
-    { to: '/applications', label: 'Applications', icon: Briefcase },
+    { to: '/jobs', label: 'Jobs', icon: Briefcase },
+    { to: '/applications', label: 'Applications', icon: KanbanSquare },
     { to: '/cv', label: 'CV Library', icon: FileText },
     { to: '/goals', label: 'Goals', icon: Target },
   ];
