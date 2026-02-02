@@ -36,12 +36,23 @@ class JobDescriptionParser:
         t0 = time.time()
         
         # Initialize the Model
+        # self.llm = Llama(
+        #     model_path=model_path,
+        #     n_ctx=context_size,
+        #     n_threads=n_threads,
+        #     n_gpu_layers=-1, # CPU only as requested
+        #     verbose=True,   # Reduce logs in production
+        # )
+
+
         self.llm = Llama(
             model_path=model_path,
-            n_ctx=context_size,
-            n_threads=n_threads,
-            n_gpu_layers=-1, # CPU only as requested
-            verbose=True   # Reduce logs in production
+            n_ctx=4096,
+            n_batch=1024,        # SPEEDUP: Processes your long "Master Prompt" in larger chunks.
+            n_threads=6,
+            n_gpu_layers=0, # CPU only as requested
+            flash_attn=True,
+            verbose=True,   # Reduce logs in production
         )
         
         log.info(f"✅ Model Loaded in {time.time() - t0:.2f} seconds!")
@@ -536,9 +547,161 @@ DO NOT RETURN MARKDOWN. DO NOT USE ```json BLOCKS. JUST THE RAW JSON.
         log.info(f"✅ Medium Parse Complete in {final_result['_meta']['generation_time_sec']}s")
         return final_result
     
+    # ==========================================
+    #  MASTER AGENT (COMBINED SINGLE-PASS)
+    # ==========================================
+    PROMPT_MASTER = """You are a Lead HR Analyst.
+
+### OBJECTIVE:
+Analyze the Job Description and extract a complete Job Profile. You must extract Metadata, Candidate Attributes (Who), Job Execution Details (What), and Value Proposition (Why).
+
+### SECTION 1: METADATA
+Extract the following specific fields. If not found, set to null.
+- "title": Specific role name.
+- "company": Organization name.
+- "location": City, State, or Remote status.
+- "salary_range": Specific monetary figures (e.g., "$50k - $80k", "£15/hr"). IGNORE generic "competitive salary" text.
+
+### SECTION 2: SEMANTIC FEATURE DEFINITIONS
+Extract specific text segments into a "features" list based on these types:
+
+#### GROUP A: CANDIDATE ATTRIBUTES (The "Who")
+1. "hard_skill": 
+   - MATCH: Proper Nouns for Tools, Software, Frameworks, Methodologies, or Tech Stacks.
+   - REJECT: General business processes, administrative tasks, or duties.
+2. "soft_skill": 
+   - MATCH: Adjectives defining character/work style (Max 3 words).
+3. "certification": 
+   - MATCH: Paper credentials ONLY (Degrees, Licenses, Security Clearances).
+
+#### GROUP B: JOB EXECUTION (The "What")
+4. "responsibility": 
+   - MATCH: Actions the employee DOES daily. Look for bullet points starting with Action Verbs.
+5. "requirement": 
+   - MATCH: Mandatory constraints (Logistics, Legal status, History).
+   - CRITICAL RULE: If the requirement is historical (e.g., "3 years experience"), you MUST append " (experience)" to the string.
+
+#### GROUP C: VALUE PROPOSITION (The "Why")
+6. "employer_culture": 
+   - MATCH: Adjectives/slogans describing vibe, ethos, or values.
+7. "employer_mission": 
+   - MATCH: High-level purpose statements (What the company does and why).
+8. "perk": 
+   - MATCH: Benefits, bonuses, insurance, time off, or lifestyle rewards.
+
+### OUTPUT SCHEMA (STRICT JSON):
+Return a single JSON object with no markdown formatting:
+{
+  "title": "string or null",
+  "company": "string or null",
+  "location": "string or null",
+  "salary_range": "string or null",
+  "features": [
+    {
+      "type": "string (Must be one of: hard_skill, soft_skill, certification, responsibility, requirement, employer_culture, employer_mission, perk)",
+      "description": "string (The extracted text verbatim; seperate with semi-colon if multiple found)"
+    }
+  ]
+}
+DO NOT RETURN MARKDOWN. DO NOT USE ```json BLOCKS. JUST THE RAW JSON.
+"""
+    def fast_parse(self, job_text: str) -> dict:
+        """
+        Runs the entire extraction in a single prompt pass (approx 3x faster).
+        Splits bundled items (;) into atomic features and fixes reference bugs.
+        """
+        log.info("⚡ Starting Fast Parse (Master Agent v1)...")
+        start_time = time.time()
+
+        # 1. Run Inference (Max tokens increased to 4096 to fit the larger JSON)
+        data = self._run_inference(self.PROMPT_MASTER, job_text, max_tokens=4096)
+
+        # 2. Initialize Final Result Structure
+        final_result = {
+            "title": data.get("title"),
+            "company": data.get("company"),
+            "location": data.get("location"),
+            "salary_range": data.get("salary_range"),
+            "features": [],
+            "_meta": {}
+        }
+
+        # 3. Process Features (Dedup, Map, and Validate)
+        raw_features = data.get("features", [])
+        seen = set()
+        unique_features = []
+
+        # Define allowed types (matching your frontend/database schema)
+        VALID_TYPES = [
+            "responsibility", "hard_skill", "soft_skill", "experience",
+            "qualification", "requirement", "nice_to_have", 
+            "employer_mission", "employer_culture", "role_value", 
+            "benefit", "other"
+        ]
+
+        for f in raw_features:
+            if not isinstance(f, dict): continue
+            
+            # Safe String Handling
+            raw_val = f.get("description")
+            if raw_val is None: continue 
+            clean_desc_full = str(raw_val).strip()
+            if not clean_desc_full: continue
+            
+            feat_type = f.get("type")
+
+            # --- MAPPING LOGIC ---
+            if feat_type == "certification":
+                feat_type = "qualification"
+            if feat_type == "perk":
+                feat_type = "benefit"
+            # ---------------------
+
+            # Validate Type (Allow 'requirement' as it is a core extraction type here)
+            if feat_type not in VALID_TYPES and feat_type != "requirement":
+                continue
+
+            # --- UNBUNDLING LOGIC (Fixing the loop bug) ---
+            # We split by semicolon to unpack the bundled string
+            for raw_item in clean_desc_full.split(';'):
+                clean_desc = raw_item.strip() # Remove leading/trailing spaces
+                
+                # Skip empty items or tiny artifacts
+                if not clean_desc or len(clean_desc) < 2: continue
+
+                # Anti-Hallucination Checks
+                if clean_desc.lower().startswith("we are looking"): continue
+                if clean_desc == final_result.get("location"): continue
+                
+                # Deduplication Signature
+                sig = (feat_type, clean_desc.lower())
+                
+                if sig not in seen:
+                    seen.add(sig)
+                    
+                    # -------------------------------------------------------
+                    # CRITICAL FIX: Create a FRESH dictionary object here.
+                    # Do NOT modify or append 'f', or it will overwrite previous items.
+                    # -------------------------------------------------------
+                    new_feature = {
+                        "type": feat_type,
+                        "description": clean_desc,
+                        "preferred": bool(f.get("preferred", False))
+                    }
+                    unique_features.append(new_feature)
+
+        final_result["features"] = unique_features
+        final_result["_meta"]["generation_time_sec"] = round(time.time() - start_time, 2)
+        final_result["_meta"]["method"] = "fast_parse_master_v1"
+        
+        log.info(f"✅ Fast Parse Complete in {final_result['_meta']['generation_time_sec']}s")
+        return final_result
+
+
     def parse(self, job_text: str) -> dict:
-        return self.medium_parse(job_text)
+        # return self.medium_parse(job_text)
         # return self.slow_parse(job_text)
+        return self.fast_parse(job_text)
     
 
     

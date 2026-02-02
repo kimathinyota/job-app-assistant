@@ -21,8 +21,8 @@ logging.basicConfig(level=logging.INFO)
 
 # --- CONFIGURATION ---
 # Ensure this path is correct relative to where you run `python run.py`
-MODEL_PATH = "backend/core/llama3_job_cpu_FINAL.gguf" 
-
+# MODEL_PATH = "backend/core/llama3_job_cpu_FINAL.gguf" 
+MODEL_PATH = "backend\core\llama3_job_cpu_8b.gguf"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
@@ -97,7 +97,7 @@ app = FastAPI(title="Job Application Assistant API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://192.168.1.161:5173", "chrome-extension://fcodmekeoifocfcljbhbgecmbacffhlm"],  
+    allow_origins=["http://localhost:5173", "http://192.168.1.161:5173", "chrome-extension://fcodmekeoifocfcljbhbgecmbacffhlm", "chrome-extension://afamfigjdefgbepikbhinhchmdldoani"],  
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
