@@ -22,7 +22,7 @@ logging.basicConfig(level=logging.INFO)
 # --- CONFIGURATION ---
 # Ensure this path is correct relative to where you run `python run.py`
 # MODEL_PATH = "backend/core/llama3_job_cpu_FINAL.gguf" 
-MODEL_PATH = "backend\core\llama3_job_cpu_8b.gguf"
+MODEL_PATH = "backend/core/llama3_job_cpu_8b.gguf"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """

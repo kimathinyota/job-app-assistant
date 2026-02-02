@@ -2,9 +2,10 @@
 
 from fastapi import APIRouter, HTTPException, Query, Request # <-- Import Query
 from backend.core.registry import Registry
-from backend.core.models import CVUpdate, ExperienceUpdate, ExperienceComplexPayload, EducationComplexPayload, HobbyComplexPayload, ProjectComplexPayload# Import the update model
+from backend.core.models import CVUpdate, ExperienceUpdate, ExperienceComplexPayload, EducationComplexPayload, HobbyComplexPayload, ProjectComplexPayload, CVImportRequest # Import the update model
 
 from typing import Optional, List # Ensure List is imported
+import logging as log
 
 
 router = APIRouter()
@@ -12,6 +13,35 @@ router = APIRouter()
 
 # ... (Existing top-level CRUD endpoints: create_cv, list_cvs, etc. No changes needed here) ...
 
+@router.post("/import")
+async def import_cv_text(request: Request, payload: CVImportRequest):
+    """
+    Imports a CV from raw text using the Fast Parse engine.
+    """
+    parser = getattr(request.app.state, "job_parser", None)
+    if not parser:
+        raise HTTPException(status_code=503, detail="LLM Model is not loaded.")
+
+    try:
+        # 1. Parse into a full Pydantic CV object
+        # The parser now handles all ID generation and object linking internally
+        structured_cv = parser.fast_parse_cv(payload.text, cv_name=payload.name)
+        
+        # 2. Persist to TinyDB using the Registry
+        registry = request.app.state.registry
+        
+        # Accessing the internal _insert method directly 
+        # (Since Registry doesn't expose a 'save_cv' method that accepts an object)
+        # 'cvs' matches the table name used in registry.create_cv
+        registry._insert("cvs", structured_cv)
+        
+        return structured_cv
+        
+    except Exception as e:
+        # Log the full error for debugging
+        import logging
+        logging.getLogger(__name__).error(f"CV Import Error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to parse CV: {str(e)}")
 
 @router.post("/")
 def create_cv(name: str, request: Request, first_name: Optional[str] = None, last_name: Optional[str] = None, summary: Optional[str] = None):

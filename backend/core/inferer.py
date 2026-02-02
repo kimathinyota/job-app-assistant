@@ -25,7 +25,7 @@ except ImportError:
 log = logging.getLogger(__name__)
 
 class JobDescriptionParser:
-    def __init__(self, model_path: str, context_size: int = 8192, n_threads: int = 4):
+    def __init__(self, model_path: str, context_size: int = 8192, n_threads: int = 4, machine_type: str = "mac"):
         if Llama is None:
             raise ImportError("llama-cpp-python is not installed. Please install it to use the parser.")
         
@@ -35,25 +35,27 @@ class JobDescriptionParser:
         log.info(f"⏳ Loading Llama model from {model_path}...")
         t0 = time.time()
         
+        
         # Initialize the Model
-        # self.llm = Llama(
-        #     model_path=model_path,
-        #     n_ctx=context_size,
-        #     n_threads=n_threads,
-        #     n_gpu_layers=-1, # CPU only as requested
-        #     verbose=True,   # Reduce logs in production
-        # )
-
-
-        self.llm = Llama(
-            model_path=model_path,
-            n_ctx=4096,
-            n_batch=1024,        # SPEEDUP: Processes your long "Master Prompt" in larger chunks.
-            n_threads=6,
-            n_gpu_layers=0, # CPU only as requested
-            flash_attn=True,
-            verbose=True,   # Reduce logs in production
-        )
+        if machine_type == "mac":
+            self.llm = Llama(
+                model_path=model_path,
+                n_ctx=context_size,
+                n_threads=n_threads,
+                n_gpu_layers=-1, # CPU only as requested
+                verbose=True,   # Reduce logs in production
+                flash_attn=True,
+            )
+        else:
+            self.llm = Llama(
+                model_path=model_path,
+                n_ctx=4096,
+                n_batch=1024,        # SPEEDUP: Processes your long "Master Prompt" in larger chunks.
+                n_threads=6,
+                n_gpu_layers=0, # CPU only as requested
+                flash_attn=True,
+                verbose=True,   # Reduce logs in production
+            )
         
         log.info(f"✅ Model Loaded in {time.time() - t0:.2f} seconds!")
 
@@ -202,23 +204,23 @@ NO MARKDOWN. NO PREAMBLE. RAW JSON ONLY.
 
     
     def _repair_json(self, json_str: str) -> str:
-        """Attempts to fix common JSON truncation errors."""
+        """Attempts to fix common JSON errors: truncation AND missing commas."""
         json_str = json_str.strip()
+
+        # 1. Fix missing commas between key-value pairs
+        # Look for: "value" "next_key": 
+        # We insert a comma if it's missing between a double quote and the next key
+        json_str = re.sub(r'\"\s*\n\s*\"', '",\n"', json_str)
         
-        # 1. Close unclosed string quotes
-        # Count quotes. If odd, we are inside a string.
+        # 2. Close unclosed string quotes
         if json_str.count('"') % 2 != 0:
             json_str += '"'
             
-        # 2. Close unclosed feature objects
-        if json_str.endswith(","):
-            json_str = json_str[:-1] # Remove trailing comma
-        if json_str.endswith("}") and not json_str.endswith("]}") and "features" in json_str:
-            # We might have closed an object but not the list
-            pass 
-            
-        # 3. Bruteforce closure
-        # If it doesn't end with '}', try adding closures until it parses or we give up
+        # 3. Remove trailing commas (e.g., "item", } -> "item" })
+        json_str = re.sub(r',\s*([\]}])', r'\1', json_str)
+
+        # 4. Bruteforce closure (Truncation handling)
+        # If it doesn't end with '}', try adding closures
         closers = ["}", "]}", ""]
         
         for c in closers:
@@ -234,7 +236,6 @@ NO MARKDOWN. NO PREAMBLE. RAW JSON ONLY.
              return json_str + "]}"
              
         return json_str
-
 
     def _run_inference(self, prompt_template: str, job_text: str, max_tokens: int = 1024) -> dict:
         full_prompt = f"""<|start_header_id|>system<|end_header_id|>
@@ -704,6 +705,348 @@ DO NOT RETURN MARKDOWN. DO NOT USE ```json BLOCKS. JUST THE RAW JSON.
         return self.fast_parse(job_text)
     
 
+    # CV PARSER
+    def _run_inference_cv(self, prompt_template: str, doc_text: str, max_tokens: int = 1024, doc_label: str = "JOB DESCRIPTION") -> dict:
+        """
+        Runs Llama 3 inference with robust Markdown cleaning.
+        BACKWARD COMPATIBLE: doc_label defaults to "JOB DESCRIPTION".
+        """
+        # We explicitly label the user input so the model understands context (CV vs Job)
+        full_prompt = f"""<|start_header_id|>system<|end_header_id|>
+
+{prompt_template}<|eot_id|><|start_header_id|>user<|end_header_id|>
+
+### {doc_label}:
+{doc_text}<|eot_id|><|start_header_id|>assistant<|end_header_id|>"""
+        
+        output = self.llm(
+            full_prompt,
+            max_tokens=max_tokens,
+            stop=["<|eot_id|>"],
+            temperature=0.1, 
+            echo=False,
+            repeat_penalty=1.05,
+            top_p=0.95
+        )
+        
+        result_text = output['choices'][0]['text'].strip()
+        
+        # =====================================================
+        # ROBUST MARKDOWN CLEANUP (Fixes the "Last Element" Bug)
+        # =====================================================
+        # If the model wraps output in ```json ... ```, we extract just the code block.
+        if "```" in result_text:
+            parts = result_text.split("```")
+            found_json = False
+            for p in parts:
+                clean_p = p.strip()
+                # Remove language tag if present (e.g. "json")
+                if clean_p.lower().startswith("json"):
+                    clean_p = clean_p[4:].strip()
+                # If it looks like a JSON object, take it
+                if clean_p.startswith("{"):
+                    result_text = clean_p
+                    found_json = True
+                    break
+            
+            # Fallback: if we didn't find a clean block, try the last part
+            if not found_json:
+                 # This handles cases where the model puts text AFTER the code block
+                 for p in reversed(parts):
+                     if p.strip().startswith("{"):
+                         result_text = p.strip()
+                         break
+
+        result_text = result_text.strip()
+        
+        # Defensive: Ignore conversational preambles (e.g. "Here is the JSON:")
+        start_idx = result_text.find("{")
+        if start_idx != -1:
+            result_text = result_text[start_idx:]
+
+        try:
+            return json.loads(result_text)
+        except json.JSONDecodeError:
+            log.warning(f"⚠️ JSON Decode Error. Attempting repair...")
+            fixed_text = self._repair_json(result_text)
+            try:
+                return json.loads(fixed_text)
+            except:
+                log.error("❌ Failed to repair JSON.")
+                return {}
+    
+    
+    # ==========================================
+    #  CV AGENT 1: IDENTITY & METADATA
+    # ==========================================
+    PROMPT_CV_IDENTITY = """You are a Lead CV Analyst.
+
+### OBJECTIVE:
+Extract candidate metadata and a global skill set.
+
+### SECTION 1: METADATA RULES
+- "first_name": Extract the first name.
+- "last_name": Extract the last name.
+- "email": MATCH valid email addresses.
+- "phone": MATCH phone numbers. If none, return null.
+- "linkedin": MATCH LinkedIn profile URLs. If none, return null.
+- "location": MATCH City/Country.
+- "summary": MATCH the professional summary or introduction paragraph verbatim.
+
+### SECTION 2: SKILL EXTRACTION
+- "skills_list": 
+   - MATCH: A single string containing ALL technical tools, languages, and frameworks found in the document.
+   - FORMAT: Semicolon separated (e.g. "Python; SQL; AWS").
+
+### OUTPUT SCHEMA (STRICT JSON):
+{
+  "first_name": "string",
+  "last_name": "string",
+  "email": "string",
+  "phone": "string or null",
+  "linkedin": "string or null",
+  "location": "string",
+  "summary": "string",
+  "skills_list": "string"
+}
+NO MARKDOWN. NO NOTES. RAW JSON ONLY.
+"""
+
+    # ==========================================
+    #  CV AGENT 2: EXPERIENCE
+    # ==========================================
+    PROMPT_CV_EXPERIENCE = """You are a Work History Auditor.
+
+### OBJECTIVE:
+Extract professional experience into a structured list.
+
+### EXTRACTION RULES:
+1. "company": MATCH the organization name.
+2. "title": MATCH the job title.
+3. "start_date": MATCH the start date verbatim.
+4. "end_date": MATCH the end date verbatim.
+5. "achievements_list": 
+   - MATCH: Every bullet point or result described in this role.
+   - FORMAT: Combine into a single string separated by semicolons (;).
+   - REJECT: General duties (e.g. "Responsible for coding"). Focus on results.
+6. "tools_used":
+   - MATCH: Specific tools/tech mentioned *within this role description*.
+   - FORMAT: Semicolon separated.
+
+### OUTPUT SCHEMA (STRICT JSON):
+{
+  "items": [
+    {
+      "company": "string",
+      "title": "string",
+      "start_date": "string",
+      "end_date": "string",
+      "description": "string (Short summary paragraph)",
+      "achievements_list": "string",
+      "tools_used": "string"
+    }
+  ]
+}
+NO MARKDOWN. NO NOTES. RAW JSON ONLY.
+"""
+
+    # ==========================================
+    #  CV AGENT 3: EDUCATION
+    # ==========================================
+    PROMPT_CV_EDUCATION = """You are an Academic Researcher.
+
+### OBJECTIVE:
+Extract education history.
+
+### EXTRACTION RULES:
+1. "institution": MATCH the university or school name.
+2. "degree": MATCH the degree type (e.g., BS, MS, PhD).
+3. "field": MATCH the major or field of study.
+4. "details_list":
+   - MATCH: Honors, GPA, Awards, or Thesis titles.
+   - FORMAT: Semicolon separated string.
+
+### OUTPUT SCHEMA (STRICT JSON):
+{
+  "items": [
+    {
+      "institution": "string",
+      "degree": "string",
+      "field": "string",
+      "start_date": "string",
+      "end_date": "string",
+      "details_list": "string"
+    }
+  ]
+}
+NO MARKDOWN. RAW JSON ONLY.
+"""
+
+    # ==========================================
+    #  CV AGENT 4: PROJECTS (Relational)
+    # ==========================================
+    PROMPT_CV_PROJECTS = """You are a Portfolio Analyst.
+
+### OBJECTIVE:
+Extract independent projects and identify their source context.
+
+### EXTRACTION RULES:
+1. "title": MATCH the project name.
+2. "related_context":
+   - MATCH: The name of the Company, University, or Hobby this project belongs to.
+   - RULE: If it is a personal project, set to "Personal".
+3. "achievements_list": Semicolon separated results.
+4. "tools_used": Semicolon separated tools.
+
+### OUTPUT SCHEMA (STRICT JSON):
+{
+  "items": [
+    {
+      "title": "string",
+      "description": "string",
+      "achievements_list": "string",
+      "tools_used": "string",
+      "related_context": "string"
+    }
+  ]
+}
+NO MARKDOWN. RAW JSON ONLY.
+"""
+
+    def fast_parse_cv(self, cv_text: str, cv_name: str = "Imported CV") -> CV:
+        """
+        Orchestrates the CV extraction.
+        INCLUDES: Data Sanitization (Fixes Pydantic Crash) + Defensive Parsing (Fixes Empty JSON).
+        """
+        log.info("🚀 Starting Fast CV Parse...")
+        
+        # 1. Run Inference (Sequential)
+        # We assume _run_inference handles the cleaning. 
+        # Adding "\nOutput:" forces the model to start JSON immediately.
+        identity_data = self._run_inference_cv(self.PROMPT_CV_IDENTITY + "\nOutput:", cv_text)
+        exp_data = self._run_inference_cv(self.PROMPT_CV_EXPERIENCE + "\nOutput:", cv_text)
+        edu_data = self._run_inference_cv(self.PROMPT_CV_EDUCATION + "\nOutput:", cv_text)
+        proj_data = self._run_inference_cv(self.PROMPT_CV_PROJECTS + "\nOutput:", cv_text)
+
+        # =========================================================
+        # FIX 1: Sanitize Contact Info (Prevents Pydantic Crash)
+        # =========================================================
+        raw_contact = {
+            "email": identity_data.get("email"),
+            "phone": identity_data.get("phone"),
+            "linkedin": identity_data.get("linkedin"),
+            "location": identity_data.get("location")
+        }
+        # Filter out None/Null values so we don't break Dict[str, str]
+        clean_contact = {k: str(v) for k, v in raw_contact.items() if v and v != "null"}
+
+        # =========================================================
+        # FIX 2: Create CV Object with Fallbacks
+        # =========================================================
+        cv_obj = CV.create(
+            name=cv_name,
+            first_name=identity_data.get("first_name") or "Unknown",
+            last_name=identity_data.get("last_name") or "Candidate",
+            title=identity_data.get("title") or "Professional",
+            summary=identity_data.get("summary") or "",
+            contact_info=clean_contact 
+        )
+
+        # --- Helper: Skill Dedup ---
+        skill_registry = {} 
+
+        def register_skills(raw_string):
+            if not raw_string or not isinstance(raw_string, str): return []
+            found_ids = []
+            for s_name in raw_string.split(';'):
+                clean_name = s_name.strip()
+                if len(clean_name) < 2: continue
+                key = clean_name.lower()
+                if key not in skill_registry:
+                    existing = next((s for s in cv_obj.skills if s.name.lower() == key), None)
+                    if existing:
+                        skill_registry[key] = existing.id
+                    else:
+                        new_sk = cv_obj.add_skill(name=clean_name)
+                        skill_registry[key] = new_sk.id
+                found_ids.append(skill_registry[key])
+            return list(set(found_ids))
+
+        # 3. Process Identity Skills
+        register_skills(identity_data.get("skills_list", ""))
+
+        # 4. Process Experience (Defensive)
+        raw_exps = exp_data.get("items", [])
+        if isinstance(raw_exps, list):
+            for item in raw_exps:
+                exp = cv_obj.add_experience(
+                    title=item.get("title") or "Role",
+                    company=item.get("company") or "Company",
+                    start_date=item.get("start_date"),
+                    end_date=item.get("end_date"),
+                    description=item.get("description")
+                )
+                exp.skill_ids.extend(register_skills(item.get("tools_used")))
+                
+                # Semicolon Splitter for Achievements
+                raw_ach = item.get("achievements_list", "")
+                if raw_ach and isinstance(raw_ach, str):
+                    for ach_text in raw_ach.split(';'):
+                        if len(ach_text.strip()) > 3:
+                            ach = cv_obj.add_achievement(text=ach_text.strip(), context=item.get("company"))
+                            exp.add_achievement(ach)
+
+        # 5. Process Education (Defensive)
+        raw_edus = edu_data.get("items", [])
+        if isinstance(raw_edus, list):
+            for item in raw_edus:
+                edu = cv_obj.add_education(
+                    institution=item.get("institution") or "Institution",
+                    degree=item.get("degree") or "Degree",
+                    field=item.get("field"),
+                    start_date=item.get("start_date"),
+                    end_date=item.get("end_date")
+                )
+                # Treat details as achievements
+                raw_details = item.get("details_list", "")
+                if raw_details and isinstance(raw_details, str):
+                    for det_text in raw_details.split(';'):
+                        if len(det_text.strip()) > 3:
+                            ach = cv_obj.add_achievement(text=det_text.strip(), context=item.get("institution"))
+                            edu.add_achievement(ach)
+
+        # 6. Process Projects (Relational)
+        raw_projs = proj_data.get("items", [])
+        if isinstance(raw_projs, list):
+            for item in raw_projs:
+                rel_exp_ids = []
+                rel_edu_ids = []
+                context = item.get("related_context", "").lower() if item.get("related_context") else ""
+                
+                # Simple Fuzzy Match for Relations
+                if context:
+                    for e in cv_obj.experiences:
+                        if e.company.lower() in context: rel_exp_ids.append(e.id)
+                    for ed in cv_obj.education:
+                        if ed.institution.lower() in context: rel_edu_ids.append(ed.id)
+
+                proj = cv_obj.add_project(
+                    title=item.get("title") or "Project",
+                    description=item.get("description") or "",
+                    related_experience_ids=rel_exp_ids,
+                    related_education_ids=rel_edu_ids
+                )
+                proj.skill_ids.extend(register_skills(item.get("tools_used")))
+                
+                raw_ach = item.get("achievements_list", "")
+                if raw_ach and isinstance(raw_ach, str):
+                    for ach_text in raw_ach.split(';'):
+                        if len(ach_text.strip()) > 3:
+                            ach = cv_obj.add_achievement(text=ach_text.strip(), context="Project")
+                            proj.add_achievement(ach)
+
+        log.info(f"✅ Fast Parse Complete: {len(cv_obj.experiences)} exps, {len(cv_obj.skills)} skills.")
+        return cv_obj
     
 
 

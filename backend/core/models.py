@@ -89,6 +89,11 @@ class Experience(BaseEntity, SkillLinkMixin):
         return achievement
 
 
+
+class CVImportRequest(BaseModel):
+    text: str
+    name: Optional[str] = "Imported CV"
+
 class Education(BaseEntity, SkillLinkMixin):
     institution: str
     degree: str
