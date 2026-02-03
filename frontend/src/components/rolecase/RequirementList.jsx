@@ -2,7 +2,6 @@
 import React from 'react';
 import { RequirementItem } from './RequirementItem';
 
-// Map internal logic names to friendly UI names
 const SECTIONS = [
   { id: 'Critical', label: "Must Haves", description: "The job description emphasizes these." },
   { id: 'High', label: "Key Skills", description: "Important for day-to-day work." },
@@ -10,7 +9,14 @@ const SECTIONS = [
   { id: 'Bonus', label: "Bonus Points", description: "Things that set you apart." },
 ];
 
-export const RequirementList = ({ groups, onReject, onLinkEvidence }) => {
+export const RequirementList = ({ 
+  groups, 
+  onReject, 
+  onLinkEvidence, 
+  onPromote, 
+  onApprove, 
+  onViewEvidence 
+}) => {
   return (
     <div className="d-flex flex-column gap-4">
       {SECTIONS.map(section => {
@@ -38,6 +44,10 @@ export const RequirementList = ({ groups, onReject, onLinkEvidence }) => {
                   item={item}
                   onReject={() => onReject(item.requirement_id)}
                   onLinkEvidence={() => onLinkEvidence(item)}
+                  // --- PASS DOWN HANDLERS ---
+                  onPromote={onPromote}
+                  onApprove={onApprove}
+                  onViewEvidence={onViewEvidence}
                 />
               ))}
             </div>

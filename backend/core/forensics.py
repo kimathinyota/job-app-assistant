@@ -142,7 +142,7 @@ class ForensicCalculator:
                 requirement_id=feature.id,
                 requirement_text=feature.description,
                 requirement_type=feature.type,
-                importance=importance_label,
+                importance=importance_label,               
                 status=status,
                 
                 # Links

@@ -126,6 +126,99 @@ class Registry:
         # Return a simple success message
         return {"status": "success", "id": item_id, "message": f"{list_name[:-1]} deleted"}
 
+    
+    def fetch_item(self, item_id: str, item_type: str):
+        """
+        Retrieves a nested entity by ID and Type.
+        
+        ABSTRACTS DATA ACCESS:
+        - Currently: Scans loaded CVs in memory.
+        - Future (MongoDB): Will run a db.collection.find_one() query.
+        """
+        
+        # 1. Normalize type to match attribute names
+        # e.g., 'experience' -> 'experiences'
+        type_map = {
+            'experience': 'experiences',
+            'project': 'projects',
+            'education': 'education', # education is usually a list named 'education'
+            'skill': 'skills',
+            'hobby': 'hobbies'
+        }
+        
+        target_attr = type_map.get(item_type.lower())
+        if not target_attr:
+            return None
+
+        # 2. Search Logic (The part that changes with DB switch)
+        # CURRENT: In-Memory Loop (TinyDB style)
+        all_cvs = self.all_cvs() # Uses your existing _all method
+        
+        for cv in all_cvs:
+            collection = getattr(cv, target_attr, [])
+            for item in collection:
+                if item.id == item_id:
+                    return item
+        
+        # FUTURE MONGODB IMPLEMENTATION EXAMPLE:
+        # return self.db.cvs.find_one(
+        #     {f"{target_attr}.id": item_id}, 
+        #     {f"{target_attr}.$": 1}
+        # )
+        
+        return None
+    
+
+    def fetch_item_details(self, item_id: str, item_type: str) -> Optional[Dict[str, Any]]:
+        """
+        Fetches an item and resolves its referenced relationships 
+        (Skills, Achievements, etc.) into full objects.
+        """
+        item = self.fetch_item(item_id, item_type)
+        if not item:
+            return None
+            
+        # Initialize the 'Context' bucket
+        result = {
+            "item": item,
+            "skills": [],
+            "achievements": [],
+            "experiences": [],
+            "education": [],
+            "hobbies": []
+        }
+        
+        # Helper to fetch and append unique items
+        def resolve_ids(id_list, type_key, dest_list_key):
+            if not id_list: return
+            for ref_id in id_list:
+                obj = self.fetch_item(ref_id, type_key)
+                if obj:
+                    # Check for duplicates
+                    if not any(x.id == obj.id for x in result[dest_list_key]):
+                        result[dest_list_key].append(obj)
+
+        # A. Resolve Skills
+        if hasattr(item, 'skill_ids'):
+            resolve_ids(item.skill_ids, 'skill', 'skills')
+
+        # B. Resolve Achievements
+        if hasattr(item, 'achievement_ids'):
+            # Note: You need to ensure 'achievement' type is handled in fetch_item
+            resolve_ids(item.achievement_ids, 'achievement', 'achievements')
+
+        # C. Resolve Project Contexts
+        if item_type == 'project':
+            if hasattr(item, 'related_experience_ids'):
+                resolve_ids(item.related_experience_ids, 'experience', 'experiences')
+            if hasattr(item, 'related_education_ids'):
+                resolve_ids(item.related_education_ids, 'education', 'education')
+            if hasattr(item, 'related_hobby_ids'):
+                resolve_ids(item.related_hobby_ids, 'hobby', 'hobbies')
+                
+        return result
+
+
 
     # ---- Jobs ----
     def create_job(self, title: str, company: str, notes: Optional[str] = None):

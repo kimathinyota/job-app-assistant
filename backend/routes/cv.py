@@ -3,6 +3,7 @@
 from fastapi import APIRouter, HTTPException, Query, Request # <-- Import Query
 from backend.core.registry import Registry
 from backend.core.models import CVUpdate, ExperienceUpdate, ExperienceComplexPayload, EducationComplexPayload, HobbyComplexPayload, ProjectComplexPayload, CVImportRequest # Import the update model
+from backend.core.models import CV, Experience, Project, Education, Skill, Hobby
 
 from typing import Optional, List # Ensure List is imported
 import logging as log
@@ -439,3 +440,61 @@ def delete_nested_item(cv_id: str, list_name: str, item_id: str, request: Reques
     except ValueError as e:
         # This catches errors if the CV or the nested item isn't found
         raise HTTPException(status_code=404, detail=str(e))
+
+# -----------------------------------------------------------------------------
+# Specific Item Access (For Modals & Forensics)
+# -----------------------------------------------------------------------------
+# These endpoints use the registry.fetch_item abstraction.
+# This keeps the router clean and lets the Registry handle the lookup logic
+# (whether it's iterating a list in JSON or querying MongoDB).
+
+@router.get("/experience/{item_id}", response_model=Experience)
+def get_experience_item(item_id: str, request: Request):
+    item = request.app.state.registry.fetch_item(item_id, 'experience')
+    if not item:
+        raise HTTPException(status_code=404, detail="Experience not found")
+    return item
+
+@router.get("/project/{item_id}", response_model=Project)
+def get_project_item(item_id: str, request: Request):
+    item = request.app.state.registry.fetch_item(item_id, 'project')
+    if not item:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return item
+
+@router.get("/education/{item_id}", response_model=Education)
+def get_education_item(item_id: str, request: Request):
+    item = request.app.state.registry.fetch_item(item_id, 'education')
+    if not item:
+        raise HTTPException(status_code=404, detail="Education not found")
+    return item
+
+@router.get("/skill/{item_id}", response_model=Skill)
+def get_skill_item(item_id: str, request: Request):
+    item = request.app.state.registry.fetch_item(item_id, 'skill')
+    if not item:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    return item
+
+@router.get("/hobby/{item_id}", response_model=Hobby)
+def get_hobby_item(item_id: str, request: Request):
+    item = request.app.state.registry.fetch_item(item_id, 'hobby')
+    if not item:
+        raise HTTPException(status_code=404, detail="Hobby not found")
+    return item
+
+# --- RICH DETAILS ENDPOINT ---
+@router.get("/item-details/{item_id}")
+def get_item_details(item_id: str, type: str, request: Request):
+    """
+    Returns the item AND its resolved relationships.
+    Calls Registry.fetch_item_details to handle the logic.
+    """
+    registry = request.app.state.registry
+    
+    data = registry.fetch_item_details(item_id, type)
+    
+    if not data:
+        raise HTTPException(404, "Item not found")
+        
+    return data
