@@ -12,9 +12,9 @@ from backend.core.inferer import MappingInferer
 # Import your routes
 from backend.routes import (
     cv, job, mapping, application, coverletter, 
-    prompt, interview, workitem, goal
+    prompt, interview, workitem, goal, forensics
 )
-from backend.core.inferer import JobDescriptionParser # Import the new class
+# from backend.core.inferer import JobDescriptionParser # Import the new class
 
 from backend.core.llm_manager import LLMManager
 from backend.core.inferer import JobParser, CVParser
@@ -135,6 +135,7 @@ app.include_router(workitem.router, prefix="/api/workitem", tags=["Work Item"])
 app.include_router(goal.router, prefix="/api/goal", tags=["Goal"])
 app.include_router(coverletter.router, prefix="/api/coverletter", tags=["Cover Letter"])
 app.include_router(interview.router, prefix="/api/interview", tags=["Interview"])
+app.include_router(forensics.router, prefix="/api/forensics", tags=["Forensics"])
 
 
 @app.get("/api")
