@@ -573,7 +573,7 @@ class CVEvidence:
 # 3. MappingInferer (Unlimited Results)
 # =====================================================
 
-class MappingInferer:
+class MappingInfererOld:
     def __init__(self):
         self.default_min_score = 0.28
         self.embedder: Optional[JobSegmentEmbedder] = None
@@ -887,6 +887,294 @@ class MappingInferer:
 
             # 4. Final Processing: Sort and Return ALL
             # Sort by strength so the generator sees best options first
+            group_results.sort(key=lambda x: x.strength, reverse=True)
+            mappings.extend(group_results)
+
+        return mappings
+
+
+from backend.core.utils.inference import MatchScoring, SmartNoteBuilder
+
+class MappingInferer:
+    def __init__(self):
+        self.default_min_score = 0.28
+        self.embedder: Optional[JobSegmentEmbedder] = None
+        self.tfidf: Optional[TfidfVectorizer] = None
+        self.nlp: Optional[Any] = None
+        self.CHECKPOINT_PATH = "backend/core/job_model/checkpoints/model_best.pt"
+        
+        # REMOVED: self.type_matrix (Moved to MatchScoring)
+
+    def load_models(self):
+        log.info("Loading spaCy model...")
+        try:
+            import spacy
+            self.nlp = spacy.load("en_core_web_sm")
+        except Exception:
+            try:
+                import spacy.cli
+                spacy.cli.download("en_core_web_sm")
+                self.nlp = spacy.load("en_core_web_sm")
+            except Exception:
+                pass
+        log.info("Initializing JobSegmentEmbedder...")
+        self.embedder = JobSegmentEmbedder(self.CHECKPOINT_PATH)
+
+    def _preprocess_cv(self, cv: CV) -> List[CVEvidence]:
+        """
+        Deconstructs CV into atoms with STRUCTURED breadcrumb chains.
+        """
+        atom_registry: Dict[Tuple[str, str], CVEvidence] = {}
+        
+        # 1. Build Context Map (ID -> List[Dict] Chain)
+        context_chains = {}
+        for exp in getattr(cv, "experiences", []):
+            context_chains[exp.id] = [{"id": exp.id, "type": "experience", "name": f"{exp.title} at {exp.company}"}]
+        for edu in getattr(cv, "education", []):
+            context_chains[edu.id] = [{"id": edu.id, "type": "education", "name": f"{edu.degree}"}]
+        for hobby in getattr(cv, "hobbies", []):
+            context_chains[hobby.id] = [{"id": hobby.id, "type": "hobby", "name": hobby.name}]
+
+        ach_map = {a.id: a for a in getattr(cv, "achievements", [])}
+        skill_map = {s.id: s for s in getattr(cv, "skills", [])}
+
+        def register_atom(text, item_type, path_chain):
+            norm_text = normalize_text(text)
+            if not norm_text: return
+            key = (norm_text, item_type)
+            
+            if key in atom_registry:
+                atom_registry[key].add_occurrence(path_chain)
+            else:
+                atom = CVEvidence(norm_text, item_type, path_chain)
+                atom_registry[key] = atom
+
+        def add_children(parent_obj, parent_chain):
+            # Achievements
+            for ach_id in getattr(parent_obj, "achievement_ids", []):
+                ach = ach_map.get(ach_id)
+                if ach and getattr(ach, 'text', None):
+                    ach_chain = parent_chain + [{
+                        "id": ach.id, 
+                        "type": "achievement", 
+                        "name": (ach.text[:20] + "...") 
+                    }]
+                    full_text = f"{ach.text} {getattr(ach, 'context', '') or ''}".strip()
+                    register_atom(full_text, "achievement", ach_chain)
+
+                    # Skills inside Achievements
+                    for sk_id in getattr(ach, "skill_ids", []):
+                        sk = skill_map.get(sk_id)
+                        if sk:
+                            sk_chain = ach_chain + [{"id": sk.id, "type": "skill", "name": sk.name}]
+                            register_atom(sk.name, "skill", sk_chain)
+
+            # Direct Skills
+            for sk_id in getattr(parent_obj, "skill_ids", []):
+                sk = skill_map.get(sk_id)
+                if sk:
+                    sk_chain = parent_chain + [{"id": sk.id, "type": "skill", "name": sk.name}]
+                    register_atom(sk.name, "skill", sk_chain)
+
+        # --- 1. Experiences ---
+        for exp in getattr(cv, "experiences", []):
+            base_chain = context_chains[exp.id] 
+            if exp.title:
+                register_atom(exp.title, "experience", base_chain) 
+            
+            for seg in intelligent_segmentation(getattr(exp, 'description', '') or '', self.nlp):
+                seg_id = f"seg-{hash(seg)}"
+                seg_chain = base_chain + [{"id": seg_id, "type": "description", "name": "Description"}]
+                register_atom(seg, "experience", seg_chain)
+            add_children(exp, base_chain)
+
+        # --- 2. Projects ---
+        for proj in getattr(cv, "projects", []):
+            base_chain = []
+            found_parent = False
+            for rel_id in getattr(proj, "related_experience_ids", []) + getattr(proj, "related_education_ids", []) + getattr(proj, "related_hobby_ids", []):
+                if rel_id in context_chains:
+                    base_chain = context_chains[rel_id] + [{"id": proj.id, "type": "project", "name": proj.title}]
+                    found_parent = True
+                    break 
+            
+            if not found_parent:
+                base_chain = [{"id": proj.id, "type": "project", "name": proj.title}]
+
+            if proj.title:
+                register_atom(proj.title, "project", base_chain)
+
+            for seg in intelligent_segmentation(getattr(proj, 'description', '') or '', self.nlp):
+                seg_id = f"seg-{hash(seg)}"
+                seg_chain = base_chain + [{"id": seg_id, "type": "description", "name": "Description"}]
+                register_atom(seg, "project", seg_chain)
+            add_children(proj, base_chain)
+
+        # --- 3. Education ---
+        for edu in getattr(cv, "education", []):
+            base_chain = context_chains[edu.id]
+            core_text = f"{edu.degree} {getattr(edu, 'field', '')}".strip()
+            if core_text:
+                register_atom(core_text, "education", base_chain)
+            add_children(edu, base_chain)
+
+        # --- 4. Hobbies ---
+        for hobby in getattr(cv, "hobbies", []):
+            base_chain = context_chains[hobby.id]
+            if hobby.name:
+                register_atom(hobby.name, "hobby", base_chain)
+            for seg in intelligent_segmentation(getattr(hobby, 'description', '') or '', self.nlp):
+                seg_id = f"seg-{hash(seg)}"
+                seg_chain = base_chain + [{"id": seg_id, "type": "description", "name": "Description"}]
+                register_atom(seg, "hobby", seg_chain)
+            add_children(hobby, base_chain)
+
+        # --- 5. Global Skills ---
+        for sk in getattr(cv, "skills", []):
+            if sk.name:
+                chain = [{"id": sk.id, "type": "skill", "name": sk.name}]
+                register_atom(sk.name, "skill", chain)
+
+        return list(atom_registry.values())
+
+    def _build_vectors(self, req_texts: List[str], cv_texts: List[str]):
+        corpus = req_texts + cv_texts
+        self.tfidf = TfidfVectorizer(stop_words='english')
+        try:
+            all_tfidf = self.tfidf.fit_transform(corpus).toarray()
+            req_tfidf = all_tfidf[:len(req_texts)]
+            cv_tfidf = all_tfidf[len(req_texts):]
+        except ValueError:
+            return None, None, None, None
+
+        req_emb, cv_emb = None, None
+        if self.embedder:
+            all_emb = self.embedder.encode(corpus)
+            if all_emb is not None:
+                req_emb = all_emb[:len(req_texts)]
+                cv_emb = all_emb[len(req_texts):]
+        
+        return req_tfidf, req_emb, cv_tfidf, cv_emb
+
+    def infer_mappings(self, job: JobDescription, cv: CV, min_score: Optional[float] = None, top_k: Optional[int] = None, **kwargs) -> List[MappingPair]:
+        active_min_score = min_score if min_score is not None else self.default_min_score
+        
+        if not self.embedder: self.load_models()
+
+        job_features = [
+            f for f in getattr(job, "features", []) 
+            if f.description and f.type not in ['benefit', 'other']
+        ]
+        evidence_pool = self._preprocess_cv(cv)
+
+        if not job_features or not evidence_pool: return []
+
+        req_texts = [normalize_text(f.description) for f in job_features]
+        cv_texts = [normalize_text(e.text) for e in evidence_pool]
+
+        r_tf, r_emb, c_tf, c_emb = self._build_vectors(req_texts, cv_texts)
+        if r_tf is None: return []
+
+        mappings = []
+        
+        for i, req in enumerate(job_features):
+            
+            # --- 1. Collect All Valid Matches (Quality Gate) ---
+            candidates = []
+            for j, ev in enumerate(evidence_pool):
+                tfidf_sim = float(cosine_similarity([r_tf[i]], [c_tf[j]])[0][0])
+                emb_sim = 0.0
+                if r_emb is not None and c_emb is not None:
+                    emb_sim = float(cosine_similarity([r_emb[i]], [c_emb[j]])[0][0])
+                
+                # REFACTOR 1: Delegate scoring to central logic
+                final_score = MatchScoring.calculate_strength(
+                    req_type=req.type,
+                    evidence_type=ev.item_type,
+                    tfidf_sim=tfidf_sim,
+                    emb_sim=emb_sim
+                )
+                
+                if final_score >= active_min_score:
+                    candidates.append({"score": final_score, "evidence": ev})
+
+            # --- 2. Group by Root Parent (Deduplication) ---
+            parent_groups = defaultdict(list)
+            for cand in candidates:
+                root_id = cand['evidence'].occurrences[0][0]['id']
+                parent_groups[root_id].append(cand)
+
+            # --- 3. Create MappingPairs for Groups ---
+            group_results = []
+            
+            for pid, group_hits in parent_groups.items():
+                group_hits.sort(key=lambda x: x['score'], reverse=True)
+                
+                best_hit = group_hits[0]
+                best_ev = best_hit['evidence']
+                best_path = best_ev.occurrences[0] # List[Dict]
+
+                # --- REFACTOR 2: SMART NOTE GENERATION ---
+                # Delegate text formatting to the Presentation Logic
+                note = SmartNoteBuilder.build(
+                    text=best_ev.text,
+                    score=best_hit['score'],
+                    paths=best_ev.occurrences # Pass all occurrences for "Also found in..." logic
+                )
+                # -----------------------------------------
+
+                # A. Build Best Match Candidate
+                best_candidate = MatchCandidate(
+                    segment_text=best_ev.text,
+                    segment_type=best_ev.item_type,
+                    score=best_hit['score'],
+                    lineage=[LineageItem(**step) for step in best_path]
+                )
+
+                # B. Build Supporting Candidates
+                supporting = []
+                seen_texts = {best_ev.text}
+                for hit in group_hits[1:]:
+                    ev = hit['evidence']
+                    if ev.text not in seen_texts and len(supporting) < 2:
+                        path = ev.occurrences[0]
+                        supporting.append(MatchCandidate(
+                            segment_text=ev.text,
+                            segment_type=ev.item_type,
+                            score=hit['score'],
+                            lineage=[LineageItem(**step) for step in path]
+                        ))
+                        seen_texts.add(ev.text)
+
+                # C. Build Meta Container
+                meta_obj = MatchingMeta(
+                    best_match=best_candidate,
+                    supporting_matches=supporting,
+                    summary_note=note
+                )
+
+                # D. Calculate Pair Strength (Aggregated)
+                # REFACTOR 3: Use central aggregation logic
+                all_candidates_objs = [best_candidate] + supporting
+                final_pair_strength = MatchScoring.aggregate_pair_strength(all_candidates_objs)
+
+                # E. Create Mapping Pair
+                root_container = best_path[0]
+                
+                pair = MappingPair(
+                    feature_id=req.id,
+                    feature_text=req.description,
+                    context_item_id=root_container['id'],
+                    context_item_type=root_container['type'],
+                    context_item_text=root_container['name'],
+                    strength=final_pair_strength, # Updated to use aggregated score
+                    meta=meta_obj,
+                    annotation=meta_obj.summary_note
+                )
+                
+                group_results.append(pair)
+
+            # 4. Final Processing: Sort and Return ALL
             group_results.sort(key=lambda x: x.strength, reverse=True)
             mappings.extend(group_results)
 
