@@ -6,7 +6,7 @@ from backend.core.models import (
     ForensicAnalysis, JobFitStats, ForensicItem, ForensicAlternative
 )
 from collections import defaultdict
-
+import hashlib
 
 class ForensicCalculator:
     
@@ -92,42 +92,51 @@ class ForensicCalculator:
             if status == "missing" and weight >= 1.25:
                 missing_critical_ids.append(feature.id)
 
-            # F. Build the Forensic Item (Updated for UI Interactivity & Alternatives)
+            # F. Build the Forensic Item
             best_match_excerpt = None
             summary_note = None
-            structured_lineage = [] # <--- NEW: Container for the clickable chips
-            alternatives_list = [] # <--- NEW: Container for alternatives
+            structured_lineage = []
+            alternatives_list = [] 
             
             if pair and pair.meta:
-                # 1. Get the text summary (e.g. "Excerpt... (Exp > Proj)")
+                # 1. Get the text summary
                 summary_note = pair.meta.summary_note 
                 
                 if pair.meta.best_match:
                     best_match_excerpt = pair.meta.best_match.segment_text
-                    # 2. COPY THE STRUCTURED LINEAGE OBJECTS
-                    # This allows the frontend to iterate and create clickable links
                     structured_lineage = pair.meta.best_match.lineage
 
-                # --- NEW LOGIC: Extract Alternatives ---
+                # --- EXTRACT ALTERNATIVES ---
                 if pair.meta.supporting_matches:
                     # Sort by score just in case
                     sorted_backups = sorted(pair.meta.supporting_matches, key=lambda x: x.score, reverse=True)
                     
-                    for cand in sorted_backups[:3]: # Limit to top 3 to keep payload light
-                        # Resolve source name from lineage (Root item)
+                    for cand in sorted_backups[:5]: # Top 5 alternatives
+                        # Resolve source name/type/id from lineage root
                         src_name = "Unknown"
                         src_type = "general"
+                        cv_item_id = None
+                        
                         if cand.lineage:
                             src_name = cand.lineage[0].name
                             src_type = cand.lineage[0].type
+                            cv_item_id = cand.lineage[0].id
+                        
+                        # GENERATE STABLE ID: Hash of text + score
+                        # This ensures the ID persists across re-calculations so frontend can promote it
+                        unique_str = f"{cand.segment_text}_{cand.score}"
+                        cand_hash = hashlib.md5(unique_str.encode()).hexdigest()
                         
                         alternatives_list.append(ForensicAlternative(
+                            id=cand_hash,
                             match_text=cand.segment_text,
                             score=cand.score,
                             source_name=src_name,
-                            source_type=src_type
+                            source_type=src_type,
+                            lineage=cand.lineage, # Pass full lineage for UI chips
+                            cv_item_id=cv_item_id
                         ))
-                # ---------------------------------------
+                # -----------------------------
 
             item = ForensicItem(
                 requirement_id=feature.id,
@@ -141,19 +150,15 @@ class ForensicCalculator:
                 cv_item_id=pair.context_item_id if pair else None,
                 cv_item_type=pair.context_item_type if pair else None,
                 
-                # --- INTERACTIVITY SUPPORT ---
-                lineage=structured_lineage, # Passes the list of objects with IDs
-                
-                # Display
+                # Display Data
+                lineage=structured_lineage, 
                 best_match_text=pair.context_item_text if pair else None,
                 best_match_excerpt=best_match_excerpt,
                 best_match_confidence=match_confidence,
-                match_summary=summary_note, # Renamed field (prev. lineage_text)
+                match_summary=summary_note,
                 
-                # Filter
+                # Filter & Drilldown
                 authority_bucket=authority_bucket,
-
-                # --- NEW FIELD ---
                 alternatives=alternatives_list
             )
             
@@ -176,12 +181,10 @@ class ForensicCalculator:
             overall_match_score=round(overall_score, 1),
             coverage_pct=round(coverage_pct, 1),
             average_quality=round(average_quality, 1),
-            
             total_reqs=total_scorable_reqs,
             met_reqs=met_reqs,
             critical_gaps_count=len(missing_critical_ids),
             missing_critical_ids=missing_critical_ids,
-            
             evidence_sources=dict(evidence_counts),
             evidence_ids_by_source=dict(evidence_ids_by_source)
         )
@@ -208,7 +211,6 @@ class ForensicCalculator:
             return "Missing"
             
         root = pair.context_item_type.lower()
-        
         if "experience" in root: return "Professional"
         if "education" in root: return "Academic"
         if "hobby" in root: return "Personal"

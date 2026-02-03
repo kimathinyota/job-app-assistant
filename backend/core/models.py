@@ -965,11 +965,15 @@ class JobFitStats(BaseModel):
 
 
 class ForensicAlternative(BaseModel):
-    """A lightweight summary of a supporting match."""
-    match_text: str       # The snippet
-    score: float          # Confidence
-    source_type: str      # e.g. "project", "experience"
-    source_name: str      # e.g. "E-Commerce App"
+    """A rich summary of a supporting match."""
+    id: str               # Unique ref for actions (hash or uuid)
+    match_text: str       
+    score: float          
+    source_type: str      
+    source_name: str      
+    # --- NEW FIELDS ---
+    lineage: List[LineageItem] = Field(default_factory=list) 
+    cv_item_id: Optional[str] = None
     
 
 class ForensicItem(BaseModel):

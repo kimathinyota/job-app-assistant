@@ -278,3 +278,13 @@ export const rejectMatch = (appId, featureId) => {
 export const createManualMatch = (appId, featureId, payload) => {
     return apiClient.post(`/applications/${appId}/mappings/${featureId}/manual`, payload);
 };
+
+
+
+export const promoteMatch = (appId, featureId, alternativeId) => {
+    return apiClient.post(`/applications/${appId}/mappings/${featureId}/promote`, { alternative_id: alternativeId });
+};
+
+export const approveMatch = (appId, featureId) => {
+    return apiClient.post(`/applications/${appId}/mappings/${featureId}/approve`);
+};

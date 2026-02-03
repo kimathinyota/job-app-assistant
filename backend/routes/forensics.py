@@ -7,7 +7,7 @@ from backend.core.forensics import ForensicCalculator
 from backend.core.models import ForensicAnalysis, Mapping
 # You might need to import your TUNING_MODES constant if it's shared, 
 # otherwise I have defined it below for self-containment.
-
+import hashlib
 router = APIRouter()
 
 # --- Tuning Configuration (Same as your inference route) ---
@@ -45,6 +45,48 @@ class GenerateRoleCaseRequest(BaseModel):
         "picky_mode", 
         "super_picky"
     ] = "balanced_default"
+
+
+
+class PromoteRequest(BaseModel):
+    alternative_id: str
+
+@router.post("/applications/{app_id}/mappings/{feature_id}/promote")
+def promote_match(app_id: str, feature_id: str, payload: PromoteRequest, request: Request):
+    registry = request.app.state.registry
+    app = registry.get_application(app_id)
+    mapping = registry.get_mapping(app.mapping_id)
+    
+    pair = next((p for p in mapping.pairs if p.feature_id == feature_id), None)
+    if not pair: raise HTTPException(404, "Pair not found")
+    
+    if MappingOptimizer.promote_alternative(pair, payload.alternative_id):
+        registry.save_mapping(mapping)
+    
+    job = registry.get_job(app.job_id)
+    calculator = ForensicCalculator()
+    new_analysis = calculator.calculate(job, mapping)
+    new_analysis.application_id = app_id
+    return new_analysis
+
+@router.post("/applications/{app_id}/mappings/{feature_id}/approve")
+def approve_match(app_id: str, feature_id: str, request: Request):
+    registry = request.app.state.registry
+    app = registry.get_application(app_id)
+    mapping = registry.get_mapping(app.mapping_id)
+    
+    pair = next((p for p in mapping.pairs if p.feature_id == feature_id), None)
+    if not pair: raise HTTPException(404, "Pair not found")
+    
+    MappingOptimizer.approve_current_match(pair)
+    registry.save_mapping(mapping)
+    
+    job = registry.get_job(app.job_id)
+    calculator = ForensicCalculator()
+    new_analysis = calculator.calculate(job, mapping)
+    new_analysis.application_id = app_id
+    return new_analysis
+
 
 # -----------------------------------------------------------------------------
 # 1. GENERATE ROLE CASE (Inference + Forensics Pipeline)
