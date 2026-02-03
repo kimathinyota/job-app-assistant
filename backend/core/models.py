@@ -356,13 +356,16 @@ class MatchCandidate(BaseModel):
     lineage: List[LineageItem] # Full path to this segment
 
 # The Meta Container (Stores the "Why")
-class MatchingMeta(BaseModel):
+class MatchingMeta(BaseEntity):
     # The primary evidence that won the match
     best_match: MatchCandidate
     
     # Other segments in the same item that also matched (Supporting Evidence)
     # e.g. You matched the Title, but also matched a Bullet Point.
     supporting_matches: List[MatchCandidate] = Field(default_factory=list)
+
+    # NEW: Keep track of what the user hated
+    rejected_matches: List[MatchCandidate] = Field(default_factory=list)
     
     # Forensic note for quick display
     summary_note: str
@@ -933,3 +936,64 @@ class CoverLetterPromptPayload(BaseModel):
     unused_cv_items: List[str] = Field(default_factory=list)
     
     global_instructions: List[str]
+
+
+
+# backend/core/models.py (Append this to the end)
+
+# ---------------------------------------------------------------------
+# Forensic Analysis Models (The "RoleCase" Engine)
+# ---------------------------------------------------------------------
+
+class JobFitStats(BaseModel):
+    overall_match_score: float
+    coverage_pct: float
+    average_quality: float
+    
+    # Counts
+    total_reqs: int
+    met_reqs: int
+    critical_gaps_count: int
+    
+    # Navigation / Deep Dive Data
+    # List of IDs for the "Warning" icon click-through
+    missing_critical_ids: List[str] 
+    
+    # Authority Breakdown (e.g. {"Professional": 5, "Academic": 2})
+    evidence_sources: Dict[str, int]
+    evidence_ids_by_source: Dict[str, List[str]] 
+
+class ForensicItem(BaseModel):
+    requirement_id: str
+    requirement_text: str
+    requirement_type: str 
+    importance: str
+    status: Literal["verified", "pending", "missing"]
+    
+    # --- EVIDENCE NAVIGATION ---
+    best_match_id: Optional[str] = None
+    cv_item_id: Optional[str] = None
+    cv_item_type: Optional[str] = None
+    
+    # --- INTERACTIVITY SUPPORT (NEW) ---
+    # This carries the IDs (e.g. {'id': 'exp_123', 'type': 'experience'})
+    # so the UI can render: [Experience] -> [Project] -> [Skill] as clickable chips.
+    lineage: List[LineageItem] = Field(default_factory=list) 
+    
+    # --- DISPLAY DATA ---
+    best_match_text: Optional[str] = None
+    best_match_excerpt: Optional[str] = None
+    best_match_confidence: float = 0.0
+    
+    # Renamed from 'lineage_text' to be more accurate
+    match_summary: Optional[str] = None 
+    
+    authority_bucket: str = "Missing"
+
+class ForensicAnalysis(BaseModel):
+    """The complete RoleCase report."""
+    # Optional: The calculator doesn't need to know this, but the UI might want it.
+    application_id: Optional[str] = None 
+    stats: JobFitStats
+    # Grouped for UI columns (Key = Importance Label: "Critical", "High", etc.)
+    groups: Dict[str, List[ForensicItem]]
