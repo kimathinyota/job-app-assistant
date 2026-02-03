@@ -1213,6 +1213,16 @@ class Registry:
     def update_mapping(self, mapping_id: str, update_data: MappingUpdate):
         return self._update_entity("mappings", Mapping, mapping_id, update_data.model_dump())
 
+    # --- ADD THIS METHOD to the 'Mappings' section ---
+    def save_mapping(self, mapping: Mapping) -> Mapping:
+        """
+        Persists a fully modified Mapping object to the database.
+        Crucial for the MappingOptimizer which modifies the 'pairs' list directly.
+        """
+        mapping.touch()
+        self._update("mappings", mapping)
+        return mapping
+
     def delete_mapping(self, mapping_id: str):
         return self._delete("mappings", mapping_id)
 
