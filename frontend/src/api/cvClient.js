@@ -24,7 +24,18 @@ export const fetchCVDetails = async (cvId) => {
     return response.data; // Should return the full CV object with nested lists
 };
 
-
+/**
+ * Imports a CV from raw text.
+ * Maps to: POST /cv/import
+ * Payload: { text: "Raw CV Text...", name: "Internal Label" }
+ */
+export const importCV = async (name, text) => {
+    const response = await apiClient.post('/cv/import', { 
+        name: name, 
+        text: text 
+    });
+    return response.data;
+};
 
 
 export const createBaseCV = async (name, firstName, lastName, title, summary) => {

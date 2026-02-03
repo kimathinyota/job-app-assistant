@@ -35,6 +35,8 @@ import {
     Trash2, 
     Edit2 
 } from 'lucide-react';
+import { UploadCloud } from 'lucide-react'; 
+import ImportCVModal from './cv/ImportCVModal';
 
 import CVSelector from './cv/CVList';
 import { getCVDisplayName } from '../utils/cvHelpers'; 
@@ -133,6 +135,11 @@ const CVManagerPage = () => {
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [createFormData, setCreateFormData] = useState({ name: '', first_name: '', last_name: '', title: '', summary: '' });
 
+    // 2. Add state for the import modal
+    const [showImportModal, setShowImportModal] = useState(false);
+
+
+
     
     // 3. reloadData now determines which CV to select based on the URL
     const reloadData = async () => {
@@ -214,6 +221,12 @@ const CVManagerPage = () => {
 
 
     // --- HANDLERS ---
+
+    const handleImportSuccess = async (newCv) => {
+        await reloadData();
+        setSelectedCVId(newCv.id); // Auto-select the imported CV
+    };
+
      const handleStartEditHeader = () => {
         setEditFormData({
             name: detailedCV.name,
@@ -375,8 +388,19 @@ const CVManagerPage = () => {
 
             <div className="mb-4">
                 <h2 className="fw-bold text-dark mb-3">CV Library</h2>
+
+                <button 
+                        onClick={() => setShowImportModal(true)} 
+                        className="btn btn-outline-primary d-flex align-items-center gap-2"
+                    >
+                        <UploadCloud size={18} /> Import CV
+                </button>
+
+
+
                 {/* 5. The onSelect prop is just setSelectedCVId. This is correct! */}
                 {/* The state update triggers the useEffect, which handles the navigation. */}
+            
                 <CVSelector 
                     cvs={cvs} 
                     onSelect={setSelectedCVId} 
@@ -506,6 +530,13 @@ const CVManagerPage = () => {
                     </div>
                 )}
             </div>
+
+            {showImportModal && (
+                <ImportCVModal 
+                    onClose={() => setShowImportModal(false)}
+                    onSuccess={handleImportSuccess}
+                />
+            )}
 
             {/* Create CV Modal (UI UNCHANGED) */}
             {showCreateModal && (
