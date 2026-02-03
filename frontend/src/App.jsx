@@ -11,6 +11,7 @@ import CVManagerPage from './components/CVManagerPage';
 import AppTrackerPage from './components/AppTrackerPage'; // The Kanban/List of Applications
 import GoalTrackerPage from './components/GoalTrackerPage';
 import JobLibrary from './components/JobLibrary'; 
+import { RoleCasePage } from './components/RoleCasePage'; // Import the new page
 
 // Applications & Jobs
 // NOTE: JobLibrary is your new "Job Library" component
@@ -60,6 +61,13 @@ function App() {
         <Route path="/application/:applicationId/cv" element={<TailoredCVManager />} />
         <Route path="/application/:applicationId/doc/:documentId" element={<SupportingDocStudio />} />
 
+
+        {/* 1. The Application Audit Route (Nested or Standalone) */}
+       <Route path="/application/:appId/analysis" element={<RoleCasePage />} />
+
+       {/* 2. The Draft/Scratch Route */}
+       <Route path="/role-case" element={<RoleCasePage />} />
+       
         {/* 5. CV MANAGER (Standard & Specific ID) */}
         <Route 
           path="/cv" 

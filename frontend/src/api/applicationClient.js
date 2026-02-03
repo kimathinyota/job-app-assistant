@@ -239,3 +239,42 @@ export const fetchCoverLetterPromptPayload = (coverId) => {
     return apiClient.get(`/prompt/coverletter-payload/${coverId}`);
 };
 
+
+// --- FORENSIC & ROLECASE ENDPOINTS ---
+
+/**
+ * 1. Generate RoleCase (Scratch): 
+ * Runs Inference -> Saves Mapping -> Calculates Forensics.
+ */
+export const generateRoleCase = (jobId, cvId, mode = "balanced_default") => {
+    return apiClient.post(`/forensics/generate`, { 
+      job_id: jobId, 
+      cv_id: cvId,
+      mode 
+    });
+};
+
+/**
+ * 2. Get Existing Analysis (Read-Only):
+ * fast fetch for returning users.
+ */
+export const fetchForensicAnalysis = (appId) => {
+    return apiClient.get(`/applications/${appId}/forensic-analysis`);
+};
+
+/**
+ * 3. Reject Match (Interactive):
+ * Removes a match and returns the updated analysis instantly.
+ */
+export const rejectMatch = (appId, featureId) => {
+    return apiClient.post(`/applications/${appId}/mappings/${featureId}/reject`);
+};
+
+/**
+ * 4. Manual Match (Override):
+ * User forces a specific text/item as evidence.
+ * payload: { evidence_text: "...", cv_item_id: "optional", ... }
+ */
+export const createManualMatch = (appId, featureId, payload) => {
+    return apiClient.post(`/applications/${appId}/mappings/${featureId}/manual`, payload);
+};

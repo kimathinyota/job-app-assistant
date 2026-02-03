@@ -166,3 +166,72 @@ def reject_match(app_id: str, feature_id: str, request: Request):
         "updated_pair": pair,
         "new_forensics": new_analysis 
     }
+
+class ManualMatchRequest(BaseModel):
+    # The user provides the text evidence or links to a CV item
+    evidence_text: str 
+    cv_item_id: Optional[str] = None
+    cv_item_type: Optional[str] = None # e.g. "experiences", "projects"
+    cv_item_name: Optional[str] = None # e.g. "Senior Dev at Google"
+
+@router.post("/applications/{app_id}/mappings/{feature_id}/manual", response_model=ForensicAnalysis)
+def create_manual_match(app_id: str, feature_id: str, payload: ManualMatchRequest, request: Request):
+    """
+    User forces a match for a specific requirement.
+    This OVERRIDES any existing AI match or rejection.
+    """
+    registry = request.app.state.registry
+    
+    # 1. Setup Context
+    app = registry.get_application(app_id)
+    if not app: raise HTTPException(404, "Application not found")
+    mapping = registry.get_mapping(app.mapping_id)
+    job = registry.get_job(app.job_id)
+    
+    # 2. Get or Create the Pair
+    # (If it was previously missing/rejected, we might need to reset it)
+    pair = next((p for p in mapping.pairs if p.feature_id == feature_id), None)
+    if not pair:
+        # Create a blank pair if somehow missing (rare)
+        # In practice, you might just fetch the feature and append a new pair
+        raise HTTPException(404, "Mapping pair container not found")
+
+    # 3. Construct the "Manual" Candidate
+    # We treat user input as 100% confidence (1.0)
+    manual_lineage = []
+    if payload.cv_item_id:
+        manual_lineage.append(LineageItem(
+            id=payload.cv_item_id, 
+            type=payload.cv_item_type or "manual", 
+            name=payload.cv_item_name or "Manual Link"
+        ))
+
+    manual_candidate = MatchCandidate(
+        segment_text=payload.evidence_text,
+        segment_type="manual_override",
+        score=1.0, # User says it matches, so it matches.
+        lineage=manual_lineage
+    )
+
+    # 4. Update the Pair State
+    if not pair.meta:
+        pair.meta = MatchingMeta(best_match=manual_candidate, summary_note="")
+    
+    # Force this candidate to be the winner
+    pair.meta.best_match = manual_candidate
+    pair.strength = 1.0 # Max score
+    pair.context_item_id = payload.cv_item_id
+    pair.context_item_type = payload.cv_item_type
+    pair.context_item_text = payload.cv_item_name or "Manual Match"
+    
+    # Create a distinct note so UI knows it's manual
+    pair.meta.summary_note = f"Manual Match: \"{payload.evidence_text[:50]}...\""
+    
+    # 5. Save & Recalculate
+    registry.save_mapping(mapping)
+    
+    calculator = ForensicCalculator()
+    new_analysis = calculator.calculate(job, mapping)
+    new_analysis.application_id = app_id
+    
+    return new_analysis
