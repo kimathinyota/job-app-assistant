@@ -40,7 +40,7 @@ export const RoleCaseView = ({ applicationId, jobId, cvId, onSaveDraft }) => {
       const response = await rejectMatch(appId, featureId);
       setAnalysis(response.data.new_forensics); 
     } catch (err) {
-      // Error handling logic
+      alert("Failed to reject match.");
     }
   };
 
@@ -51,28 +51,38 @@ export const RoleCaseView = ({ applicationId, jobId, cvId, onSaveDraft }) => {
       setAnalysis(response.data);
       setActiveManualFeature(null);
     } catch (err) {
-      // Error handling logic
+      alert("Failed to save match.");
     }
   };
 
   if (loading) {
     return (
-      <div className="h-full w-full flex flex-col items-center justify-center bg-slate-50 space-y-4 min-h-[400px]">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-600"></div>
-        <div className="text-slate-500 font-medium text-sm animate-pulse">{loadingStage}</div>
+      <div className="d-flex flex-column align-items-center justify-content-center vh-100 bg-light">
+        <div className="spinner-border text-primary mb-3" role="status"></div>
+        <div className="text-muted fw-bold">{loadingStage}</div>
       </div>
     );
   }
 
-  if (!analysis) return <div className="p-10 text-center text-slate-500">Could not load analysis data.</div>;
+  if (!analysis) return <div className="p-5 text-center text-muted">Could not load analysis data.</div>;
 
   return (
-    <div className="flex flex-col h-full bg-slate-50/50">
+    <div className="d-flex flex-column h-100 bg-light">
+      <style>
+        {`
+          .rolecase-container { height: calc(100vh - 60px); display: flex; flex-direction: column; }
+          .board-scroll-area { overflow-x: auto; flex: 1; padding-bottom: 1rem; }
+          .custom-scrollbar::-webkit-scrollbar { height: 8px; width: 8px; }
+          .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+          .glass-panel { background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(10px); }
+        `}
+      </style>
+
       {/* 1. Header */}
       <ForensicHeader stats={analysis.stats} />
 
       {/* 2. Board Area */}
-      <div className="flex-1 overflow-x-auto p-6">
+      <div className="board-scroll-area p-4">
         <EvidenceBoard 
           groups={analysis.groups} 
           onReject={handleReject} 
@@ -80,19 +90,19 @@ export const RoleCaseView = ({ applicationId, jobId, cvId, onSaveDraft }) => {
         />
       </div>
 
-      {/* 3. Floating Action Bar (Only for Draft Mode) */}
+      {/* 3. Floating Action Bar (Draft Mode Only) */}
       {!applicationId && onSaveDraft && (
-        <div className="sticky bottom-0 bg-white border-t border-slate-200 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-30">
-          <div className="max-w-7xl mx-auto flex justify-between items-center">
-            <div className="text-sm text-slate-600">
-              <span className="font-semibold text-slate-800">Draft Mode:</span> Changes here will be saved when you create the application.
+        <div className="sticky-bottom bg-white border-top p-3 shadow-lg">
+          <div className="container-fluid d-flex justify-content-between align-items-center">
+            <div className="text-muted small">
+              <span className="fw-bold text-dark">Draft Mode:</span> Changes will be saved to your new application.
             </div>
             <button 
               onClick={onSaveDraft}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-lg font-semibold shadow-sm shadow-indigo-200 transition-all flex items-center space-x-2"
+              className="btn btn-primary fw-bold shadow-sm d-flex align-items-center gap-2"
             >
               <span>Create Application</span>
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
+              <i className="bi bi-arrow-right"></i>
             </button>
           </div>
         </div>

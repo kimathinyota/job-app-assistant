@@ -1,5 +1,6 @@
 // frontend/src/components/rolecase/ForensicItemCard.jsx
 import React from 'react';
+import { Check, X, Plus, AlertTriangle } from 'lucide-react';
 
 export const ForensicItemCard = ({ item, onReject, onAdd }) => {
   const { requirement_text, status, match_summary, lineage } = item;
@@ -7,94 +8,75 @@ export const ForensicItemCard = ({ item, onReject, onAdd }) => {
   const isVerified = status === "verified";
 
   // Chip Styles
-  const typeColors = {
-    experience: "bg-blue-100 text-blue-700 border-blue-200",
-    project: "bg-purple-100 text-purple-700 border-purple-200",
-    skill: "bg-emerald-100 text-emerald-700 border-emerald-200",
-    education: "bg-indigo-100 text-indigo-700 border-indigo-200",
-    default: "bg-slate-100 text-slate-700 border-slate-200"
+  const typeBadgeClass = (type) => {
+    switch(type) {
+      case 'experience': return "bg-primary bg-opacity-10 text-primary border-primary border-opacity-10";
+      case 'project': return "bg-info bg-opacity-10 text-info border-info border-opacity-10";
+      case 'skill': return "bg-success bg-opacity-10 text-success border-success border-opacity-10";
+      default: return "bg-secondary bg-opacity-10 text-secondary border-secondary border-opacity-10";
+    }
   };
 
   return (
-    <div className={`group relative bg-white p-4 rounded-lg shadow-sm border transition-all duration-200 hover:shadow-md 
-      ${isMissing ? 'border-l-4 border-l-rose-400 border-slate-200 bg-slate-50/50' : ''}
-      ${isVerified ? 'border-l-4 border-l-emerald-500 border-slate-200' : ''}
-      ${status === 'pending' ? 'border-l-4 border-l-amber-400 border-slate-200' : ''}
-    `}>
-      
-      {/* 1. Header & Actions */}
-      <div className="flex justify-between items-start mb-2 gap-2">
-        <div className={`text-xs font-bold uppercase tracking-wider px-2 py-0.5 rounded-sm
-          ${isMissing ? 'text-rose-600 bg-rose-50' : ''}
-          ${isVerified ? 'text-emerald-600 bg-emerald-50' : ''}
-          ${status === 'pending' ? 'text-amber-600 bg-amber-50' : ''}
-        `}>
-          {status}
-        </div>
+    <div className={`card border shadow-sm transition-all position-relative ${isMissing ? 'border-start-4 border-danger bg-light' : ''} ${isVerified ? 'border-start-4 border-success' : ''}`}>
+      <div className="card-body p-3">
+        
+        {/* Header */}
+        <div className="d-flex justify-content-between align-items-start mb-2">
+          {/* Status Badge */}
+          {isMissing && <span className="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25">MISSING</span>}
+          {isVerified && <span className="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25">VERIFIED</span>}
+          {status === 'pending' && <span className="badge bg-warning bg-opacity-10 text-warning border border-warning border-opacity-25">WEAK MATCH</span>}
 
-        {/* Hover Actions */}
-        <div className="flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button 
-            onClick={onAdd} 
-            className="p-1.5 rounded bg-slate-100 hover:bg-blue-100 text-slate-400 hover:text-blue-600 transition-colors"
-            title="Override/Add Manual Evidence"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path></svg>
-          </button>
-          {!isMissing && (
-            <button 
-              onClick={onReject} 
-              className="p-1.5 rounded bg-slate-100 hover:bg-rose-100 text-slate-400 hover:text-rose-600 transition-colors"
-              title="Reject this match"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+          {/* Action Buttons */}
+          <div className="d-flex gap-1">
+            <button className="btn btn-sm btn-light border py-0 px-1 text-primary" onClick={onAdd} title="Manual Match">
+              <Plus size={14} />
             </button>
-          )}
-        </div>
-      </div>
-
-      {/* 2. Requirement Text */}
-      <p className={`text-sm font-medium leading-relaxed mb-3 ${isMissing ? 'text-slate-500' : 'text-slate-800'}`}>
-        {requirement_text}
-      </p>
-
-      {/* 3. Evidence Block */}
-      {!isMissing ? (
-        <div className="bg-slate-50 p-2.5 rounded-md border border-slate-100">
-          {/* A. Summary Text */}
-          <div className="text-xs text-slate-600 italic mb-2 line-clamp-3">
-            "{item.best_match_excerpt || match_summary}"
+            {!isMissing && (
+              <button className="btn btn-sm btn-light border py-0 px-1 text-danger" onClick={onReject} title="Reject Match">
+                <X size={14} />
+              </button>
+            )}
           </div>
-          
-          {/* B. Breadcrumbs */}
-          <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-slate-200/50">
-            {lineage && lineage.map((step, idx) => {
-              const style = typeColors[step.type] || typeColors.default;
-              return (
-                <div key={idx} className="flex items-center max-w-full">
-                  <button 
-                    className={`px-2 py-0.5 rounded text-[10px] font-semibold border truncate max-w-[120px] hover:opacity-80 transition-opacity ${style}`}
-                    title={step.name}
-                  >
+        </div>
+
+        {/* Requirement Text */}
+        <p className="card-text small fw-bold text-dark mb-3">
+          {requirement_text}
+        </p>
+
+        {/* Evidence Section */}
+        {!isMissing ? (
+          <div className="bg-light p-2 rounded border">
+            {/* Summary */}
+            <div className="small text-muted fst-italic mb-2 text-truncate">
+              "{item.best_match_excerpt || match_summary}"
+            </div>
+            
+            {/* Chips */}
+            <div className="d-flex flex-wrap gap-1">
+              {lineage && lineage.map((step, idx) => (
+                <div key={idx} className="d-flex align-items-center">
+                  <span className={`badge border fw-normal text-dark ${typeBadgeClass(step.type)}`}>
                     {step.name}
-                  </button>
-                  {idx < lineage.length - 1 && (
-                    <span className="text-slate-300 text-[10px] mx-1">›</span>
-                  )}
+                  </span>
+                  {idx < lineage.length - 1 && <span className="text-muted small mx-1">›</span>}
                 </div>
-              );
-            })}
+              ))}
+            </div>
           </div>
-        </div>
-      ) : (
-        <button 
-          onClick={onAdd}
-          className="w-full py-2 border-2 border-dashed border-slate-200 rounded text-xs text-slate-400 hover:border-blue-300 hover:text-blue-500 hover:bg-blue-50 transition-all flex items-center justify-center gap-2 group/btn"
-        >
-          <span>Find Missing Evidence</span>
-          <span className="opacity-0 group-hover/btn:opacity-100">→</span>
-        </button>
-      )}
+        ) : (
+          <div className="d-grid">
+            <button 
+              onClick={onAdd}
+              className="btn btn-sm btn-outline-secondary border-dashed text-muted d-flex align-items-center justify-content-center gap-2"
+            >
+              <AlertTriangle size={14} /> Find Evidence
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 };
