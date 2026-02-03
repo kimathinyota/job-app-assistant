@@ -963,6 +963,15 @@ class JobFitStats(BaseModel):
     evidence_sources: Dict[str, int]
     evidence_ids_by_source: Dict[str, List[str]] 
 
+
+class ForensicAlternative(BaseModel):
+    """A lightweight summary of a supporting match."""
+    match_text: str       # The snippet
+    score: float          # Confidence
+    source_type: str      # e.g. "project", "experience"
+    source_name: str      # e.g. "E-Commerce App"
+    
+
 class ForensicItem(BaseModel):
     requirement_id: str
     requirement_text: str
@@ -989,6 +998,8 @@ class ForensicItem(BaseModel):
     match_summary: Optional[str] = None 
     
     authority_bucket: str = "Missing"
+
+    alternatives: List[ForensicAlternative] = Field(default_factory=list)
 
 class ForensicAnalysis(BaseModel):
     """The complete RoleCase report."""

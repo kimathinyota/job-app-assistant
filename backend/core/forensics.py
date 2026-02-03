@@ -3,7 +3,7 @@
 from typing import List, Dict, Any, Optional
 from backend.core.models import (
     JobDescription, Mapping, MappingPair,
-    ForensicAnalysis, JobFitStats, ForensicItem
+    ForensicAnalysis, JobFitStats, ForensicItem, ForensicAlternative
 )
 from collections import defaultdict
 
@@ -92,10 +92,11 @@ class ForensicCalculator:
             if status == "missing" and weight >= 1.25:
                 missing_critical_ids.append(feature.id)
 
-            # F. Build the Forensic Item (Updated for UI Interactivity)
+            # F. Build the Forensic Item (Updated for UI Interactivity & Alternatives)
             best_match_excerpt = None
             summary_note = None
             structured_lineage = [] # <--- NEW: Container for the clickable chips
+            alternatives_list = [] # <--- NEW: Container for alternatives
             
             if pair and pair.meta:
                 # 1. Get the text summary (e.g. "Excerpt... (Exp > Proj)")
@@ -106,6 +107,27 @@ class ForensicCalculator:
                     # 2. COPY THE STRUCTURED LINEAGE OBJECTS
                     # This allows the frontend to iterate and create clickable links
                     structured_lineage = pair.meta.best_match.lineage
+
+                # --- NEW LOGIC: Extract Alternatives ---
+                if pair.meta.supporting_matches:
+                    # Sort by score just in case
+                    sorted_backups = sorted(pair.meta.supporting_matches, key=lambda x: x.score, reverse=True)
+                    
+                    for cand in sorted_backups[:3]: # Limit to top 3 to keep payload light
+                        # Resolve source name from lineage (Root item)
+                        src_name = "Unknown"
+                        src_type = "general"
+                        if cand.lineage:
+                            src_name = cand.lineage[0].name
+                            src_type = cand.lineage[0].type
+                        
+                        alternatives_list.append(ForensicAlternative(
+                            match_text=cand.segment_text,
+                            score=cand.score,
+                            source_name=src_name,
+                            source_type=src_type
+                        ))
+                # ---------------------------------------
 
             item = ForensicItem(
                 requirement_id=feature.id,
@@ -129,7 +151,10 @@ class ForensicCalculator:
                 match_summary=summary_note, # Renamed field (prev. lineage_text)
                 
                 # Filter
-                authority_bucket=authority_bucket
+                authority_bucket=authority_bucket,
+
+                # --- NEW FIELD ---
+                alternatives=alternatives_list
             )
             
             groups[importance_label].append(item)
