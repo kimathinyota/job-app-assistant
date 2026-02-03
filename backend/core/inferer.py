@@ -24,6 +24,419 @@ except ImportError:
 
 log = logging.getLogger(__name__)
 
+
+from typing import TYPE_CHECKING
+
+# We only import for type hinting, avoiding circular dependencies at runtime
+if TYPE_CHECKING:
+    from .llm_manager import LLMManager
+
+
+log = logging.getLogger(__name__)
+
+class JobParser:
+    """
+    Handles logic for parsing Job Descriptions.
+    """
+    
+    PROMPT_MASTER = """You are a Lead HR Analyst.
+
+### OBJECTIVE:
+Analyze the Job Description and extract a complete Job Profile. You must extract Metadata, Candidate Attributes (Who), Job Execution Details (What), and Value Proposition (Why).
+
+### SECTION 1: METADATA
+Extract the following specific fields. If not found, set to null.
+- "title": Specific role name.
+- "company": Organization name.
+- "location": City, State, or Remote status.
+- "salary_range": Specific monetary figures (e.g., "$50k - $80k", "£15/hr"). IGNORE generic "competitive salary" text.
+
+### SECTION 2: SEMANTIC FEATURE DEFINITIONS
+Extract specific text segments into a "features" list based on these types:
+
+#### GROUP A: CANDIDATE ATTRIBUTES (The "Who")
+1. "hard_skill": 
+   - MATCH: Proper Nouns for Tools, Software, Frameworks, Methodologies, or Tech Stacks.
+   - REJECT: General business processes, administrative tasks, or duties.
+2. "soft_skill": 
+   - MATCH: Adjectives defining character/work style (Max 3 words).
+3. "certification": 
+   - MATCH: Paper credentials ONLY (Degrees, Licenses, Security Clearances).
+
+#### GROUP B: JOB EXECUTION (The "What")
+4. "responsibility": 
+   - MATCH: Actions the employee DOES daily. Look for bullet points starting with Action Verbs.
+5. "requirement": 
+   - MATCH: Mandatory constraints (Logistics, Legal status, History).
+   - CRITICAL RULE: If the requirement is historical (e.g., "3 years experience"), you MUST append " (experience)" to the string.
+
+#### GROUP C: VALUE PROPOSITION (The "Why")
+6. "employer_culture": 
+   - MATCH: Adjectives/slogans describing vibe, ethos, or values.
+7. "employer_mission": 
+   - MATCH: High-level purpose statements (What the company does and why).
+8. "perk": 
+   - MATCH: Benefits, bonuses, insurance, time off, or lifestyle rewards.
+
+### OUTPUT SCHEMA (STRICT JSON):
+Return a single JSON object with no markdown formatting:
+{
+  "title": "string or null",
+  "company": "string or null",
+  "location": "string or null",
+  "salary_range": "string or null",
+  "features": [
+    {
+      "type": "string (Must be one of: hard_skill, soft_skill, certification, responsibility, requirement, employer_culture, employer_mission, perk)",
+      "description": "string (The extracted text verbatim; seperate with semi-colon if multiple found)"
+    }
+  ]
+}
+DO NOT RETURN MARKDOWN. DO NOT USE ```json BLOCKS. JUST THE RAW JSON.
+"""
+
+    def __init__(self, manager: LLMManager):
+        self.manager = manager
+
+    async def fast_parse(self, job_text: str) -> dict:
+        log.info("⚡ Starting Fast Parse (Master Agent v1)...")
+        start_time = time.time()
+
+        # 1. Request Inference via Manager
+        # Note: Using temperature=0.0 as per your 'job' requirement
+        data = await self.manager.request_inference(
+            system_prompt=self.PROMPT_MASTER,
+            user_text=job_text,
+            doc_label="JOB DESCRIPTION",
+            is_private=False,
+            temperature=0.0,
+            max_tokens=4096
+        )
+
+        # 2. Logic: Initialize Result
+        final_result = {
+            "title": data.get("title"),
+            "company": data.get("company"),
+            "location": data.get("location"),
+            "salary_range": data.get("salary_range"),
+            "features": [],
+            "_meta": {}
+        }
+
+        # 3. Logic: Deduplicate and Map Features
+        raw_features = data.get("features", [])
+        seen = set()
+        unique_features = []
+
+        VALID_TYPES = [
+            "responsibility", "hard_skill", "soft_skill", "experience",
+            "qualification", "requirement", "nice_to_have", 
+            "employer_mission", "employer_culture", "role_value", 
+            "benefit", "other"
+        ]
+
+        for f in raw_features:
+            if not isinstance(f, dict): continue
+            
+            raw_val = f.get("description")
+            if raw_val is None: continue 
+            clean_desc_full = str(raw_val).strip()
+            if not clean_desc_full: continue
+            
+            feat_type = f.get("type")
+
+            # Mapping
+            if feat_type == "certification": feat_type = "qualification"
+            if feat_type == "perk": feat_type = "benefit"
+
+            # Validation
+            if feat_type not in VALID_TYPES and feat_type != "requirement":
+                continue
+
+            # Unbundling Logic (Semicolons)
+            for raw_item in clean_desc_full.split(';'):
+                clean_desc = raw_item.strip()
+                if not clean_desc or len(clean_desc) < 2: continue
+                if clean_desc.lower().startswith("we are looking"): continue
+                if clean_desc == final_result.get("location"): continue
+                
+                sig = (feat_type, clean_desc.lower())
+                if sig not in seen:
+                    seen.add(sig)
+                    unique_features.append({
+                        "type": feat_type,
+                        "description": clean_desc,
+                        "preferred": bool(f.get("preferred", False))
+                    })
+
+        final_result["features"] = unique_features
+        final_result["_meta"]["generation_time_sec"] = round(time.time() - start_time, 2)
+        
+        log.info(f"✅ Fast Parse Complete in {final_result['_meta']['generation_time_sec']}s")
+        return final_result
+
+
+class CVParser:
+    """
+    Handles logic for parsing CVs.
+    """
+    PROMPT_CV_IDENTITY = """You are a Lead CV Analyst.
+
+### OBJECTIVE:
+Extract candidate metadata and a global skill set.
+
+### SECTION 1: METADATA RULES
+- "first_name": Extract the first name.
+- "last_name": Extract the last name.
+- "email": MATCH valid email addresses.
+- "phone": MATCH phone numbers. If none, return null.
+- "linkedin": MATCH LinkedIn profile URLs. If none, return null.
+- "location": MATCH City/Country.
+- "summary": MATCH the professional summary or introduction paragraph verbatim.
+
+### SECTION 2: SKILL EXTRACTION
+- "skills_list": 
+   - MATCH: A single string containing ALL technical tools, languages, and frameworks found in the document.
+   - FORMAT: Semicolon separated (e.g. "Python; SQL; AWS").
+
+### OUTPUT SCHEMA (STRICT JSON):
+{
+  "first_name": "string",
+  "last_name": "string",
+  "email": "string",
+  "phone": "string or null",
+  "linkedin": "string or null",
+  "location": "string",
+  "summary": "string",
+  "skills_list": "string"
+}
+NO MARKDOWN. NO NOTES. RAW JSON ONLY.
+"""
+
+    PROMPT_CV_EXPERIENCE = """You are a Work History Auditor.
+
+### OBJECTIVE:
+Extract professional experience into a structured list.
+
+### EXTRACTION RULES:
+1. "company": MATCH the organization name.
+2. "title": MATCH the job title.
+3. "start_date": MATCH the start date verbatim.
+4. "end_date": MATCH the end date verbatim.
+5. "achievements_list": 
+   - MATCH: Every bullet point or result described in this role.
+   - FORMAT: Combine into a single string separated by semicolons (;).
+   - REJECT: General duties (e.g. "Responsible for coding"). Focus on results.
+6. "tools_used":
+   - MATCH: Specific tools/tech mentioned *within this role description*.
+   - FORMAT: Semicolon separated.
+
+### OUTPUT SCHEMA (STRICT JSON):
+{
+  "items": [
+    {
+      "company": "string",
+      "title": "string",
+      "start_date": "string",
+      "end_date": "string",
+      "description": "string (Short summary paragraph)",
+      "achievements_list": "string",
+      "tools_used": "string"
+    }
+  ]
+}
+NO MARKDOWN. NO NOTES. RAW JSON ONLY.
+"""
+
+    PROMPT_CV_EDUCATION = """You are an Academic Researcher.
+
+### OBJECTIVE:
+Extract education history.
+
+### EXTRACTION RULES:
+1. "institution": MATCH the university or school name.
+2. "degree": MATCH the degree type (e.g., BS, MS, PhD).
+3. "field": MATCH the major or field of study.
+4. "details_list":
+   - MATCH: Honors, GPA, Awards, or Thesis titles.
+   - FORMAT: Semicolon separated string.
+
+### OUTPUT SCHEMA (STRICT JSON):
+{
+  "items": [
+    {
+      "institution": "string",
+      "degree": "string",
+      "field": "string",
+      "start_date": "string",
+      "end_date": "string",
+      "details_list": "string"
+    }
+  ]
+}
+NO MARKDOWN. RAW JSON ONLY.
+"""
+
+    PROMPT_CV_PROJECTS = """You are a Portfolio Analyst.
+
+### OBJECTIVE:
+Extract independent projects and identify their source context.
+
+### EXTRACTION RULES:
+1. "title": MATCH the project name.
+2. "related_context":
+   - MATCH: The name of the Company, University, or Hobby this project belongs to.
+   - RULE: If it is a personal project, set to "Personal".
+3. "achievements_list": Semicolon separated results.
+4. "tools_used": Semicolon separated tools.
+
+### OUTPUT SCHEMA (STRICT JSON):
+{
+  "items": [
+    {
+      "title": "string",
+      "description": "string",
+      "achievements_list": "string",
+      "tools_used": "string",
+      "related_context": "string"
+    }
+  ]
+}
+NO MARKDOWN. RAW JSON ONLY.
+"""
+
+    def __init__(self, manager: LLMManager):
+        self.manager = manager
+
+    async def parse_cv(self, cv_text: str, cv_name: str = "Imported CV") -> CV:
+        log.info("🚀 Starting Fast CV Parse...")
+        
+        # 1. Run Inference (Sequential)
+        identity_data = await self.manager.request_inference(
+            self.PROMPT_CV_IDENTITY + "\nOutput:", cv_text, 
+            doc_label="CANDIDATE RESUME", is_private=True, temperature=0.1, max_tokens=1000
+        )
+        exp_data = await self.manager.request_inference(
+            self.PROMPT_CV_EXPERIENCE + "\nOutput:", cv_text, 
+            doc_label="CANDIDATE RESUME", is_private=True, temperature=0.1, max_tokens=2500
+        )
+        edu_data = await self.manager.request_inference(
+            self.PROMPT_CV_EDUCATION + "\nOutput:", cv_text, 
+            doc_label="CANDIDATE RESUME", is_private=True, temperature=0.1, max_tokens=1000
+        )
+        proj_data = await self.manager.request_inference(
+            self.PROMPT_CV_PROJECTS + "\nOutput:", cv_text, 
+            doc_label="CANDIDATE RESUME", is_private=True, temperature=0.1, max_tokens=1000
+        )
+
+        # 2. Sanitization
+        raw_contact = {
+            "email": identity_data.get("email"),
+            "phone": identity_data.get("phone"),
+            "linkedin": identity_data.get("linkedin"),
+            "location": identity_data.get("location")
+        }
+        clean_contact = {k: str(v) for k, v in raw_contact.items() if v and v != "null"}
+
+        # 3. Create CV Object
+        cv_obj = CV.create(
+            name=cv_name,
+            first_name=identity_data.get("first_name") or "Unknown",
+            last_name=identity_data.get("last_name") or "Candidate",
+            title=identity_data.get("title") or "Professional",
+            summary=identity_data.get("summary") or "",
+            contact_info=clean_contact 
+        )
+
+        # 4. Helper: Skill Dedup
+        skill_registry = {} 
+        def register_skills(raw_string):
+            if not raw_string or not isinstance(raw_string, str): return []
+            found_ids = []
+            for s_name in raw_string.split(';'):
+                clean_name = s_name.strip()
+                if len(clean_name) < 2: continue
+                key = clean_name.lower()
+                if key not in skill_registry:
+                    existing = next((s for s in cv_obj.skills if s.name.lower() == key), None)
+                    if existing:
+                        skill_registry[key] = existing.id
+                    else:
+                        new_sk = cv_obj.add_skill(name=clean_name)
+                        skill_registry[key] = new_sk.id
+                found_ids.append(skill_registry[key])
+            return list(set(found_ids))
+
+        # 5. Assembly
+        register_skills(identity_data.get("skills_list", ""))
+
+        # --- Experience ---
+        for item in exp_data.get("items", []) or []:
+            exp = cv_obj.add_experience(
+                title=item.get("title") or "Role",
+                company=item.get("company") or "Company",
+                start_date=item.get("start_date"),
+                end_date=item.get("end_date"),
+                description=item.get("description")
+            )
+            exp.skill_ids.extend(register_skills(item.get("tools_used")))
+            
+            # FIX: Explicitly add achievement instead of chaining .link_to_experience()
+            if item.get("achievements_list"):
+                for ach_text in str(item.get("achievements_list", "")).split(';'):
+                    clean_text = ach_text.strip()
+                    if len(clean_text) > 3:
+                        ach = cv_obj.add_achievement(text=clean_text, context=item.get("company"))
+                        exp.add_achievement(ach) # This method exists on Experience model
+
+        # --- Education ---
+        for item in edu_data.get("items", []) or []:
+            edu = cv_obj.add_education(
+                institution=item.get("institution") or "Institution",
+                degree=item.get("degree") or "Degree",
+                field=item.get("field"),
+                start_date=item.get("start_date"),
+                end_date=item.get("end_date")
+            )
+            
+            # FIX: Treat details as achievements and link explicitly
+            if item.get("details_list"):
+                for det_text in str(item.get("details_list", "")).split(';'):
+                     clean_text = det_text.strip()
+                     if len(clean_text) > 3:
+                        ach = cv_obj.add_achievement(text=clean_text, context=item.get("institution"))
+                        edu.add_achievement(ach) # This method exists on Education model
+
+        # --- Projects ---
+        for item in proj_data.get("items", []) or []:
+            rel_exp_ids = []
+            rel_edu_ids = []
+            ctx = (item.get("related_context") or "").lower()
+            if ctx:
+                for e in cv_obj.experiences:
+                    if e.company.lower() in ctx: rel_exp_ids.append(e.id)
+                for ed in cv_obj.education:
+                    if ed.institution.lower() in ctx: rel_edu_ids.append(ed.id)
+
+            proj = cv_obj.add_project(
+                title=item.get("title") or "Project",
+                description=item.get("description") or "",
+                related_experience_ids=rel_exp_ids,
+                related_education_ids=rel_edu_ids
+            )
+            proj.skill_ids.extend(register_skills(item.get("tools_used")))
+            
+            # FIX: Link Achievements explicitly
+            if item.get("achievements_list"):
+                for ach_text in str(item.get("achievements_list", "")).split(';'):
+                    clean_text = ach_text.strip()
+                    if len(clean_text) > 3:
+                        ach = cv_obj.add_achievement(text=clean_text, context="Project")
+                        proj.add_achievement(ach) # This method exists on Project model
+
+        log.info(f"✅ Fast Parse Complete: {len(cv_obj.experiences)} exps, {len(cv_obj.skills)} skills.")
+        return cv_obj
+
 class JobDescriptionParser:
     def __init__(self, model_path: str, context_size: int = 8192, n_threads: int = 4, machine_type: str = "mac"):
         if Llama is None:
@@ -1049,6 +1462,7 @@ NO MARKDOWN. RAW JSON ONLY.
         return cv_obj
     
 
+ 
 
 
 #     def parse(self, job_text: str) -> dict:

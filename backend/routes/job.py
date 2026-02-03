@@ -25,7 +25,7 @@ async def parse_job_description(request: Request, job_request: JobTextRequest):
     
     # Run inference (this is blocking CPU code, so fast/short requests are okay, 
     # but for heavy loads you might want to run this in a threadpool)
-    result = parser.parse(job_request.text)
+    result = await parser.fast_parse(job_request.text)
     
     if "error" in result and result["error"] != "Failed to generate valid JSON":
          raise HTTPException(status_code=400, detail=result["error"])

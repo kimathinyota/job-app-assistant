@@ -15,6 +15,10 @@ from backend.routes import (
     prompt, interview, workitem, goal
 )
 from backend.core.inferer import JobDescriptionParser # Import the new class
+
+from backend.core.llm_manager import LLMManager
+from backend.core.inferer import JobParser, CVParser
+
 # Setup logging
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -23,6 +27,10 @@ logging.basicConfig(level=logging.INFO)
 # Ensure this path is correct relative to where you run `python run.py`
 # MODEL_PATH = "backend/core/llama3_job_cpu_FINAL.gguf" 
 MODEL_PATH = "backend/core/llama3_job_cpu_8b.gguf"
+
+MAX_MODEL_INSTANCES = 1
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
@@ -33,7 +41,22 @@ async def lifespan(app: FastAPI):
     try:
         if os.path.exists(MODEL_PATH):
             log.info("🚀 Startup: Initializing Llama Model...")
-            app.state.job_parser = JobDescriptionParser(model_path=MODEL_PATH)
+
+            llm_manager = LLMManager()
+            llm_manager.load_local_models(
+            model_path=MODEL_PATH, 
+            max_instances=MAX_MODEL_INSTANCES, 
+            machine_type="mac"
+         )
+            # app.state.job_parser = JobDescriptionParser(model_path=MODEL_PATH)
+
+            app.state.llm_manager = llm_manager
+            app.state.job_parser = JobParser(manager=llm_manager)
+            app.state.cv_parser = CVParser(manager=llm_manager)
+
+
+
+
         else:
             log.warning(f"⚠️ Model file '{MODEL_PATH}' not found. Job parsing will be disabled.")
             app.state.job_parser = None

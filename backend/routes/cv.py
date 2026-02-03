@@ -18,14 +18,14 @@ async def import_cv_text(request: Request, payload: CVImportRequest):
     """
     Imports a CV from raw text using the Fast Parse engine.
     """
-    parser = getattr(request.app.state, "job_parser", None)
+    parser = getattr(request.app.state, "cv_parser", None)
     if not parser:
         raise HTTPException(status_code=503, detail="LLM Model is not loaded.")
 
     try:
         # 1. Parse into a full Pydantic CV object
         # The parser now handles all ID generation and object linking internally
-        structured_cv = parser.fast_parse_cv(payload.text, cv_name=payload.name)
+        structured_cv = await parser.parse_cv(payload.text, cv_name=payload.name)
         
         # 2. Persist to TinyDB using the Registry
         registry = request.app.state.registry
