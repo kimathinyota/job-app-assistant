@@ -115,7 +115,7 @@ def logout(response: Response):
     return {"message": "Logged out"}
 
 @router.get("/me")
-def get_current_user_info(request: Request):
+def get_current_user(request: Request):
     """
     Frontend calls this to check if logged in.
     Decodes the JWT cookie and fetches user from DB.

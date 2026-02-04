@@ -1,21 +1,24 @@
 # backend/routes/cv.py
 
-from fastapi import APIRouter, HTTPException, Query, Request # <-- Import Query
+from fastapi import APIRouter, HTTPException, Query, Request, Depends
 from backend.core.registry import Registry
-from backend.core.models import CVUpdate, ExperienceUpdate, ExperienceComplexPayload, EducationComplexPayload, HobbyComplexPayload, ProjectComplexPayload, CVImportRequest # Import the update model
-from backend.core.models import CV, Experience, Project, Education, Skill, Hobby
-
-from typing import Optional, List # Ensure List is imported
+from backend.core.models import (
+    CVUpdate, ExperienceUpdate, ExperienceComplexPayload, 
+    EducationComplexPayload, HobbyComplexPayload, ProjectComplexPayload, 
+    CVImportRequest, CV, Experience, Project, Education, Skill, Hobby, User
+)
+from typing import Optional, List
 import logging as log
-
+from backend.routes.auth import get_current_user # Adjust import path
 
 router = APIRouter()
-# ... (Existing top-level CRUD endpoints: create_cv, list_cvs, etc. No changes needed here) ...
-
-# ... (Existing top-level CRUD endpoints: create_cv, list_cvs, etc. No changes needed here) ...
 
 @router.post("/import")
-async def import_cv_text(request: Request, payload: CVImportRequest):
+async def import_cv_text(
+    request: Request, 
+    payload: CVImportRequest,
+    user: User = Depends(get_current_user)
+):
     """
     Imports a CV from raw text using the Fast Parse engine.
     """
@@ -25,50 +28,59 @@ async def import_cv_text(request: Request, payload: CVImportRequest):
 
     try:
         # 1. Parse into a full Pydantic CV object
-        # The parser now handles all ID generation and object linking internally
         structured_cv = await parser.parse_cv(payload.text, cv_name=payload.name)
         
         # 2. Persist to TinyDB using the Registry
-        registry = request.app.state.registry
+        # Enforce User Ownership on the new object
+        structured_cv.user_id = user.id
         
-        # Accessing the internal _insert method directly 
-        # (Since Registry doesn't expose a 'save_cv' method that accepts an object)
-        # 'cvs' matches the table name used in registry.create_cv
+        registry: Registry = request.app.state.registry
         registry._insert("cvs", structured_cv)
         
         return structured_cv
         
     except Exception as e:
-        # Log the full error for debugging
         import logging
         logging.getLogger(__name__).error(f"CV Import Error: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to parse CV: {str(e)}")
 
 @router.post("/")
-def create_cv(name: str, request: Request, first_name: Optional[str] = None, last_name: Optional[str] = None, summary: Optional[str] = None):
+def create_cv(
+    name: str, 
+    request: Request, 
+    first_name: Optional[str] = None, 
+    last_name: Optional[str] = None, 
+    summary: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
     """Create a new base CV."""
-    registry = request.app.state.registry
-    return registry.create_cv(name=name, first_name=first_name, last_name=last_name, summary=summary)
+    registry: Registry = request.app.state.registry
+    return registry.create_cv(user.id, name=name, first_name=first_name, last_name=last_name, summary=summary)
 
 
 @router.get("/")
-def list_cvs(request: Request):
-    """List all base CVs."""
-    registry = request.app.state.registry
-    return registry.all_cvs()
+def list_cvs(
+    request: Request,
+    user: User = Depends(get_current_user)
+):
+    """List all base CVs belonging to the user."""
+    registry: Registry = request.app.state.registry
+    return registry.all_cvs(user.id)
 
 @router.get("/{cv_id}")
-def get_cv(cv_id: str, request: Request):
+def get_cv(
+    cv_id: str, 
+    request: Request,
+    user: User = Depends(get_current_user)
+):
     """Fetch a specific CV by ID."""
-    registry = request.app.state.registry
-    cv = registry.get_cv(cv_id)
+    registry: Registry = request.app.state.registry
+    # Pass user.id to enforce ownership
+    cv = registry.get_cv(cv_id, user.id)
     if not cv:
         raise HTTPException(status_code=404, detail="CV not found")
     
     if cv and cv.experiences:
-        # Sort experiences by start_date, descending (newest first).
-        # We use a default value ('0000-00-00') for any None or empty dates
-        # to ensure they are sorted to the bottom as the "oldest".
         cv.experiences.sort(
             key=lambda exp: exp.start_date or '0000-00-00', 
             reverse=True
@@ -76,20 +88,29 @@ def get_cv(cv_id: str, request: Request):
     return cv
 
 @router.patch("/{cv_id}")
-def update_cv(cv_id: str, data: CVUpdate, request: Request):
+def update_cv(
+    cv_id: str, 
+    data: CVUpdate, 
+    request: Request,
+    user: User = Depends(get_current_user)
+):
     """Update general CV metadata (name, summary, contact_info)."""
     try:
-        registry = request.app.state.registry
-        return registry.update_cv(cv_id, data)
+        registry: Registry = request.app.state.registry
+        return registry.update_cv(user.id, cv_id, data)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
 @router.delete("/{cv_id}")
-def delete_cv(cv_id: str, request: Request):
+def delete_cv(
+    cv_id: str, 
+    request: Request,
+    user: User = Depends(get_current_user)
+):
     """Delete a CV by ID."""
     try:
-        registry = request.app.state.registry
-        return registry.delete_cv(cv_id)
+        registry: Registry = request.app.state.registry
+        return registry.delete_cv(user.id, cv_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -98,87 +119,86 @@ def delete_cv(cv_id: str, request: Request):
 # NESTED ADD ENDPOINTS (CV Components)
 # ---------------------------------------------------------------------
 
-# --- *** NEW: Complex Experience Endpoint (CREATE) *** ---
 @router.post("/{cv_id}/experience/complex")
-def add_experience_complex(cv_id: str, payload: ExperienceComplexPayload, request: Request):
-    """
-    Creates a new experience and all its dependencies (new skills, new achievements)
-    from a single complex payload.
-    """
+def add_experience_complex(
+    cv_id: str, 
+    payload: ExperienceComplexPayload, 
+    request: Request,
+    user: User = Depends(get_current_user)
+):
     try:
-        registry = request.app.state.registry
-        return registry.create_experience_from_payload(cv_id, payload)
+        registry: Registry = request.app.state.registry
+        return registry.create_experience_from_payload(user.id, cv_id, payload)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-# --- *** NEW: Complex Experience Endpoint (UPDATE) *** ---
 @router.patch("/{cv_id}/experience/{exp_id}/complex")
-def update_experience_complex(cv_id: str, exp_id: str, payload: ExperienceComplexPayload, request: Request):
-    """
-    Updates an existing experience and all its dependencies (new/modified skills
-    and achievements) from a single complex payload.
-    """
+def update_experience_complex(
+    cv_id: str, 
+    exp_id: str, 
+    payload: ExperienceComplexPayload, 
+    request: Request,
+    user: User = Depends(get_current_user)
+):
     try:
-        registry = request.app.state.registry
-        return registry.update_experience_from_payload(cv_id, exp_id, payload)
+        registry: Registry = request.app.state.registry
+        return registry.update_experience_from_payload(user.id, cv_id, exp_id, payload)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-# --- *** OLD Endpoints Removed *** ---
-# @router.post("/{cv_id}/experience") ... (REMOVED)
-# @router.patch("/{cv_id}/experience/{exp_id}") ... (REMOVED)
-
- # --- *** NEW: Complex Education Endpoints *** ---
 @router.post("/{cv_id}/education/complex")
-def add_education_complex(cv_id: str, payload: EducationComplexPayload, request: Request): # <--- FIXED
-    """
-    Creates a new education entry and all its dependencies (new skills, new achievements)
-    from a single complex payload.
-    """
+def add_education_complex(
+    cv_id: str, 
+    payload: EducationComplexPayload, 
+    request: Request,
+    user: User = Depends(get_current_user)
+):
     try:
-        registry = request.app.state.registry
-        return registry.create_education_from_payload(cv_id, payload) # <--- FIXED
+        registry: Registry = request.app.state.registry
+        return registry.create_education_from_payload(user.id, cv_id, payload)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
 @router.patch("/{cv_id}/education/{edu_id}/complex")
-def update_education_complex(cv_id: str, edu_id: str, payload: EducationComplexPayload, request: Request):
-    """
-    Updates an existing education entry and all its dependencies
-    from a single complex payload.
-    """
+def update_education_complex(
+    cv_id: str, 
+    edu_id: str, 
+    payload: EducationComplexPayload, 
+    request: Request,
+    user: User = Depends(get_current_user)
+):
     try:
-        registry = request.app.state.registry
-        return registry.update_education_from_payload(cv_id, edu_id, payload)
+        registry: Registry = request.app.state.registry
+        return registry.update_education_from_payload(user.id, cv_id, edu_id, payload)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
-# --- *** END NEW ENDPOINTS *** ---   
 
-# --- *** NEW: Complex Hobby Endpoints *** ---
 @router.post("/{cv_id}/hobby/complex")
-def add_hobby_complex(cv_id: str, payload: HobbyComplexPayload, request: Request):
-    """
-    Creates a new hobby and all its dependencies (new skills, new achievements)
-    from a single complex payload.
-    """
+def add_hobby_complex(
+    cv_id: str, 
+    payload: HobbyComplexPayload, 
+    request: Request,
+    user: User = Depends(get_current_user)
+):
     try:
-        registry = request.app.state.registry
-        return registry.create_hobby_from_payload(cv_id, payload)
+        registry: Registry = request.app.state.registry
+        return registry.create_hobby_from_payload(user.id, cv_id, payload)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
 @router.patch("/{cv_id}/hobby/{hobby_id}/complex")
-def update_hobby_complex(cv_id: str, hobby_id: str, payload: HobbyComplexPayload, request: Request):
-    """
-    Updates an existing hobby and all its dependencies
-    from a single complex payload.
-    """
+def update_hobby_complex(
+    cv_id: str, 
+    hobby_id: str, 
+    payload: HobbyComplexPayload, 
+    request: Request,
+    user: User = Depends(get_current_user)
+):
     try:
-        registry = request.app.state.registry
-        return registry.update_hobby_from_payload(cv_id, hobby_id, payload)
+        registry: Registry = request.app.state.registry
+        return registry.update_hobby_from_payload(user.id, cv_id, hobby_id, payload)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
-# --- *** END NEW ENDPOINTS *** ---
 
 @router.post("/{cv_id}/education")
 def add_education(
@@ -189,13 +209,13 @@ def add_education(
     request: Request,
     start_date: Optional[str] = None, 
     end_date: Optional[str] = None,
-    skill_ids: Optional[List[str]] = Query(None) # <-- *** ADDED THIS LINE ***
+    skill_ids: Optional[List[str]] = Query(None),
+    user: User = Depends(get_current_user)
 ):
-    """Add a new education entry to the CV."""
     try:
-        registry = request.app.state.registry
-        # *** ADDED skill_ids TO THE CALL ***
+        registry: Registry = request.app.state.registry
         return registry.add_cv_education(
+            user.id,
             cv_id, 
             institution=institution, 
             degree=degree, 
@@ -215,12 +235,12 @@ def add_skill(
     category: str = "technical",
     level: Optional[str] = None, 
     importance: Optional[int] = None, 
-    description: Optional[str] = None
+    description: Optional[str] = None,
+    user: User = Depends(get_current_user)
 ):
-    """Add a new skill to the CV's master list."""
     try:
-        registry = request.app.state.registry
-        return registry.add_cv_skill(cv_id, name=name, category=category, level=level, importance=importance, description=description)
+        registry: Registry = request.app.state.registry
+        return registry.add_cv_skill(user.id, cv_id, name=name, category=category, level=level, importance=importance, description=description)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -232,13 +252,13 @@ def add_project(
     request: Request,
     related_experience_id: Optional[str] = None, 
     related_education_id: Optional[str] = None,
-    skill_ids: Optional[List[str]] = Query(None) # <-- *** ADDED THIS LINE ***
+    skill_ids: Optional[List[str]] = Query(None),
+    user: User = Depends(get_current_user)
 ):
-    """Add a new project to the CV."""
     try:
-        registry = request.app.state.registry
-        # *** ADDED skill_ids TO THE CALL ***
+        registry: Registry = request.app.state.registry
         return registry.add_cv_project(
+            user.id,
             cv_id, 
             title=title, 
             description=description, 
@@ -249,9 +269,6 @@ def add_project(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-# ... (rest of the file, e.g., add_hobby, add_achievement, and linking endpoints, remains unchanged) ...
-
-
 @router.post("/{cv_id}/hobby")
 def add_hobby(
     cv_id: str, 
@@ -259,163 +276,178 @@ def add_hobby(
     request: Request,
     description: Optional[str] = None,
     skill_ids: Optional[List[str]] = Query(None), 
-    achievement_ids: Optional[List[str]] = Query(None) # <-- *** ADDED THIS LINE ***
+    achievement_ids: Optional[List[str]] = Query(None),
+    user: User = Depends(get_current_user)
 ):
-    """Add a new hobby to the CV."""
     try:
-        registry = request.app.state.registry
-        # Pass achievement_ids to the registry method
+        registry: Registry = request.app.state.registry
         return registry.add_cv_hobby(
+            user.id,
             cv_id, 
             name=name, 
             description=description, 
             skill_ids=skill_ids,
-            achievement_ids=achievement_ids # <-- *** ADDED HERE ***
+            achievement_ids=achievement_ids
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     
 
-# --- *** NEW: Complex Project Endpoints *** ---
 @router.post("/{cv_id}/project/complex")
-def add_project_complex(cv_id: str, payload: ProjectComplexPayload, request: Request):
-    """
-    Creates a new project and all its dependencies (new skills, new achievements)
-    from a single complex payload.
-    """
+def add_project_complex(
+    cv_id: str, 
+    payload: ProjectComplexPayload, 
+    request: Request,
+    user: User = Depends(get_current_user)
+):
     try:
-        registry = request.app.state.registry
-        return registry.create_project_from_payload(cv_id, payload)
+        registry: Registry = request.app.state.registry
+        return registry.create_project_from_payload(user.id, cv_id, payload)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
 @router.patch("/{cv_id}/project/{project_id}/complex")
-def update_project_complex(cv_id: str, project_id: str, payload: ProjectComplexPayload, request: Request):
-    """
-    Updates an existing project and all its dependencies
-    from a single complex payload.
-    """
+def update_project_complex(
+    cv_id: str, 
+    project_id: str, 
+    payload: ProjectComplexPayload, 
+    request: Request,
+    user: User = Depends(get_current_user)
+):
     try:
-        registry = request.app.state.registry
-        return registry.update_project_from_payload(cv_id, project_id, payload)
+        registry: Registry = request.app.state.registry
+        return registry.update_project_from_payload(user.id, cv_id, project_id, payload)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
-# --- *** END NEW ENDPOINTS *** ---
 
 @router.post("/{cv_id}/achievement")
 def add_achievement(
-    cv_id: str, # <-- Corrected parameter name from cvId
+    cv_id: str, 
     text: str,
     request: Request,
     context: Optional[str] = None,
-    skill_ids: Optional[List[str]] = Query(None) # <-- *** ADDED THIS LINE ***
+    skill_ids: Optional[List[str]] = Query(None),
+    user: User = Depends(get_current_user)
 ):
-    """Add a new global achievement to the CV's master list."""
     try:
-        # Pass skill_ids to the registry method
-        registry = request.app.state.registry
+        registry: Registry = request.app.state.registry
         return registry.add_cv_achievement(
-            cv_id, # <-- Corrected parameter name
+            user.id,
+            cv_id,
             text=text, 
             context=context, 
-            skill_ids=skill_ids # <-- *** ADDED HERE ***
+            skill_ids=skill_ids
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
 # ---------------------------------------------------------------------
 # NESTED LINKING ENDPOINTS (Skills and Achievements)
 # ---------------------------------------------------------------------
 
-
-# --- Skill Linking ---
-
 @router.post("/{cv_id}/experience/{exp_id}/skill/{skill_id}")
-def link_skill_to_experience(cv_id: str, exp_id: str, skill_id: str, request: Request):
-    """Links a master skill to a specific experience."""
+def link_skill_to_experience(
+    cv_id: str, 
+    exp_id: str, 
+    skill_id: str, 
+    request: Request,
+    user: User = Depends(get_current_user)
+):
     try:
-        registry = request.app.state.registry
-        return registry.link_skill_to_entity(cv_id, exp_id, skill_id, 'experiences')
+        registry: Registry = request.app.state.registry
+        return registry.link_skill_to_entity(user.id, cv_id, exp_id, skill_id, 'experiences')
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
 @router.post("/{cv_id}/project/{proj_id}/skill/{skill_id}")
-def link_skill_to_project(cv_id: str, proj_id: str, skill_id: str, request: Request):
-    """Links a master skill to a specific project."""
+def link_skill_to_project(
+    cv_id: str, 
+    proj_id: str, 
+    skill_id: str, 
+    request: Request,
+    user: User = Depends(get_current_user)
+):
     try:
-        registry = request.app.state.registry
-        return registry.link_skill_to_entity(cv_id, proj_id, skill_id, 'projects')
+        registry: Registry = request.app.state.registry
+        return registry.link_skill_to_entity(user.id, cv_id, proj_id, skill_id, 'projects')
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
 @router.post("/{cv_id}/achievement/{ach_id}/skill/{skill_id}")
-def link_skill_to_achievement(cv_id: str, ach_id: str, skill_id: str, request: Request):
-    """Links a master skill to a specific achievement (tags the achievement)."""
+def link_skill_to_achievement(
+    cv_id: str, 
+    ach_id: str, 
+    skill_id: str, 
+    request: Request,
+    user: User = Depends(get_current_user)
+):
     try:
-        registry = request.app.state.registry
-        return registry.link_skill_to_entity(cv_id, ach_id, skill_id, 'achievements')
+        registry: Registry = request.app.state.registry
+        return registry.link_skill_to_entity(user.id, cv_id, ach_id, skill_id, 'achievements')
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-
-# --- Achievement Linking ---
 
 @router.post("/{cv_id}/experience/{exp_id}/achievement/{ach_id}")
-def link_achievement_to_experience(cv_id: str, exp_id: str, ach_id: str, request: Request):
-    """Links a master achievement to a specific experience."""
+def link_achievement_to_experience(
+    cv_id: str, 
+    exp_id: str, 
+    ach_id: str, 
+    request: Request,
+    user: User = Depends(get_current_user)
+):
     try:
-        registry = request.app.state.registry
-        return registry.link_achievement_to_context(cv_id, exp_id, ach_id, 'experiences')
+        registry: Registry = request.app.state.registry
+        return registry.link_achievement_to_context(user.id, cv_id, exp_id, ach_id, 'experiences')
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
 @router.post("/{cv_id}/project/{proj_id}/achievement/{ach_id}")
-def link_achievement_to_project(cv_id: str, proj_id: str, ach_id: str, request: Request):
-    """Links a master achievement to a specific project."""
+def link_achievement_to_project(
+    cv_id: str, 
+    proj_id: str, 
+    ach_id: str, 
+    request: Request,
+    user: User = Depends(get_current_user)
+):
     try:
-        registry = request.app.state.registry
-        return registry.link_achievement_to_context(cv_id, proj_id, ach_id, 'projects')
+        registry: Registry = request.app.state.registry
+        return registry.link_achievement_to_context(user.id, cv_id, proj_id, ach_id, 'projects')
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-@router.post("/{cv_id}/project/{proj_id}/achievement/{ach_id}")
-def link_achievement_to_project(cv_id: str, proj_id: str, ach_id: str, request: Request):
-    """Links a master achievement to a specific project."""
-    try:
-        registry = request.app.state.registry
-        return registry.link_achievement_to_context(cv_id, proj_id, ach_id, 'projects')
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-
-
-# --- NEW AGGREGATION ENDPOINT ---
 
 @router.get("/{cv_id}/{entity_list_name}/{entity_id}/skills/aggregated")
-def get_aggregated_skills(cv_id: str, entity_list_name: str, entity_id: str, request: Request):
-    """
-    Fetches all unique skills for an entity and its children.
-    Valid entity_list_name examples: 'experiences', 'projects', 'achievements'.
-    """
+def get_aggregated_skills(
+    cv_id: str, 
+    entity_list_name: str, 
+    entity_id: str, 
+    request: Request,
+    user: User = Depends(get_current_user)
+):
     try:
-        # Validate entity_list_name to prevent arbitrary calls
         valid_lists = ['experiences', 'projects', 'achievements', 'education', 'hobbies']
         if entity_list_name not in valid_lists:
             raise ValueError(f"Invalid entity list name. Must be one of: {valid_lists}")
-        registry = request.app.state.registry
-        return registry.get_aggregated_skills_for_entity(cv_id, entity_list_name, entity_id)
+        registry: Registry = request.app.state.registry
+        return registry.get_aggregated_skills_for_entity(user.id, cv_id, entity_list_name, entity_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     
 
 @router.delete("/{cv_id}/{list_name}/{item_id}")
-def delete_nested_item(cv_id: str, list_name: str, item_id: str, request: Request):
+def delete_nested_item(
+    cv_id: str, 
+    list_name: str, 
+    item_id: str, 
+    request: Request,
+    user: User = Depends(get_current_user)
+):
     """
     Deletes a specific nested item (Experience, Skill, Education, etc.)
     from a CV's master list.
     """
-    
-    # Map the list_name from the URL to the correct registry function
-    # (These functions already exist in your registry.py)
-    registry = request.app.state.registry
+    registry: Registry = request.app.state.registry
     delete_functions = {
         "experiences": registry.delete_cv_experience,
         "education": registry.delete_cv_education,
@@ -434,65 +466,83 @@ def delete_nested_item(cv_id: str, list_name: str, item_id: str, request: Reques
         )
 
     try:
-        # Call the corresponding registry function
-        # e.g., registry.delete_cv_experience(cv_id, item_id)
-        return func(cv_id, item_id)
+        # Pass user.id to the delete function
+        return func(user.id, cv_id, item_id)
     except ValueError as e:
-        # This catches errors if the CV or the nested item isn't found
         raise HTTPException(status_code=404, detail=str(e))
 
 # -----------------------------------------------------------------------------
 # Specific Item Access (For Modals & Forensics)
 # -----------------------------------------------------------------------------
-# These endpoints use the registry.fetch_item abstraction.
-# This keeps the router clean and lets the Registry handle the lookup logic
-# (whether it's iterating a list in JSON or querying MongoDB).
 
 @router.get("/experience/{item_id}", response_model=Experience)
-def get_experience_item(item_id: str, request: Request):
-    item = request.app.state.registry.fetch_item(item_id, 'experience')
+def get_experience_item(
+    item_id: str, 
+    request: Request,
+    user: User = Depends(get_current_user)
+):
+    item = request.app.state.registry.fetch_item(item_id, 'experience', user.id)
     if not item:
         raise HTTPException(status_code=404, detail="Experience not found")
     return item
 
 @router.get("/project/{item_id}", response_model=Project)
-def get_project_item(item_id: str, request: Request):
-    item = request.app.state.registry.fetch_item(item_id, 'project')
+def get_project_item(
+    item_id: str, 
+    request: Request,
+    user: User = Depends(get_current_user)
+):
+    item = request.app.state.registry.fetch_item(item_id, 'project', user.id)
     if not item:
         raise HTTPException(status_code=404, detail="Project not found")
     return item
 
 @router.get("/education/{item_id}", response_model=Education)
-def get_education_item(item_id: str, request: Request):
-    item = request.app.state.registry.fetch_item(item_id, 'education')
+def get_education_item(
+    item_id: str, 
+    request: Request,
+    user: User = Depends(get_current_user)
+):
+    item = request.app.state.registry.fetch_item(item_id, 'education', user.id)
     if not item:
         raise HTTPException(status_code=404, detail="Education not found")
     return item
 
 @router.get("/skill/{item_id}", response_model=Skill)
-def get_skill_item(item_id: str, request: Request):
-    item = request.app.state.registry.fetch_item(item_id, 'skill')
+def get_skill_item(
+    item_id: str, 
+    request: Request,
+    user: User = Depends(get_current_user)
+):
+    item = request.app.state.registry.fetch_item(item_id, 'skill', user.id)
     if not item:
         raise HTTPException(status_code=404, detail="Skill not found")
     return item
 
 @router.get("/hobby/{item_id}", response_model=Hobby)
-def get_hobby_item(item_id: str, request: Request):
-    item = request.app.state.registry.fetch_item(item_id, 'hobby')
+def get_hobby_item(
+    item_id: str, 
+    request: Request,
+    user: User = Depends(get_current_user)
+):
+    item = request.app.state.registry.fetch_item(item_id, 'hobby', user.id)
     if not item:
         raise HTTPException(status_code=404, detail="Hobby not found")
     return item
 
-# --- RICH DETAILS ENDPOINT ---
 @router.get("/item-details/{item_id}")
-def get_item_details(item_id: str, type: str, request: Request):
+def get_item_details(
+    item_id: str, 
+    type: str, 
+    request: Request,
+    user: User = Depends(get_current_user)
+):
     """
     Returns the item AND its resolved relationships.
-    Calls Registry.fetch_item_details to handle the logic.
     """
-    registry = request.app.state.registry
+    registry: Registry = request.app.state.registry
     
-    data = registry.fetch_item_details(item_id, type)
+    data = registry.fetch_item_details(item_id, type, user.id)
     
     if not data:
         raise HTTPException(404, "Item not found")
