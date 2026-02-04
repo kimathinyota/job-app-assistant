@@ -217,6 +217,33 @@ class Registry:
                 resolve_ids(item.related_hobby_ids, 'hobby', 'hobbies')
                 
         return result
+    
+    def create_user(self, user: User):
+        """
+        Creates a new user in the 'users' table.
+        Note: The 'users' table is created automatically here if it doesn't exist.
+        """
+        # We use _insert which wraps db.table(name).upsert(...)
+        return self._insert("users", user)
+
+    def get_user(self, user_id: str) -> Optional[User]:
+        """Fetch a user by their ID (e.g. Google ID)."""
+        return self._get("users", User, user_id)
+
+    def get_user_by_email(self, email: str) -> Optional[User]:
+        """
+        Search for a user by email.
+        Useful for checking if an account already exists.
+        """
+        # TinyDB specific query logic
+        # In MongoDB later: self.db.find_one("users", {"email": email})
+        users = self._all("users", User)
+        return next((u for u in users if u.email == email), None)
+
+    def update_user(self, user: User):
+        """Save changes to a user (e.g. upgrading tier)."""
+        self._update("users", user)
+        
 
 
 

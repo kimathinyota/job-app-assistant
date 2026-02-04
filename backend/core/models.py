@@ -44,6 +44,15 @@ class BaseEntity(BaseModel):
         # --- END OF FIX ---
 
 
+# backend/core/models.py
+
+class UserOwnedEntity(BaseEntity):
+    """
+    Mixin for 'Root' entities that must belong to a specific user.
+    Replaces BaseEntity for top-level tables.
+    """
+    user_id: str
+
 # ---------------------------------------------------------------------
 # Core entities
 # ---------------------------------------------------------------------
@@ -147,7 +156,7 @@ class Hobby(BaseEntity, SkillLinkMixin):
 # Base and Derived CVs
 # ---------------------------------------------------------------------
 
-class CV(BaseEntity):
+class CV(UserOwnedEntity):
     """Base CV containing all content."""
     name: str
     # --- NEW FIELDS ---
@@ -266,7 +275,7 @@ class JobDescriptionFeature(BaseEntity):
     description: str
 
 
-class JobDescription(BaseEntity):
+class JobDescription(UserOwnedEntity):
     title: str
     company: str
     features: List[JobDescriptionFeature] = Field(default_factory=list)
@@ -394,7 +403,7 @@ class MappingPair(BaseEntity):
 
 
 
-class Mapping(BaseEntity):
+class Mapping(UserOwnedEntity):
     job_id: str
     base_cv_id: str
     pairs: List[MappingPair] = Field(default_factory=list)
@@ -444,7 +453,7 @@ class Paragraph(BaseEntity):
     owner: Literal["user", "autofill"] = "user"
 
 
-class CoverLetter(BaseEntity):
+class CoverLetter(UserOwnedEntity):
     name: str = "Cover Letter"  # <--- NEW: User-defined name (e.g. "Selection Criteria")
     job_id: str
     base_cv_id: str
@@ -477,7 +486,7 @@ class InterviewStage(BaseEntity):
     questions: List[InterviewQuestion] = Field(default_factory=list)
 
 
-class Interview(BaseEntity):
+class Interview(UserOwnedEntity):
     application_id: str
     current_stage: Optional[str] = None
     stages: List[InterviewStage] = Field(default_factory=list)
@@ -490,7 +499,7 @@ class Interview(BaseEntity):
         return stage
 
 
-class Application(BaseEntity):
+class Application(UserOwnedEntity):
     job_id: str
     base_cv_id: str
     mapping_id: Optional[str] = None
@@ -509,7 +518,7 @@ class Application(BaseEntity):
 # You already have BaseEntity and gen_id in your core
 # We'll just build on that structure
 
-class WorkItem(BaseEntity):
+class WorkItem(UserOwnedEntity):
     """Represents a discrete piece of work done during the job search process."""
 
     title: str
@@ -543,7 +552,7 @@ class WorkItem(BaseEntity):
         self.touch()
 
 
-class Goal(BaseEntity):
+class Goal(UserOwnedEntity):
     """Represents a larger focus area or objective grouping related WorkItems."""
 
     title: str
@@ -974,7 +983,7 @@ class ForensicAlternative(BaseModel):
     # --- NEW FIELDS ---
     lineage: List[LineageItem] = Field(default_factory=list) 
     cv_item_id: Optional[str] = None
-    
+
 
 class ForensicItem(BaseModel):
     requirement_id: str
@@ -1012,3 +1021,24 @@ class ForensicAnalysis(BaseModel):
     stats: JobFitStats
     # Grouped for UI columns (Key = Importance Label: "Critical", "High", etc.)
     groups: Dict[str, List[ForensicItem]]
+
+
+# ---------------------------------------------------------------------
+# Login & User Management Models
+# --------------------------------------------------------------------- 
+class User(BaseEntity):
+    email: str
+    oauth_provider: str = "google" 
+    provider_id: str
+    full_name: str
+    avatar_url: Optional[str] = None
+    
+    # Freemium Logic
+    tier: Literal["free", "pro", "admin"] = "free"
+    is_active: bool = True
+    
+    # Quotas (e.g. resets daily)
+    quota_generations_used: int = 0
+    quota_limit: int = 3 # Free tier limit
+    last_quota_reset: datetime = Field(default_factory=datetime.utcnow)
+
