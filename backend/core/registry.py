@@ -1966,7 +1966,7 @@ class Registry:
 
 # ---- Interviews ----
     def create_interview(self, user_id: str, application_id: str):
-        interview = Interview.create(user_id=user_id, application_id=application_id)
+        interview = Interview(user_id=user_id, application_id=application_id)
         return self._insert("interviews", interview)
 
     def delete_interview(self, user_id: str, interview_id: str):
