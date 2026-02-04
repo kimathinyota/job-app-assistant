@@ -12,6 +12,7 @@ log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 
+
 class Registry:
     """Central object-relational manager for all entities."""
 
@@ -21,35 +22,98 @@ class Registry:
     # ---- Generic Helpers ----
 
     def _insert(self, table: str, obj: BaseEntity):
-        """Insert or replace entity in TinyDB."""
-        # Note: self.db.insert maps to TinyDBManager.insert which performs upsert
+        """
+        Insert a new entity.
+        Safety: Checks if ID exists to prevent accidental overwrites.
+        """
+        # 1. Check for collision
+        existing_data = self.db.get(table, obj.id)
+        
+        if existing_data:
+            # In a creation flow, finding an existing ID is usually an error (UUID collision)
+            # OR it's an overwrite attempt.
+            # We strictly block overwrites here. Use _update() if you meant to update.
+            raise ValueError(f"Entity with ID {obj.id} already exists. Use update() instead.")
+
+        # 2. Insert
         self.db.insert(table, obj)
         return obj
 
-    def _get(self, table: str, cls, obj_id: str):
-        """Fetch entity by ID."""
+    def _get(self, table: str, cls, obj_id: str, user_id: str):
+        """
+        Fetch entity by ID with MANDATORY user_id check.
+        """
         data = self.db.get(table, obj_id)
-        return cls(**data) if data else None
+        
+        if not data:
+            return None
+            
+        # Security: If the record has a user_id, it MUST match.
+        # We use .get() in case we are migrating old data that has no user_id yet.
+        if data.get("user_id") and data["user_id"] != user_id:
+            log.warning(f"SECURITY: User {user_id} tried to access {table} {obj_id} owned by {data['user_id']}")
+            return None
 
-    def _all(self, table: str, cls):
-        """Return all entities of a given type."""
-        return [cls(**d) for d in self.db.all(table)]
+        return cls(**data)
 
-    def _update(self, table: str, obj: BaseEntity):
-        """Update an existing entity."""
-        # Note: self.db.insert maps to TinyDBManager.insert which performs upsert
+    def _all(self, table: str, cls, user_id: str):
+        """
+        Return ONLY entities belonging to the specific user.
+        """
+        all_items = [cls(**d) for d in self.db.all(table)]
+        
+        # Filter in memory (Critical for Multi-Tenancy)
+        return [item for item in all_items if getattr(item, 'user_id', None) == user_id]
+    
+
+    def _update(self, table: str, obj: BaseEntity, user_id: str):
+        """
+        Update an existing entity. 
+        PREVENTS overwriting another user's data.
+        """
+        # 1. Check if the object already exists in DB
+        existing_data = self.db.get(table, obj.id)
+        
+        if existing_data:
+            # 2. If it exists, verify ownership
+            if existing_data.get("user_id") and existing_data["user_id"] != user_id:
+                raise ValueError("Access Denied: You do not own this record.")
+        else:
+            # Optional: Decide if _update allowed to create new items?
+            # Usually yes for upserts, but ensure the new object has the user_id stamped.
+            if hasattr(obj, 'user_id') and obj.user_id != user_id:
+                 raise ValueError("Data Integrity Error: Object user_id does not match session user_id")
+
+        # 3. Safe to write
         self.db.insert(table, obj)
+        return obj
 
-    def _delete(self, table: str, obj_id: str):
-        """Delete an entity by ID."""
-        if not self._get(table, BaseEntity, obj_id):
+    def _delete(self, table: str, obj_id: str, user_id: str):
+        """
+        Delete an entity by ID with explicit OWNERSHIP CHECK.
+        """
+        # 1. Fetch raw data first to check ownership
+        #    (We don't need the class here, just the dictionary)
+        data = self.db.get(table, obj_id)
+        
+        if not data:
             raise ValueError(f"{table} with ID {obj_id} not found")
+            
+        # 2. Security Check
+        if data.get("user_id") and data["user_id"] != user_id:
+            # Log this as a security event
+            log.warning(f"SECURITY ALERT: User {user_id} attempted to delete {table} {obj_id} owned by {data['user_id']}")
+            # Pretend it doesn't exist to avoid leaking info
+            raise ValueError(f"{table} with ID {obj_id} not found")
+
+        # 3. Safe to delete
         self.db.remove(table, obj_id)
         return {"status": "success", "id": obj_id, "message": f"{table} deleted"}
 
-    def _update_entity(self, table: str, cls: BaseModel, obj_id: str, update_data: dict):
+
+    def _update_entity(self, table: str, cls: BaseModel, obj_id: str, update_data: dict, user_id: str):
         """Generic function to update an entity using data from an Update model."""
-        obj = self._get(table, cls, obj_id)
+        obj = self._get(table, cls, obj_id, user_id)
         if not obj:
             raise ValueError(f"{cls.__name__} with ID {obj_id} not found")
 
@@ -59,21 +123,22 @@ class Registry:
         # Apply updates to the model instance and update timestamp
         updated_data = obj.model_copy(update=to_update)
         updated_data.touch()
-        self._update(table, updated_data)
+        self._update(table, updated_data, user_id)
         return updated_data
     
     # --- ADD THIS METHOD ---
-    def _update_nested_item(self, cv_id: str, list_name: str, item_id: str, update_data: dict):
+    def _update_nested_item(self, cv_id: str, list_name: str, item_id: str, update_data: dict, user_id: str):
         """
         Generic helper to update fields on a nested item (e.g., an Experience)
         within a CV.
         """
         log.info(f"[Registry] Updating item {item_id} in list {list_name} for CV {cv_id}")
-        cv = self.get_cv(cv_id)
+        cv = self.get_cv(cv_id, user_id)
         if not cv:
             raise ValueError("CV not found")
 
         # Find the specific item (e.g., one experience) using the helper
+        # Note: _get_nested_entity works on the object in memory, so no user_id needed here
         item_to_update = self._get_nested_entity(cv, list_name, item_id)
         
         # Apply the updates
@@ -85,19 +150,19 @@ class Registry:
         cv.touch()
         
         # Save the entire CV
-        self._update("cvs", cv)
+        self._update("cvs", cv, user_id)
         log.info(f"[Registry] Successfully updated item {item_id}.")
         return item_to_update
 
     # --- AND ADD THIS METHOD ---
-    def _delete_nested_item(self, cv_id: str, list_name: str, item_id: str):
+    def _delete_nested_item(self, cv_id: str, list_name: str, item_id: str, user_id: str):
         """
         Generic helper to remove a nested item from a list within a CV.
         This does NOT perform a cascade delete. It's used for items
         like Experiences, Projects, etc.
         """
         log.info(f"[Registry] Deleting item {item_id} from list {list_name} in CV {cv_id}")
-        cv = self.get_cv(cv_id)
+        cv = self.get_cv(cv_id, user_id)
         if not cv:
             raise ValueError("CV not found")
 
@@ -120,20 +185,24 @@ class Registry:
         
         # Save changes
         cv.touch()
-        self._update("cvs", cv)
+        self._update("cvs", cv, user_id)
         
         log.info(f"[Registry] Successfully deleted item {item_id} from {list_name}.")
         # Return a simple success message
         return {"status": "success", "id": item_id, "message": f"{list_name[:-1]} deleted"}
 
-    
-    def fetch_item(self, item_id: str, item_type: str):
+    def _get_nested_entity(self, parent_obj, list_name, item_id):
+        """Helper to find an item in a list by ID."""
+        collection = getattr(parent_obj, list_name, [])
+        found = next((i for i in collection if i.id == item_id), None)
+        if not found:
+            raise ValueError(f"Item {item_id} not found in {list_name}")
+        return found
+
+    def fetch_item(self, item_id: str, item_type: str, user_id: str):
         """
         Retrieves a nested entity by ID and Type.
-        
-        ABSTRACTS DATA ACCESS:
-        - Currently: Scans loaded CVs in memory.
-        - Future (MongoDB): Will run a db.collection.find_one() query.
+        SCOPED to the user's CVs.
         """
         
         # 1. Normalize type to match attribute names
@@ -152,7 +221,7 @@ class Registry:
 
         # 2. Search Logic (The part that changes with DB switch)
         # CURRENT: In-Memory Loop (TinyDB style)
-        all_cvs = self.all_cvs() # Uses your existing _all method
+        all_cvs = self.all_cvs(user_id=user_id) # Uses your existing _all method
         
         for cv in all_cvs:
             collection = getattr(cv, target_attr, [])
@@ -160,21 +229,15 @@ class Registry:
                 if item.id == item_id:
                     return item
         
-        # FUTURE MONGODB IMPLEMENTATION EXAMPLE:
-        # return self.db.cvs.find_one(
-        #     {f"{target_attr}.id": item_id}, 
-        #     {f"{target_attr}.$": 1}
-        # )
-        
         return None
     
 
-    def fetch_item_details(self, item_id: str, item_type: str) -> Optional[Dict[str, Any]]:
+    def fetch_item_details(self, item_id: str, item_type: str, user_id: str) -> Optional[Dict[str, Any]]:
         """
         Fetches an item and resolves its referenced relationships 
         (Skills, Achievements, etc.) into full objects.
         """
-        item = self.fetch_item(item_id, item_type)
+        item = self.fetch_item(item_id, item_type, user_id)
         if not item:
             return None
             
@@ -192,7 +255,7 @@ class Registry:
         def resolve_ids(id_list, type_key, dest_list_key):
             if not id_list: return
             for ref_id in id_list:
-                obj = self.fetch_item(ref_id, type_key)
+                obj = self.fetch_item(ref_id, type_key, user_id)
                 if obj:
                     # Check for duplicates
                     if not any(x.id == obj.id for x in result[dest_list_key]):
@@ -218,58 +281,56 @@ class Registry:
                 
         return result
     
+    # ---- Users (Auth) ----
+
     def create_user(self, user: User):
         """
         Creates a new user in the 'users' table.
-        Note: The 'users' table is created automatically here if it doesn't exist.
         """
-        # We use _insert which wraps db.table(name).upsert(...)
         return self._insert("users", user)
 
     def get_user(self, user_id: str) -> Optional[User]:
         """Fetch a user by their ID (e.g. Google ID)."""
-        return self._get("users", User, user_id)
+        # User objects are their own owners, so ID matching is implicit security
+        data = self.db.get("users", user_id)
+        return User(**data) if data else None
 
     def get_user_by_email(self, email: str) -> Optional[User]:
         """
         Search for a user by email.
-        Useful for checking if an account already exists.
         """
-        # TinyDB specific query logic
-        # In MongoDB later: self.db.find_one("users", {"email": email})
-        users = self._all("users", User)
-        return next((u for u in users if u.email == email), None)
+        all_users = [User(**d) for d in self.db.all("users")]
+        return next((u for u in all_users if u.email == email), None)
 
     def update_user(self, user: User):
         """Save changes to a user (e.g. upgrading tier)."""
-        self._update("users", user)
-        
-
+        # Users can only update themselves, checked at route level
+        self.db.insert("users", user)
 
 
     # ---- Jobs ----
-    def create_job(self, title: str, company: str, notes: Optional[str] = None):
-        job = JobDescription.create(title=title, company=company, notes=notes)
+    def create_job(self, user_id: str, title: str, company: str, notes: Optional[str] = None):
+        job = JobDescription.create(user_id=user_id, title=title, company=company, notes=notes)
         return self._insert("jobs", job)
 
-    def update_job(self, job_id: str, update_data: JobDescriptionUpdate):
-        return self._update_entity("jobs", JobDescription, job_id, update_data.model_dump())
+    def update_job(self, user_id: str, job_id: str, update_data: JobDescriptionUpdate):
+        return self._update_entity("jobs", JobDescription, job_id, update_data.model_dump(), user_id=user_id)
 
-    def delete_job(self, job_id: str):
-        return self._delete("jobs", job_id)
+    def delete_job(self, user_id: str, job_id: str):
+        return self._delete("jobs", job_id, user_id=user_id)
 
-    def add_job_feature(self, job_id: str, description: str, type: str = "requirement"):
-        job = self.get_job(job_id)
+    def add_job_feature(self, user_id: str, job_id: str, description: str, type: str = "requirement"):
+        job = self.get_job(job_id, user_id)
         if not job:
             raise ValueError("Job not found")
         feature = job.add_feature(description, type)
-        self._update("jobs", job)
+        self._update("jobs", job, user_id)
         return feature
 
     # --- ADD THIS NEW METHOD ---
-    def delete_job_feature(self, job_id: str, feature_id: str):
+    def delete_job_feature(self, user_id: str, job_id: str, feature_id: str):
         """Finds a job and removes a feature from it by ID."""
-        job = self.get_job(job_id)
+        job = self.get_job(job_id, user_id)
         if not job:
             raise ValueError("Job not found")
         
@@ -280,13 +341,13 @@ class Registry:
             raise ValueError("Feature not found on this job")
             
         job.touch()
-        self._update("jobs", job)
+        self._update("jobs", job, user_id)
         return {"status": "success", "message": "Feature deleted"}
     # --- END OF NEW METHOD ---
 
 
     # --- ADD THIS NEW METHOD ---
-    def upsert_job(self, payload: JobUpsertPayload) -> JobDescription:
+    def upsert_job(self, user_id: str, payload: JobUpsertPayload) -> JobDescription:
         """
         Creates a new job or updates an existing one (and its features)
         from a single payload.
@@ -305,7 +366,7 @@ class Registry:
         if payload.id:
             # --- UPDATE ---
             log.info(f"[Registry] Updating job {payload.id}")
-            job = self.get_job(payload.id)
+            job = self.get_job(payload.id, user_id)
             if not job:
                 raise ValueError(f"Job with ID {payload.id} not found for update.")
             
@@ -320,8 +381,6 @@ class Registry:
             job.date_extracted=payload.date_extracted,   # Map directly
             job.description=payload.description,         # Map directly
 
-
-
             job.location = payload.location
             job.salary_range = payload.salary_range
             job.notes = payload.notes
@@ -329,13 +388,14 @@ class Registry:
             # Overwrite the features list entirely
             job.features = processed_features
             job.touch()
-            self._update("jobs", job)
+            self._update("jobs", job, user_id)
             return job
             
         else:
             # --- CREATE ---
             log.info("[Registry] Creating new job")
             job = JobDescription.create(
+                user_id=user_id,
                 title=payload.title,
                 company=payload.company,
                 job_url=payload.job_url,
@@ -351,31 +411,31 @@ class Registry:
             )
             return self._insert("jobs", job)
 
-    def get_job(self, job_id: str):
-        return self._get("jobs", JobDescription, job_id)
+    def get_job(self, job_id: str, user_id: str):
+        return self._get("jobs", JobDescription, job_id, user_id=user_id)
 
-    def all_jobs(self):
-        return self._all("jobs", JobDescription)
+    def all_jobs(self, user_id: str):
+        return self._all("jobs", JobDescription, user_id=user_id)
 
 
     # ---- CVs ----
 
-    def create_cv(self, name: str, first_name: Optional[str] = None, last_name: Optional[str] = None, title: Optional[str] = None, summary: Optional[str] = None):
-        cv = CV.create(name=name, first_name=first_name, last_name=last_name, title=title, summary=summary)
+    def create_cv(self, user_id: str, name: str, first_name: Optional[str] = None, last_name: Optional[str] = None, title: Optional[str] = None, summary: Optional[str] = None):
+        cv = CV.create(user_id=user_id, name=name, first_name=first_name, last_name=last_name, title=title, summary=summary)
         return self._insert("cvs", cv)
     
 
-    def update_cv(self, cv_id: str, update_data: CVUpdate):
-        return self._update_entity("cvs", CV, cv_id, update_data.model_dump())
+    def update_cv(self, user_id: str, cv_id: str, update_data: CVUpdate):
+        return self._update_entity("cvs", CV, cv_id, update_data.model_dump(), user_id=user_id)
 
-    def delete_cv(self, cv_id: str):
-        return self._delete("cvs", cv_id)
+    def delete_cv(self, user_id: str, cv_id: str):
+        return self._delete("cvs", cv_id, user_id=user_id)
 
-    def get_cv(self, cv_id: str):
-        return self._get("cvs", CV, cv_id)
+    def get_cv(self, cv_id: str, user_id: str):
+        return self._get("cvs", CV, cv_id, user_id=user_id)
 
-    def all_cvs(self):
-        return self._all("cvs", CV)
+    def all_cvs(self, user_id: str):
+        return self._all("cvs", CV, user_id=user_id)
     
     # --- *** NEW: Complex "Service Layer" Methods *** ---
 
@@ -453,6 +513,7 @@ class Registry:
             if ach_payload.original_id:
                 try:
                     # Find the original achievement in the CV's master list
+                    # This helper works in memory, so user_id is already covered by the parent CV fetch
                     master_ach_to_update = self._get_nested_entity(cv, 'achievements', ach_payload.original_id)
                     
                     # Update it in-place
@@ -493,9 +554,9 @@ class Registry:
         log.info(f"[Registry] Created {len(new_achievement_ids)} new achievements and updated others.")
         return new_achievement_ids, original_to_new_ach_id_map
 
-    def create_experience_from_payload(self, cv_id: str, payload: ExperienceComplexPayload) -> Experience:
+    def create_experience_from_payload(self, user_id: str, cv_id: str, payload: ExperienceComplexPayload) -> Experience:
         log.info(f"[Registry] Starting complex create for Experience in CV {cv_id}")
-        cv = self.get_cv(cv_id)
+        cv = self.get_cv(cv_id, user_id)
         if not cv:
             raise ValueError("CV not found")
 
@@ -528,13 +589,13 @@ class Registry:
         )
 
         # Step 5: Save the entire updated CV
-        self._update("cvs", cv)
+        self._update("cvs", cv, user_id)
         log.info(f"[Registry] Successfully created new Experience {exp.id}")
         return exp
 
-    def update_experience_from_payload(self, cv_id: str, exp_id: str, payload: ExperienceComplexPayload) -> Experience:
+    def update_experience_from_payload(self, user_id: str, cv_id: str, exp_id: str, payload: ExperienceComplexPayload) -> Experience:
         log.info(f"[Registry] Starting complex update for Experience {exp_id} in CV {cv_id}")
-        cv = self.get_cv(cv_id)
+        cv = self.get_cv(cv_id, user_id)
         if not cv:
             raise ValueError("CV not found")
         
@@ -576,15 +637,15 @@ class Registry:
         exp.touch()
         
         # Step 5: Save the entire updated CV
-        self._update("cvs", cv)
+        self._update("cvs", cv, user_id)
         log.info(f"[Registry] Successfully updated Experience {exp.id}")
         return exp
 
     # --- *** NEWLY ADDED METHODS FOR EDUCATION *** ---
 
-    def create_education_from_payload(self, cv_id: str, payload: EducationComplexPayload) -> Education:
+    def create_education_from_payload(self, user_id: str, cv_id: str, payload: EducationComplexPayload) -> Education:
         log.info(f"[Registry] Starting complex create for Education in CV {cv_id}")
-        cv = self.get_cv(cv_id)
+        cv = self.get_cv(cv_id, user_id)
         if not cv:
             raise ValueError("CV not found")
 
@@ -617,13 +678,13 @@ class Registry:
         )
 
         # Step 5: Save the entire updated CV
-        self._update("cvs", cv)
+        self._update("cvs", cv, user_id)
         log.info(f"[Registry] Successfully created new Education {edu.id}")
         return edu
 
-    def update_education_from_payload(self, cv_id: str, edu_id: str, payload: EducationComplexPayload) -> Education:
+    def update_education_from_payload(self, user_id: str, cv_id: str, edu_id: str, payload: EducationComplexPayload) -> Education:
         log.info(f"[Registry] Starting complex update for Education {edu_id} in CV {cv_id}")
-        cv = self.get_cv(cv_id)
+        cv = self.get_cv(cv_id, user_id)
         if not cv: raise ValueError("CV not found")
         
         edu = self._get_nested_entity(cv, 'education', edu_id)
@@ -661,15 +722,15 @@ class Registry:
         edu.touch()
         
         # Step 5: Save
-        self._update("cvs", cv)
+        self._update("cvs", cv, user_id)
         log.info(f"[Registry] Successfully updated Education {edu.id}")
         return edu
     
     # --- *** NEWLY ADDED METHODS FOR HOBBY *** ---
 
-    def create_hobby_from_payload(self, cv_id: str, payload: HobbyComplexPayload) -> Hobby:
+    def create_hobby_from_payload(self, user_id: str, cv_id: str, payload: HobbyComplexPayload) -> Hobby:
         log.info(f"[Registry] Starting complex create for Hobby in CV {cv_id}")
-        cv = self.get_cv(cv_id)
+        cv = self.get_cv(cv_id, user_id)
         if not cv:
             raise ValueError("CV not found")
 
@@ -699,13 +760,13 @@ class Registry:
         )
 
         # Step 5: Save the entire updated CV
-        self._update("cvs", cv)
+        self._update("cvs", cv, user_id)
         log.info(f"[Registry] Successfully created new Hobby {hobby.id}")
         return hobby
 
-    def update_hobby_from_payload(self, cv_id: str, hobby_id: str, payload: HobbyComplexPayload) -> Hobby:
+    def update_hobby_from_payload(self, user_id: str, cv_id: str, hobby_id: str, payload: HobbyComplexPayload) -> Hobby:
         log.info(f"[Registry] Starting complex update for Hobby {hobby_id} in CV {cv_id}")
-        cv = self.get_cv(cv_id)
+        cv = self.get_cv(cv_id, user_id)
         if not cv: raise ValueError("CV not found")
         
         hobby = self._get_nested_entity(cv, 'hobbies', hobby_id)
@@ -740,15 +801,15 @@ class Registry:
         hobby.touch()
         
         # Step 5: Save
-        self._update("cvs", cv)
+        self._update("cvs", cv, user_id)
         log.info(f"[Registry] Successfully updated Hobby {hobby.id}")
         return hobby
 
 # --- *** NEWLY ADDED METHODS FOR PROJECT *** ---
 
-    def create_project_from_payload(self, cv_id: str, payload: ProjectComplexPayload) -> Project:
+    def create_project_from_payload(self, user_id: str, cv_id: str, payload: ProjectComplexPayload) -> Project:
         log.info(f"[Registry] Starting complex create for Project in CV {cv_id}")
-        cv = self.get_cv(cv_id)
+        cv = self.get_cv(cv_id, user_id)
         if not cv:
             raise ValueError("CV not found")
         
@@ -801,14 +862,14 @@ class Registry:
             achievement_ids=final_achievement_ids
         )
         # Step 5: Save the entire updated CV
-        self._update("cvs", cv)
+        self._update("cvs", cv, user_id)
         log.info(f"[Registry] Successfully created new Project {project.id}")
         return project
 
 
-    def update_project_from_payload(self, cv_id: str, project_id: str, payload: ProjectComplexPayload) -> Project:
+    def update_project_from_payload(self, user_id: str, cv_id: str, project_id: str, payload: ProjectComplexPayload) -> Project:
         log.info(f"[Registry] Starting complex update for Project {project_id} in CV {cv_id}")
-        cv = self.get_cv(cv_id)
+        cv = self.get_cv(cv_id, user_id)
         if not cv: raise ValueError("CV not found")
         
         project = self._get_nested_entity(cv, 'projects', project_id)
@@ -867,7 +928,7 @@ class Registry:
         project.touch()
         
         # Step 5: Save
-        self._update("cvs", cv)
+        self._update("cvs", cv, user_id)
         log.info(f"[Registry] Successfully updated Project {project.id}")
         return project
 
@@ -875,19 +936,19 @@ class Registry:
 
     # --- NESTED ADD METHODS (Originals, now used by helpers) ---
 
-    def add_cv_experience(self, cv_id: str, title: str, company: str, **kwargs) -> Experience:
-        cv = self.get_cv(cv_id)
+    def add_cv_experience(self, user_id: str, cv_id: str, title: str, company: str, **kwargs) -> Experience:
+        cv = self.get_cv(cv_id, user_id)
         if not cv:
             raise ValueError("CV not found")
         
         # Pass all kwargs (like start_date, description, skill_ids, achievement_ids)
         exp = cv.add_experience(title=title, company=company, **kwargs)
         
-        self._update("cvs", cv)
+        self._update("cvs", cv, user_id)
         return exp
 
-    def add_cv_education(self, cv_id: str, institution: str, degree: str, field: str, skill_ids: Optional[List[str]] = None, **kwargs) -> Education:
-        cv = self.get_cv(cv_id)
+    def add_cv_education(self, user_id: str, cv_id: str, institution: str, degree: str, field: str, skill_ids: Optional[List[str]] = None, **kwargs) -> Education:
+        cv = self.get_cv(cv_id, user_id)
         if not cv:
             raise ValueError("CV not found")
         
@@ -900,20 +961,20 @@ class Registry:
             
         cv.education.append(edu)
         cv.touch()
-        self._update("cvs", cv)
+        self._update("cvs", cv, user_id)
         return edu
 
-    def add_cv_skill(self, cv_id: str, name: str, category: str = "technical", **kwargs) -> Skill:
-        cv = self.get_cv(cv_id)
+    def add_cv_skill(self, user_id: str, cv_id: str, name: str, category: str = "technical", **kwargs) -> Skill:
+        cv = self.get_cv(cv_id, user_id)
         if not cv:
             raise ValueError("CV not found")
         skill = cv.add_skill(name=name, category=category, **kwargs)
-        self._update("cvs", cv)
+        self._update("cvs", cv, user_id)
         return skill
         
 
-    def add_cv_project(self, cv_id: str, title: str, description: str, skill_ids: Optional[List[str]] = None, **kwargs) -> Project:
-        cv = self.get_cv(cv_id)
+    def add_cv_project(self, user_id: str, cv_id: str, title: str, description: str, skill_ids: Optional[List[str]] = None, **kwargs) -> Project:
+        cv = self.get_cv(cv_id, user_id)
         if not cv:
             raise ValueError("CV not found")
         
@@ -940,11 +1001,11 @@ class Registry:
         if skill_ids:
             proj.skill_ids = skill_ids
             
-        self._update("cvs", cv)
+        self._update("cvs", cv, user_id)
         return proj
 
-    def add_cv_hobby(self, cv_id: str, name: str, description: Optional[str] = None, skill_ids: Optional[List[str]] = None, achievement_ids: Optional[List[str]] = None) -> Hobby: # <-- ADD achievement_ids parameter
-        cv = self.get_cv(cv_id)
+    def add_cv_hobby(self, user_id: str, cv_id: str, name: str, description: Optional[str] = None, skill_ids: Optional[List[str]] = None, achievement_ids: Optional[List[str]] = None) -> Hobby: 
+        cv = self.get_cv(cv_id, user_id)
         if not cv:
             raise ValueError("CV not found")
         
@@ -958,56 +1019,55 @@ class Registry:
         if achievement_ids:
             hobby.achievement_ids = achievement_ids
             
-        self._update("cvs", cv)
+        self._update("cvs", cv, user_id)
         return hobby
 
-    def add_cv_achievement(self, cv_id: str, text: str, context: Optional[str] = None, skill_ids: Optional[List[str]] = None) -> Achievement: # <-- ADD skill_ids parameter
-        cv = self.get_cv(cv_id)
+    def add_cv_achievement(self, user_id: str, cv_id: str, text: str, context: Optional[str] = None, skill_ids: Optional[List[str]] = None) -> Achievement:
+        cv = self.get_cv(cv_id, user_id)
         if not cv:
             raise ValueError("CV not found")
         
         # Pass skill_ids via kwargs
         ach = cv.add_achievement(text=text, context=context, skill_ids=skill_ids or [])
             
-        self._update("cvs", cv)
+        self._update("cvs", cv, user_id)
         return ach
     
     # --- *** END NEW "Service Layer" Methods *** ---
 
-
-    # UPDATE methods
-    def update_cv_experience(self, cv_id: str, exp_id: str, update_data: ExperienceUpdate):
-        return self._update_nested_item(cv_id, 'experiences', exp_id, update_data.model_dump(exclude_none=True))
+# UPDATE methods
+    def update_cv_experience(self, user_id: str, cv_id: str, exp_id: str, update_data: ExperienceUpdate):
+        return self._update_nested_item(cv_id, 'experiences', exp_id, update_data.model_dump(exclude_none=True), user_id=user_id)
     
-    def update_cv_education(self, cv_id: str, edu_id: str, update_data: EducationUpdate):
-        return self._update_nested_item(cv_id, 'education', edu_id, update_data.model_dump(exclude_none=True))
+    def update_cv_education(self, user_id: str, cv_id: str, edu_id: str, update_data: EducationUpdate):
+        return self._update_nested_item(cv_id, 'education', edu_id, update_data.model_dump(exclude_none=True), user_id=user_id)
 
-    def update_cv_skill(self, cv_id: str, skill_id: str, update_data: SkillUpdate):
-        return self._update_nested_item(cv_id, 'skills', skill_id, update_data.model_dump(exclude_none=True))
+    def update_cv_skill(self, user_id: str, cv_id: str, skill_id: str, update_data: SkillUpdate):
+        return self._update_nested_item(cv_id, 'skills', skill_id, update_data.model_dump(exclude_none=True), user_id=user_id)
 
-    def update_cv_achievement(self, cv_id: str, ach_id: str, update_data: AchievementUpdate):
-        return self._update_nested_item(cv_id, 'achievements', ach_id, update_data.model_dump(exclude_none=True))
+    def update_cv_achievement(self, user_id: str, cv_id: str, ach_id: str, update_data: AchievementUpdate):
+        return self._update_nested_item(cv_id, 'achievements', ach_id, update_data.model_dump(exclude_none=True), user_id=user_id)
 
-    def update_cv_project(self, cv_id: str, proj_id: str, update_data: ProjectUpdate):
-        return self._update_nested_item(cv_id, 'projects', proj_id, update_data.model_dump(exclude_none=True))
+    def update_cv_project(self, user_id: str, cv_id: str, proj_id: str, update_data: ProjectUpdate):
+        return self._update_nested_item(cv_id, 'projects', proj_id, update_data.model_dump(exclude_none=True), user_id=user_id)
 
-    def update_cv_hobby(self, cv_id: str, hobby_id: str, update_data: HobbyUpdate):
-        return self._update_nested_item(cv_id, 'hobbies', hobby_id, update_data.model_dump(exclude_none=True))
+    def update_cv_hobby(self, user_id: str, cv_id: str, hobby_id: str, update_data: HobbyUpdate):
+        return self._update_nested_item(cv_id, 'hobbies', hobby_id, update_data.model_dump(exclude_none=True), user_id=user_id)
 
     # DELETE methods
-    def delete_cv_experience(self, cv_id: str, exp_id: str):
-        return self._delete_nested_item(cv_id, 'experiences', exp_id)
+    def delete_cv_experience(self, user_id: str, cv_id: str, exp_id: str):
+        return self._delete_nested_item(cv_id, 'experiences', exp_id, user_id=user_id)
     
-    def delete_cv_education(self, cv_id: str, edu_id: str):
-        return self._delete_nested_item(cv_id, 'education', edu_id)
+    def delete_cv_education(self, user_id: str, cv_id: str, edu_id: str):
+        return self._delete_nested_item(cv_id, 'education', edu_id, user_id=user_id)
 
-    def delete_cv_skill(self, cv_id: str, skill_id: str):
+    def delete_cv_skill(self, user_id: str, cv_id: str, skill_id: str):
         """
         Deletes a skill from the master list AND unlinks it from all
         experiences, education, projects, hobbies, and achievements.
         """
         log.info(f"[Registry] Cascade delete requested for Skill {skill_id} in CV {cv_id}")
-        cv = self.get_cv(cv_id)
+        cv = self.get_cv(cv_id, user_id)
         if not cv:
             raise ValueError("CV not found")
 
@@ -1035,17 +1095,17 @@ class Registry:
         
         # 4. Save all changes
         cv.touch()
-        self._update("cvs", cv)
+        self._update("cvs", cv, user_id)
         log.info(f"[Registry] Successfully cascade-deleted Skill {skill_id}")
         return {"status": "success", "id": skill_id, "message": "Skill deleted and unlinked."}
 
-    def delete_cv_achievement(self, cv_id: str, ach_id: str):
+    def delete_cv_achievement(self, user_id: str, cv_id: str, ach_id: str):
         """
         Deletes an achievement from the master list AND unlinks it from all
         experiences, education, projects, and hobbies.
         """
         log.info(f"[Registry] Cascade delete requested for Achievement {ach_id} in CV {cv_id}")
-        cv = self.get_cv(cv_id)
+        cv = self.get_cv(cv_id, user_id)
         if not cv:
             raise ValueError("CV not found")
             
@@ -1072,15 +1132,15 @@ class Registry:
         
         # 4. Save all changes
         cv.touch()
-        self._update("cvs", cv)
+        self._update("cvs", cv, user_id)
         log.info(f"[Registry] Successfully cascade-deleted Achievement {ach_id}")
         return {"status": "success", "id": ach_id, "message": "Achievement deleted and unlinked."}
     
-    def delete_cv_project(self, cv_id: str, proj_id: str):
-        return self._delete_nested_item(cv_id, 'projects', proj_id)
+    def delete_cv_project(self, user_id: str, cv_id: str, proj_id: str):
+        return self._delete_nested_item(cv_id, 'projects', proj_id, user_id=user_id)
     
-    def delete_cv_hobby(self, cv_id: str, hobby_id: str):
-        return self._delete_nested_item(cv_id, 'hobbies', hobby_id)
+    def delete_cv_hobby(self, user_id: str, cv_id: str, hobby_id: str):
+        return self._delete_nested_item(cv_id, 'hobbies', hobby_id, user_id=user_id)
 
 
     # --- NESTED LINKING METHODS ---
@@ -1124,12 +1184,12 @@ class Registry:
             raise ValueError(f"{normalized_list_name.capitalize()} with ID {entity_id} not found in CV.")
         return entity
 
-    def link_skill_to_entity(self, cv_id: str, entity_id: str, skill_id: str, entity_list_name: str):
+    def link_skill_to_entity(self, user_id: str, cv_id: str, entity_id: str, skill_id: str, entity_list_name: str):
         """
         Adds a skill ID to a specific nested entity's skill_ids list (Experience, Project, etc.)
         AND rolls the link up to parents (e.g. Achievement -> Project -> Experience).
         """
-        cv = self.get_cv(cv_id)
+        cv = self.get_cv(cv_id, user_id)
         if not cv:
             raise ValueError("CV not found")
 
@@ -1224,17 +1284,17 @@ class Registry:
                         _roll_up_to_parent('hobbies', pid)
 
         # 5. Save all changes
-        self._update("cvs", cv)
+        self._update("cvs", cv, user_id)
         
         return entity
 
 
-    def unlink_skill_from_entity(self, cv_id: str, entity_id: str, skill_id: str, entity_list_name: str):
+    def unlink_skill_from_entity(self, user_id: str, cv_id: str, entity_id: str, skill_id: str, entity_list_name: str):
         """Removes a skill ID from a specific nested entity's skill_ids list."""
         # NOTE: This does NOT automatically unlink from parents, as the skill
         # might still be required by other children of that parent.
         # Automatic unlinking is much more complex and dangerous.
-        cv = self.get_cv(cv_id)
+        cv = self.get_cv(cv_id, user_id)
         if not cv: raise ValueError("CV not found")
         
         entity = self._get_nested_entity(cv, entity_list_name, entity_id)
@@ -1242,14 +1302,14 @@ class Registry:
         if skill_id in entity.skill_ids:
             entity.skill_ids.remove(skill_id)
             cv.touch()
-            self._update("cvs", cv)
+            self._update("cvs", cv, user_id)
             return {"status": "success", "message": f"Skill {skill_id} unlinked from {entity_list_name[:-1]} {entity_id}."}
         
         raise ValueError(f"Skill {skill_id} was not linked to {entity_list_name[:-1]} {entity_id}.")
     
-    def link_achievement_to_context(self, cv_id: str, context_id: str, ach_id: str, context_list_name: str):
+    def link_achievement_to_context(self, user_id: str, cv_id: str, context_id: str, ach_id: str, context_list_name: str):
         """Adds an achievement ID to a specific context's achievement_ids list (Experience, Project, etc.)."""
-        cv = self.get_cv(cv_id)
+        cv = self.get_cv(cv_id, user_id)
         if not cv:
             raise ValueError("CV not found")
 
@@ -1263,13 +1323,13 @@ class Registry:
         if ach_id not in context.achievement_ids:
             context.achievement_ids.append(ach_id)
             cv.touch()
-            self._update("cvs", cv)
+            self._update("cvs", cv, user_id)
         
         return context
 
-    def unlink_achievement_from_context(self, cv_id: str, context_id: str, ach_id: str, context_list_name: str):
+    def unlink_achievement_from_context(self, user_id: str, cv_id: str, context_id: str, ach_id: str, context_list_name: str):
         """Removes an achievement ID from a specific context's achievement_ids list."""
-        cv = self.get_cv(cv_id)
+        cv = self.get_cv(cv_id, user_id)
         if not cv: raise ValueError("CV not found")
         
         context = self._get_nested_entity(cv, context_list_name, context_id)
@@ -1277,17 +1337,17 @@ class Registry:
         if ach_id in context.achievement_ids:
             context.achievement_ids.remove(ach_id)
             cv.touch()
-            self._update("cvs", cv)
+            self._update("cvs", cv, user_id)
             return {"status": "success", "message": f"Achievement {ach_id} unlinked from {context_list_name[:-1]} {context_id}."}
         
         raise ValueError(f"Achievement {ach_id} was not linked to {context_list_name[:-1]} {context_id}.")
-
-    def get_aggregated_skills_for_entity(self, cv_id: str, entity_list_name: str, entity_id: str) -> List[Skill]:
+    
+    def get_aggregated_skills_for_entity(self, user_id: str, cv_id: str, entity_list_name: str, entity_id: str) -> List[Skill]:
         """
         Fetches all unique skills linked to an entity AND all of its children.
         e.g., for Experience: returns skills from Experience, its Projects, and all Achievements.
         """
-        cv = self.get_cv(cv_id)
+        cv = self.get_cv(cv_id, user_id) # <--- Security check
         if not cv:
             raise ValueError("CV not found")
 
@@ -1326,36 +1386,36 @@ class Registry:
         return [skill_map[sid] for sid in total_skill_ids if sid in skill_map]
 
     # ---- Mappings ----
-    def create_mapping(self, job_id: str, base_cv_id: str):
-        mapping = Mapping.create(job_id=job_id, base_cv_id=base_cv_id)
+    def create_mapping(self, user_id: str, job_id: str, base_cv_id: str):
+        mapping = Mapping.create(user_id=user_id, job_id=job_id, base_cv_id=base_cv_id)
         return self._insert("mappings", mapping)
 
-    def update_mapping(self, mapping_id: str, update_data: MappingUpdate):
-        return self._update_entity("mappings", Mapping, mapping_id, update_data.model_dump())
+    def update_mapping(self, user_id: str, mapping_id: str, update_data: MappingUpdate):
+        return self._update_entity("mappings", Mapping, mapping_id, update_data.model_dump(), user_id=user_id)
 
     # --- ADD THIS METHOD to the 'Mappings' section ---
-    def save_mapping(self, mapping: Mapping) -> Mapping:
+    def save_mapping(self, user_id: str, mapping: Mapping) -> Mapping:
         """
         Persists a fully modified Mapping object to the database.
         Crucial for the MappingOptimizer which modifies the 'pairs' list directly.
         """
         mapping.touch()
-        self._update("mappings", mapping)
+        self._update("mappings", mapping, user_id=user_id) # <--- Security check
         return mapping
 
-    def delete_mapping(self, mapping_id: str):
-        return self._delete("mappings", mapping_id)
+    def delete_mapping(self, user_id: str, mapping_id: str):
+        return self._delete("mappings", mapping_id, user_id=user_id)
 
-# --- THIS IS THE KEY LOGIC CHANGE ---
     def add_mapping_pair(
         self, 
+        user_id: str,
         mapping_id: str, 
         feature: JobDescriptionFeature, 
         context_item: Union[Experience, Project, Education, Hobby],
         context_item_type: str,
         annotation: Optional[str] = None
     ):
-        mapping = self.get_mapping(mapping_id)
+        mapping = self.get_mapping(mapping_id, user_id) # <--- Security check
         if not mapping:
             raise ValueError("Mapping not found")
 
@@ -1391,18 +1451,19 @@ class Registry:
         # This appends to the MAPPING object, not the REGISTRY
         mapping.pairs.append(pair)
         mapping.touch()
-        self._update("mappings", mapping)
+        self._update("mappings", mapping, user_id) # <--- Security check
         return pair
-    def get_mapping(self, mapping_id: str):
-        return self._get("mappings", Mapping, mapping_id)
 
-    def all_mappings(self):
-        return self._all("mappings", Mapping)
+    def get_mapping(self, mapping_id: str, user_id: str):
+        return self._get("mappings", Mapping, mapping_id, user_id=user_id)
+
+    def all_mappings(self, user_id: str):
+        return self._all("mappings", Mapping, user_id=user_id)
     
 
     # --- MAPPING PAIR NESTED CRUD ---
-    def update_mapping_pair(self, mapping_id: str, pair_id: str, update_data: MappingPairUpdate):
-        mapping = self.get_mapping(mapping_id)
+    def update_mapping_pair(self, user_id: str, mapping_id: str, pair_id: str, update_data: MappingPairUpdate):
+        mapping = self.get_mapping(mapping_id, user_id)
         if not mapping: raise ValueError("Mapping not found")
 
         pair = next((p for p in mapping.pairs if p.id == pair_id), None)
@@ -1413,11 +1474,11 @@ class Registry:
             setattr(pair, key, value)
         
         mapping.touch()
-        self._update("mappings", mapping)
+        self._update("mappings", mapping, user_id) # <--- Security check
         return pair
     
-    def delete_mapping_pair(self, mapping_id: str, pair_id: str):
-        mapping = self.get_mapping(mapping_id)
+    def delete_mapping_pair(self, user_id: str, mapping_id: str, pair_id: str):
+        mapping = self.get_mapping(mapping_id, user_id)
         if not mapping: raise ValueError("Mapping not found")
 
         initial_len = len(mapping.pairs)
@@ -1426,68 +1487,68 @@ class Registry:
         if len(mapping.pairs) == initial_len: raise ValueError("Mapping Pair not found")
 
         mapping.touch()
-        self._update("mappings", mapping)
+        self._update("mappings", mapping, user_id) # <--- Security check
         return {"status": "success", "id": pair_id, "message": "Mapping Pair deleted."}
 
 
     # ---- Applications ----
     def create_application(
-        self, job_id: str, base_cv_id: str,
+        self, user_id: str, job_id: str, base_cv_id: str,
         mapping_id: Optional[str] = None, derived_cv_id: Optional[str] = None
     ):
-        app = Application.create(job_id=job_id, base_cv_id=base_cv_id, mapping_id=mapping_id, derived_cv_id=derived_cv_id)
+        app = Application.create(user_id=user_id, job_id=job_id, base_cv_id=base_cv_id, mapping_id=mapping_id, derived_cv_id=derived_cv_id)
         return self._insert("applications", app)
 
-    def update_application(self, app_id: str, update_data: ApplicationUpdate):
-        return self._update_entity("applications", Application, app_id, update_data.model_dump())
+    def update_application(self, user_id: str, app_id: str, update_data: ApplicationUpdate):
+        return self._update_entity("applications", Application, app_id, update_data.model_dump(), user_id=user_id)
 
-    def delete_application(self, app_id: str):
+    def delete_application(self, user_id: str, app_id: str):
         # NOTE: In a real app, deleting an application should clean up related interviews, work items, cover letters, etc.
-        return self._delete("applications", app_id)
+        return self._delete("applications", app_id, user_id=user_id)
 
-    def get_application(self, app_id: str):
-        return self._get("applications", Application, app_id)
+    def get_application(self, app_id: str, user_id: str):
+        return self._get("applications", Application, app_id, user_id=user_id)
 
-    def all_applications(self):
-        return self._all("applications", Application)
+    def all_applications(self, user_id: str):
+        return self._all("applications", Application, user_id=user_id)
 
     # --- NEW METHOD ---
-    def get_app_suite_data(self) -> Dict[str, Any]:
+    def get_app_suite_data(self, user_id: str) -> Dict[str, Any]:
         """Fetches all jobs and applications for the app suite view."""
         log.info("[Registry] Fetching all jobs and applications...")
-        jobs = self.all_jobs()
-        applications = self.all_applications()
+        jobs = self.all_jobs(user_id=user_id)
+        applications = self.all_applications(user_id=user_id)
         return {"jobs": jobs, "applications": applications}
     # --- END NEW METHOD ---
 
     # ---- Cover Letters ----
-    def create_cover_letter(self, job_id: str, base_cv_id: str, mapping_id: str, name: str = "Cover Letter"):
-        cover = CoverLetter.create(name=name, job_id=job_id, base_cv_id=base_cv_id, mapping_id=mapping_id)
+    def create_cover_letter(self, user_id: str, job_id: str, base_cv_id: str, mapping_id: str, name: str = "Cover Letter"):
+        cover = CoverLetter.create(user_id=user_id, name=name, job_id=job_id, base_cv_id=base_cv_id, mapping_id=mapping_id)
         return self._insert("coverletters", cover)
 
-    def rename_cover_letter(self, cover_id: str, new_name: str):
-        cover = self.get_cover_letter(cover_id)
+    def rename_cover_letter(self, user_id: str, cover_id: str, new_name: str):
+        cover = self.get_cover_letter(cover_id, user_id)
         if not cover: raise ValueError("Document not found")
         cover.name = new_name
         cover.touch()
-        self._update("coverletters", cover)
+        self._update("coverletters", cover, user_id)
         return cover
     
-    def add_document_to_application(self, app_id: str, doc_id: str):
-        app = self.get_application(app_id)
+    def add_document_to_application(self, user_id: str, app_id: str, doc_id: str):
+        app = self.get_application(app_id, user_id)
         if doc_id not in app.supporting_document_ids:
             app.supporting_document_ids.append(doc_id)
-            self._update("applications", app)
+            self._update("applications", app, user_id)
         return app
     
     
 
-    def submit_application(self, app_id: str):
+    def submit_application(self, user_id: str, app_id: str):
         """
         Promotes an application to 'Applied' and locks all related assets
         to create a pseudo-snapshot.
         """
-        app = self.get_application(app_id)
+        app = self.get_application(app_id, user_id)
         if not app: raise ValueError("Application not found")
 
         # 1. Lock the Application
@@ -1497,62 +1558,60 @@ class Registry:
         
         # 2. Lock the Mapping
         if app.mapping_id:
-            mapping = self.get_mapping(app.mapping_id)
+            mapping = self.get_mapping(app.mapping_id, user_id)
             if mapping:
                 mapping.is_locked = True
-                self._update("mappings", mapping)
+                self._update("mappings", mapping, user_id)
 
         # 3. Lock the CV
         if app.derived_cv_id:
-            cv = self.get_cv(app.derived_cv_id)
+            cv = self.get_cv(app.derived_cv_id, user_id)
             if cv: # Assuming DerivedCV
                 cv.is_locked = True
-                self._update("cvs", cv)
+                self._update("cvs", cv, user_id)
 
         # 4. Lock all Supporting Docs
         for doc_id in app.supporting_document_ids:
-            doc = self.get_cover_letter(doc_id)
+            doc = self.get_cover_letter(doc_id, user_id)
             if doc:
                 doc.is_locked = True
-                self._update("coverletters", doc)
+                self._update("coverletters", doc, user_id)
 
-        self._update("applications", app)
+        self._update("applications", app, user_id)
         return app
     
 
     
-    def delete_cover_letter(self, cover_id: str):
-        return self._delete("coverletters", cover_id)
+    def delete_cover_letter(self, user_id: str, cover_id: str):
+        return self._delete("coverletters", cover_id, user_id=user_id)
 
-    def get_cover_letter(self, cover_id: str):
-        return self._get("coverletters", CoverLetter, cover_id)
+    def get_cover_letter(self, cover_id: str, user_id: str):
+        return self._get("coverletters", CoverLetter, cover_id, user_id=user_id)
     
     # --- NESTED ADD METHODS ---
 
-    def add_cover_letter_idea(self, cover_id: str, title: str, description: Optional[str] = None, mapping_pair_ids: List[str] = [], annotation: Optional[str] = None) -> Idea:
-        cover = self.get_cover_letter(cover_id)
+    def add_cover_letter_idea(self, user_id: str, cover_id: str, title: str, description: Optional[str] = None, mapping_pair_ids: List[str] = [], annotation: Optional[str] = None) -> Idea:
+        cover = self.get_cover_letter(cover_id, user_id)
         if not cover:
             raise ValueError("CoverLetter not found")
         
         idea = Idea.create(title=title, description=description, mapping_pair_ids=mapping_pair_ids)
         cover.ideas.append(idea)
         cover.touch()
-        self._update("coverletters", cover)
+        self._update("coverletters", cover, user_id)
         return idea
     
 # --- UPDATED METHOD ---
-    def add_cover_letter_paragraph(self, cover_id: str, idea_ids: List[str], purpose: str, draft_text: Optional[str] = None, order: Optional[int] = None) -> Paragraph:
-        cover = self.get_cover_letter(cover_id)
+    def add_cover_letter_paragraph(self, user_id: str, cover_id: str, idea_ids: List[str], purpose: str, draft_text: Optional[str] = None, order: Optional[int] = None) -> Paragraph:
+        cover = self.get_cover_letter(cover_id, user_id)
         if not cover:
             raise ValueError("CoverLetter not found")
         
         # 1. Create the new paragraph object
-        # We initially give it 0; the re-indexing step below will set the real order.
         new_para = Paragraph.create(order=0, idea_ids=idea_ids, purpose=purpose)
         new_para.draft_text = draft_text 
 
         # 2. Sort existing paragraphs to ensure our insertion index aligns with the visual order
-        #    (This fixes issues where the DB list might be out of sync with 'order' fields)
         cover.paragraphs.sort(key=lambda x: x.order if x.order is not None else 999)
 
         # 3. Insert (or Append) the new paragraph at the specific index
@@ -1562,19 +1621,17 @@ class Registry:
             cover.paragraphs.append(new_para)
         
         # 4. Robust Re-indexing: Reset 'order' for the entire list to 0, 1, 2...
-        #    This guarantees no duplicates, gaps, or shift errors.
         for idx, para in enumerate(cover.paragraphs):
             para.order = idx
         
         cover.touch()
-        self._update("coverletters", cover)
+        self._update("coverletters", cover, user_id)
         
-        # The new_para now has the correct 'order' set by the loop above
         return new_para
 
     # --- COVER LETTER NESTED CRUD ---
-    def update_cover_letter_idea(self, cover_id: str, idea_id: str, update_data: IdeaUpdate):
-        cover = self.get_cover_letter(cover_id)
+    def update_cover_letter_idea(self, user_id: str, cover_id: str, idea_id: str, update_data: IdeaUpdate):
+        cover = self.get_cover_letter(cover_id, user_id)
         if not cover: raise ValueError("CoverLetter not found")
 
         idea = next((i for i in cover.ideas if i.id == idea_id), None)
@@ -1585,11 +1642,11 @@ class Registry:
             setattr(idea, key, value)
         
         cover.touch()
-        self._update("coverletters", cover)
+        self._update("coverletters", cover, user_id)
         return idea
 
-    def delete_cover_letter_idea(self, cover_id: str, idea_id: str):
-        cover = self.get_cover_letter(cover_id)
+    def delete_cover_letter_idea(self, user_id: str, cover_id: str, idea_id: str):
+        cover = self.get_cover_letter(cover_id, user_id)
         if not cover: raise ValueError("CoverLetter not found")
 
         initial_len = len(cover.ideas)
@@ -1598,11 +1655,11 @@ class Registry:
         if len(cover.ideas) == initial_len: raise ValueError("Idea not found")
 
         cover.touch()
-        self._update("coverletters", cover)
+        self._update("coverletters", cover, user_id)
         return {"status": "success", "id": idea_id, "message": "Idea deleted."}
 
-    def update_cover_letter_paragraph(self, cover_id: str, para_id: str, update_data: ParagraphUpdate):
-        cover = self.get_cover_letter(cover_id)
+    def update_cover_letter_paragraph(self, user_id: str, cover_id: str, para_id: str, update_data: ParagraphUpdate):
+        cover = self.get_cover_letter(cover_id, user_id)
         if not cover: raise ValueError("CoverLetter not found")
 
         paragraph = next((p for p in cover.paragraphs if p.id == para_id), None)
@@ -1613,11 +1670,11 @@ class Registry:
             setattr(paragraph, key, value)
         
         cover.touch()
-        self._update("coverletters", cover)
+        self._update("coverletters", cover, user_id)
         return paragraph
 
-    def delete_cover_letter_paragraph(self, cover_id: str, para_id: str):
-        cover = self.get_cover_letter(cover_id)
+    def delete_cover_letter_paragraph(self, user_id: str, cover_id: str, para_id: str):
+        cover = self.get_cover_letter(cover_id, user_id)
         if not cover: raise ValueError("CoverLetter not found")
 
         initial_len = len(cover.paragraphs)
@@ -1626,31 +1683,21 @@ class Registry:
         if len(cover.paragraphs) == initial_len: raise ValueError("Paragraph not found")
 
         cover.touch()
-        self._update("coverletters", cover)
+        self._update("coverletters", cover, user_id)
         return {"status": "success", "id": para_id, "message": "Paragraph deleted."}
 
-    def autofill_cover_letter(self, cover_id: str, strategy: str = "standard", mode: str = "reset"):
+    def autofill_cover_letter(self, user_id: str, cover_id: str, strategy: str = "standard", mode: str = "reset"):
         """
         Intelligently populates a cover letter with a theme-based, evidence-driven outline.
         Implements the "Ownership & Re-Classification Engine"
-        
-        This is a non-destructive operation that:
-        1. Preserves all 'user' owned Paragraphs and Ideas.
-        2. Re-classifies 'user' Ideas into the new structure.
-        3. Prevents duplicate AI Ideas by checking for 'user' claimed evidence.
-        
-        NOTE: This logic assumes 'owner: Literal["user", "autofill"]'
-        and 'classification: Literal["professional", "personal", "company", "unclassified"]'
-        have been added to the Idea model.
-        And 'owner' has been added to the Paragraph model.
         """
-        cover = self.get_cover_letter(cover_id)
+        cover = self.get_cover_letter(cover_id, user_id)
         if not cover:
             raise ValueError("Cover letter not found")
 
         # 1. FETCH CONTEXT
-        mapping = self.get_mapping(cover.mapping_id)
-        job = self.get_job(cover.job_id)
+        mapping = self.get_mapping(cover.mapping_id, user_id)
+        job = self.get_job(cover.job_id, user_id)
         if not mapping or not job:
             raise ValueError("Missing mapping or job data")
 
@@ -1891,33 +1938,35 @@ class Registry:
         # We modified the 'cover' object in memory. Now we must use the
         # registry's internal _update method (which you provided)
         # to persist these changes.
-        self._update("coverletters", cover)
+        self._update("coverletters", cover, user_id)
         #
         # ******** END OF FIX *********
         
-        return self.get_cover_letter(cover_id)
-    
+        return self.get_cover_letter(cover_id, user_id)
+ 
     # ... (rest of your registry.py methods)
-    def create_interview(self, application_id: str):
-        interview = Interview.create(application_id=application_id)
+
+# ---- Interviews ----
+    def create_interview(self, user_id: str, application_id: str):
+        interview = Interview.create(user_id=user_id, application_id=application_id)
         return self._insert("interviews", interview)
 
-    def delete_interview(self, interview_id: str):
-        return self._delete("interviews", interview_id)
+    def delete_interview(self, user_id: str, interview_id: str):
+        return self._delete("interviews", interview_id, user_id=user_id)
 
-    def add_interview_stage(self, interview_id: str, name: str, description: Optional[str] = None):
-        interview = self.get_interview(interview_id)
+    def add_interview_stage(self, user_id: str, interview_id: str, name: str, description: Optional[str] = None):
+        interview = self.get_interview(interview_id, user_id)
         if not interview:
             raise ValueError("Interview not found")
         # Stage creation/addition logic remains here (as defined in original models)
         stage = InterviewStage.create(name=name, description=description)
         interview.stages.append(stage)
         interview.current_stage = name
-        self._update("interviews", interview)
+        self._update("interviews", interview, user_id)
         return stage
 
-    def add_interview_question(self, interview_id: str, stage_name: str, question: str, answer: Optional[str] = None):
-        interview = self.get_interview(interview_id)
+    def add_interview_question(self, user_id: str, interview_id: str, stage_name: str, question: str, answer: Optional[str] = None):
+        interview = self.get_interview(interview_id, user_id)
         if not interview:
             raise ValueError("Interview not found")
         stage = next((s for s in interview.stages if s.name == stage_name), None)
@@ -1926,15 +1975,15 @@ class Registry:
         # Question creation/addition logic remains here (as defined in original models)
         q = InterviewQuestion.create(question=question, answer=answer)
         stage.questions.append(q)
-        self._update("interviews", interview)
+        self._update("interviews", interview, user_id)
         return q
 
-    def get_interview(self, interview_id: str):
-        return self._get("interviews", Interview, interview_id)
+    def get_interview(self, interview_id: str, user_id: str):
+        return self._get("interviews", Interview, interview_id, user_id=user_id)
     
     # --- INTERVIEW NESTED CRUD ---
-    def update_interview_stage(self, interview_id: str, stage_id: str, update_data: InterviewStageUpdate):
-        interview = self.get_interview(interview_id)
+    def update_interview_stage(self, user_id: str, interview_id: str, stage_id: str, update_data: InterviewStageUpdate):
+        interview = self.get_interview(interview_id, user_id)
         if not interview: raise ValueError("Interview not found")
 
         stage = next((s for s in interview.stages if s.id == stage_id), None)
@@ -1945,11 +1994,11 @@ class Registry:
             setattr(stage, key, value)
         
         interview.touch()
-        self._update("interviews", interview)
+        self._update("interviews", interview, user_id)
         return stage
 
-    def update_interview_question(self, interview_id: str, question_id: str, update_data: InterviewQuestionUpdate):
-        interview = self.get_interview(interview_id)
+    def update_interview_question(self, user_id: str, interview_id: str, question_id: str, update_data: InterviewQuestionUpdate):
+        interview = self.get_interview(interview_id, user_id)
         if not interview: raise ValueError("Interview not found")
 
         question_found = False
@@ -1965,11 +2014,11 @@ class Registry:
         if not question_found: raise ValueError("Interview Question not found")
 
         interview.touch()
-        self._update("interviews", interview)
+        self._update("interviews", interview, user_id)
         return question
 
-    def delete_interview_question(self, interview_id: str, question_id: str):
-        interview = self.get_interview(interview_id)
+    def delete_interview_question(self, user_id: str, interview_id: str, question_id: str):
+        interview = self.get_interview(interview_id, user_id)
         if not interview: raise ValueError("Interview not found")
 
         question_deleted = False
@@ -1983,7 +2032,7 @@ class Registry:
         if not question_deleted: raise ValueError("Interview Question not found")
 
         interview.touch()
-        self._update("interviews", interview)
+        self._update("interviews", interview, user_id)
         return {"status": "success", "id": question_id, "message": "Interview Question deleted."}
 
 
@@ -1991,6 +2040,7 @@ class Registry:
     # Renamed 'type' parameter in WorkItem.create calls to 'work_type' to avoid conflict in WorkItem model constructor
     def create_work_item(
         self,
+        user_id: str,
         title: str,
         work_type: str = "research",
         related_application_id: Optional[str] = None,
@@ -2003,6 +2053,7 @@ class Registry:
         outcome: Optional[str] = None,
     ):
         work = WorkItem.create(
+            user_id=user_id,
             title=title,
             type=work_type, # Fixed parameter mapping to WorkItem model field
             related_application_id=related_application_id,
@@ -2016,91 +2067,91 @@ class Registry:
         )
         return self._insert("work_items", work)
 
-    def update_work_item(self, work_id: str, update_data: WorkItemUpdate):
-        return self._update_entity("work_items", WorkItem, work_id, update_data.model_dump())
+    def update_work_item(self, user_id: str, work_id: str, update_data: WorkItemUpdate):
+        return self._update_entity("work_items", WorkItem, work_id, update_data.model_dump(), user_id=user_id)
 
-    def delete_work_item(self, work_id: str):
+    def delete_work_item(self, user_id: str, work_id: str):
         # Also remove the ID from any linked Goal
-        work = self.get_work_item(work_id)
+        work = self.get_work_item(work_id, user_id)
         if work and work.related_goal_id:
-            goal = self.get_goal(work.related_goal_id)
+            goal = self.get_goal(work.related_goal_id, user_id)
             if goal:
                 goal.work_item_ids = [w_id for w_id in goal.work_item_ids if w_id != work_id]
-                self._update("goals", goal)
-                self._update_goal_progress(goal.id) # Recalculate progress
+                self._update("goals", goal, user_id)
+                self._update_goal_progress(goal.id, user_id) # Recalculate progress
 
-        return self._delete("work_items", work_id)
+        return self._delete("work_items", work_id, user_id=user_id)
 
-    def get_work_item(self, work_id: str):
-        return self._get("work_items", WorkItem, work_id)
+    def get_work_item(self, work_id: str, user_id: str):
+        return self._get("work_items", WorkItem, work_id, user_id=user_id)
 
-    def all_work_items(self):
-        return self._all("work_items", WorkItem)
+    def all_work_items(self, user_id: str):
+        return self._all("work_items", WorkItem, user_id=user_id)
 
-    def mark_work_item_completed(self, work_id: str, reflection: Optional[str] = None):
+    def mark_work_item_completed(self, user_id: str, work_id: str, reflection: Optional[str] = None):
         """Mark a WorkItem as completed and update its linked Goal's progress."""
-        work_item = self.get_work_item(work_id)
+        work_item = self.get_work_item(work_id, user_id)
         if not work_item:
             raise ValueError(f"WorkItem with ID {work_id} not found")
 
         work_item.mark_completed(reflection)
-        self._update("work_items", work_item)
+        self._update("work_items", work_item, user_id)
 
         if work_item.related_goal_id:
-            self._update_goal_progress(work_item.related_goal_id)
+            self._update_goal_progress(work_item.related_goal_id, user_id)
 
         return work_item
 
 
     # ---- Goals ----
-    def create_goal(self, title: str, description: Optional[str] = None, metric: Optional[str] = None):
-        goal = Goal.create(title=title, description=description, metric=metric)
+    def create_goal(self, user_id: str, title: str, description: Optional[str] = None, metric: Optional[str] = None):
+        goal = Goal.create(user_id=user_id, title=title, description=description, metric=metric)
         return self._insert("goals", goal)
 
-    def update_goal(self, goal_id: str, update_data: GoalUpdate):
-        return self._update_entity("goals", Goal, goal_id, update_data.model_dump())
+    def update_goal(self, user_id: str, goal_id: str, update_data: GoalUpdate):
+        return self._update_entity("goals", Goal, goal_id, update_data.model_dump(), user_id=user_id)
 
-    def delete_goal(self, goal_id: str):
+    def delete_goal(self, user_id: str, goal_id: str):
         # Remove related_goal_id from all linked WorkItems
-        goal = self.get_goal(goal_id)
+        goal = self.get_goal(goal_id, user_id)
         if goal:
             for work_id in goal.work_item_ids:
-                work = self.get_work_item(work_id)
+                work = self.get_work_item(work_id, user_id)
                 if work:
                     work.related_goal_id = None
-                    self._update("work_items", work)
-        return self._delete("goals", goal_id)
+                    self._update("work_items", work, user_id)
+        return self._delete("goals", goal_id, user_id=user_id)
 
-    def get_goal(self, goal_id: str):
-        return self._get("goals", Goal, goal_id)
+    def get_goal(self, goal_id: str, user_id: str):
+        return self._get("goals", Goal, goal_id, user_id=user_id)
 
-    def all_goals(self):
-        return self._all("goals", Goal)
+    def all_goals(self, user_id: str):
+        return self._all("goals", Goal, user_id=user_id)
 
-    def add_work_to_goal(self, goal_id: str, work_id: str):
-        goal = self.get_goal(goal_id)
-        work = self.get_work_item(work_id)
+    def add_work_to_goal(self, user_id: str, goal_id: str, work_id: str):
+        goal = self.get_goal(goal_id, user_id)
+        work = self.get_work_item(work_id, user_id)
         if not goal or not work:
             raise ValueError("Goal or WorkItem not found")
 
         goal.add_work_item(work)
         work.related_goal_id = goal.id # Set FK on WorkItem
-        self._update("goals", goal)
-        self._update("work_items", work)
+        self._update("goals", goal, user_id)
+        self._update("work_items", work, user_id)
 
-        self._update_goal_progress(goal_id)
+        self._update_goal_progress(goal_id, user_id)
 
         return goal
 
-    def _update_goal_progress(self, goal_id: str):
+    def _update_goal_progress(self, goal_id: str, user_id: str):
         """Internal helper to recalculate goal progress based on linked work items."""
-        goal = self.get_goal(goal_id)
+        goal = self.get_goal(goal_id, user_id)
         if not goal:
             return
 
         linked_work_items: List[WorkItem] = []
         for work_id in goal.work_item_ids:
-            work_item = self.get_work_item(work_id)
+            work_item = self.get_work_item(work_id, user_id)
             if work_item:
                 linked_work_items.append(work_item)
 
@@ -2108,7 +2159,7 @@ class Registry:
         completed_work = len([w for w in linked_work_items if w.status == "completed"])
 
         goal.update_progress(completed_work, total_work)
-        self._update("goals", goal)
+        self._update("goals", goal, user_id)
 
         return goal
 
@@ -2117,14 +2168,15 @@ class Registry:
     # ---- AI Prompt Generation Logic ----
     def generate_cv_prompt(
         self, 
+        user_id: str,
         base_cv_id: str, 
         job_id: str, 
         selected_skill_ids: Optional[List[str]] # <-- 1. Add parameter
     ) -> AIPromptResponse:
         """Constructs a structured prompt payload for CV generation."""
-        cv = self.get_cv(base_cv_id)
-        job = self.get_job(job_id)
-        mapping = next((m for m in self.all_mappings() if m.job_id == job_id and m.base_cv_id == base_cv_id), None)
+        cv = self.get_cv(base_cv_id, user_id)
+        job = self.get_job(job_id, user_id)
+        mapping = next((m for m in self.all_mappings(user_id) if m.job_id == job_id and m.base_cv_id == base_cv_id), None)
 
         log.info(f"[Registry][P1] Generated CV prompt for Job ID {job.id} and CV ID {cv.id} using Mapping ID {mapping.id}.")
 
@@ -2174,15 +2226,15 @@ class Registry:
         )
     
     
-    def generate_coverletter_prompt(self, mapping_id: str) -> AIPromptResponse:
+    def generate_coverletter_prompt(self, user_id: str, mapping_id: str) -> AIPromptResponse:
         """Constructs a structured prompt payload for Cover Letter generation."""
-        mapping = self.get_mapping(mapping_id)
+        mapping = self.get_mapping(mapping_id, user_id)
         if not mapping:
             raise ValueError("Mapping not found.")
 
-        job = self.get_job(mapping.job_id)
-        cv = self.get_cv(mapping.base_cv_id)
-        cover_letter = next((cl for cl in self._all("coverletters", CoverLetter) if cl.mapping_id == mapping_id), None)
+        job = self.get_job(mapping.job_id, user_id)
+        cv = self.get_cv(mapping.base_cv_id, user_id)
+        cover_letter = next((cl for cl in self._all("coverletters", CoverLetter, user_id) if cl.mapping_id == mapping_id), None)
 
         if not job or not cv or not cover_letter:
             raise ValueError("Job, CV, or Cover Letter Ideas not found for prompt generation.")
@@ -2207,17 +2259,17 @@ class Registry:
         )
 
     # ---- Relationship Helpers ----
-    def get_job_for_application(self, app_id: str):
-        app = self.get_application(app_id)
-        return self.get_job(app.job_id) if app else None
+    def get_job_for_application(self, user_id: str, app_id: str):
+        app = self.get_application(app_id, user_id)
+        return self.get_job(app.job_id, user_id) if app else None
 
-    def get_mapping_for_application(self, app_id: str):
-        app = self.get_application(app_id)
-        return self.get_mapping(app.mapping_id) if app and app.mapping_id else None
+    def get_mapping_for_application(self, user_id: str, app_id: str):
+        app = self.get_application(app_id, user_id)
+        return self.get_mapping(app.mapping_id, user_id) if app and app.mapping_id else None
 
-    def get_cv_for_application(self, app_id: str):
-        app = self.get_application(app_id)
-        return self.get_cv(app.base_cv_id) if app else None
+    def get_cv_for_application(self, user_id: str, app_id: str):
+        app = self.get_application(app_id, user_id)
+        return self.get_cv(app.base_cv_id, user_id) if app else None
     
 
     def _parse_codex_html(self, html_content: str, reference_accumulator: Dict[str, Any], cv: CV) -> List[PromptSegment]:
@@ -2289,15 +2341,15 @@ class Registry:
 
         return segments
 
-    def construct_advanced_cover_letter_prompt(self, cover_id: str) -> CoverLetterPromptPayload:
+    def construct_advanced_cover_letter_prompt(self, user_id: str, cover_id: str) -> CoverLetterPromptPayload:
         """
         Builds the 'Greedy' Prompt Payload.
         It loads ALL relevant context (Mapped & Unmapped) so the AI can be fully creative.
         """
-        cover = self.get_cover_letter(cover_id)
-        job = self.get_job(cover.job_id)
-        cv = self.get_cv(cover.base_cv_id)
-        mapping = self.get_mapping(cover.mapping_id)
+        cover = self.get_cover_letter(cover_id, user_id)
+        job = self.get_job(cover.job_id, user_id)
+        cv = self.get_cv(cover.base_cv_id, user_id)
+        mapping = self.get_mapping(cover.mapping_id, user_id)
 
         if not cover or not job or not cv: raise ValueError("Missing core assets")
 
@@ -2438,5 +2490,3 @@ class Registry:
             unused_cv_items=unused_cv_items,
             global_instructions=instructions
         )
-    
-
