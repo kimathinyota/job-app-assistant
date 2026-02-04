@@ -4,6 +4,8 @@ import os
 import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
+from dotenv import load_dotenv  # 1. Import dotenv
 
 # Import the *classes*, not instances
 from backend.core.registry import Registry
@@ -14,7 +16,6 @@ from backend.routes import (
     cv, job, mapping, application, coverletter, 
     prompt, interview, workitem, goal, forensics, auth
 )
-# from backend.core.inferer import JobDescriptionParser # Import the new class
 
 from backend.core.llm_manager import LLMManager
 from backend.core.inferer import JobParser, CVParser
@@ -24,6 +25,10 @@ log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 # --- CONFIGURATION ---
+# 2. Load Environment Variables
+load_dotenv("backend/.env")
+SECRET_KEY = os.getenv("SECRET_KEY")
+
 # Ensure this path is correct relative to where you run `python run.py`
 # MODEL_PATH = "backend/core/llama3_job_cpu_FINAL.gguf" 
 MODEL_PATH = "backend/core/llama3_job_cpu_8b.gguf"
@@ -48,14 +53,10 @@ async def lifespan(app: FastAPI):
             max_instances=MAX_MODEL_INSTANCES, 
             machine_type="mac"
          )
-            # app.state.job_parser = JobDescriptionParser(model_path=MODEL_PATH)
 
             app.state.llm_manager = llm_manager
             app.state.job_parser = JobParser(manager=llm_manager)
             app.state.cv_parser = CVParser(manager=llm_manager)
-
-
-
 
         else:
             log.warning(f"⚠️ Model file '{MODEL_PATH}' not found. Job parsing will be disabled.")
@@ -87,36 +88,19 @@ async def lifespan(app: FastAPI):
         del app.state.job_parser
 
 
-
 app = FastAPI(title="Job Application Assistant API", lifespan=lifespan)
 
-# @app.on_event("startup")
-# async def startup_event():
-#     """
-#     This code runs *inside* the worker process.
-#     We will load the C-heavy NLP models FIRST, then create the
-#     Python-based threading.Lock.
-#     """
-#     log.info("--- Application Startup Event ---")
-#     try:
-#         # --- STEP 1: LOAD NLP MODELS FIRST ---
-#         log.info("Creating Inferer singleton...")
-#         app.state.inferer = MappingInferer()
-        
-#         log.info("Loading NLP models...")
-#         app.state.inferer.load_models()
-#         log.info("NLP models loaded successfully.")
-        
-#         # --- STEP 2: CREATE REGISTRY AND DB LOCK SECOND ---
-#         log.info("Creating Registry singleton...")
-#         app.state.registry = Registry("./backend/data/db.json")
-#         log.info("Registry created successfully.")
-        
-#         log.info("Startup event: All singletons created and models loaded.")
-#     except Exception as e:
-#         log.critical(f"Startup event: Failed: {e}", exc_info=True)
-#     log.info("--- Application Startup Complete ---")
+# 3. Add Session Middleware using the loaded SECRET_KEY
+# This must be added BEFORE CORSMiddleware if you want CORS to wrap the session logic
+if not SECRET_KEY:
+    log.warning("⚠️ SECRET_KEY not found in .env, using unsafe default for development.")
+    SECRET_KEY = "unsafe_dev_secret"
 
+app.add_middleware(
+    SessionMiddleware, 
+    secret_key=SECRET_KEY, 
+    max_age=3600  # 1 hour session
+)
 
 app.add_middleware(
     CORSMiddleware,

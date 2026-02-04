@@ -1029,6 +1029,7 @@ class ForensicAnalysis(BaseModel):
 class User(BaseEntity):
     email: str
     oauth_provider: str = "google" 
+    id: str
     provider_id: str
     full_name: str
     avatar_url: Optional[str] = None

@@ -294,6 +294,23 @@ class Registry:
         # User objects are their own owners, so ID matching is implicit security
         data = self.db.get("users", user_id)
         return User(**data) if data else None
+    
+    def get_user_by_provider_id(self, provider_id: str) -> Optional[User]:
+        """
+        Search for a user by their OAuth provider ID (e.g. Google 'sub').
+        Matches the iteration style of get_user_by_email.
+        """
+        # 1. Fetch all raw user dictionaries from the DB
+        all_user_data = self.db.all("users")
+        
+        # 2. Convert to User objects and find the match
+        # We search for u.provider_id matching the argument
+        for data in all_user_data:
+            user = User(**data)
+            if user.id == provider_id:
+                return user
+        
+        return None
 
     def get_user_by_email(self, email: str) -> Optional[User]:
         """
@@ -435,6 +452,7 @@ class Registry:
         return self._get("cvs", CV, cv_id, user_id=user_id)
 
     def all_cvs(self, user_id: str):
+        log.info(f"[Registry] Listing all CVs for user_id: {user_id}")
         return self._all("cvs", CV, user_id=user_id)
     
     # --- *** NEW: Complex "Service Layer" Methods *** ---

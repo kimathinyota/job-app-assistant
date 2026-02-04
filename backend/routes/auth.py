@@ -1,4 +1,5 @@
 import os
+import logging
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Request, HTTPException, Response
 from starlette.responses import RedirectResponse
@@ -10,18 +11,29 @@ from dotenv import load_dotenv
 from backend.core.models import User
 from backend.core.registry import Registry
 
+# Setup explicit logging for auth debugging
+log = logging.getLogger("auth_router")
+
 # 1. Load Environment Variables
-# This points to backend/.env assuming this file is in backend/routes/
+# Calculates path to: .../backend/.env
 env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env')
 load_dotenv(env_path)
 
-# 2. Configuration
+# 2. Configuration & Validation
 SECRET_KEY = os.getenv("SECRET_KEY")
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+
+# --- DEBUGGING CHECK ---
+if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
+    log.error(f"❌ Failed to load Google Credentials.")
+    log.error(f"   Looking for .env at: {env_path}")
+    log.error(f"   Current Working Directory: {os.getcwd()}")
+    raise ValueError("FATAL: GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET is missing from .env")
+# -----------------------
+
 if not SECRET_KEY:
     raise ValueError("FATAL: SECRET_KEY is missing from .env")
-
-# Google Credentials are automatically picked up by Authlib from 
-# GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env
 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 Days
@@ -29,9 +41,11 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 Days
 router = APIRouter()
 oauth = OAuth()
 
-# 3. Initialize Google OAuth
+# 3. Initialize Google OAuth (Explicitly passing credentials)
 oauth.register(
     name='google',
+    client_id=GOOGLE_CLIENT_ID,         # <--- Pass Explicitly
+    client_secret=GOOGLE_CLIENT_SECRET, # <--- Pass Explicitly
     server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
     client_kwargs={'scope': 'openid email profile'}
 )
@@ -45,6 +59,7 @@ def create_session_token(user_id: str, tier: str) -> str:
 @router.get("/login/google")
 async def login_google(request: Request):
     """Redirects user to Google Login page."""
+    # Ensure the callback URL matches what is in Google Cloud Console exactly
     redirect_uri = request.url_for('auth_google_callback')
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
@@ -73,9 +88,8 @@ async def auth_google_callback(request: Request):
                 registry.update_user(user)
         else:
             # Create new Free Tier user
-            # Using User.create() (or standard constructor depending on your BaseEntity)
             user = User(
-                id=user_info['sub'], # Use Google ID as ID, or generate a UUID
+                id=user_info['sub'], 
                 email=user_info['email'],
                 oauth_provider="google",
                 provider_id=user_info['sub'],
@@ -83,7 +97,6 @@ async def auth_google_callback(request: Request):
                 avatar_url=user_info.get('picture'),
                 tier="free"
             )
-            # Ensure your Registry has this method
             registry.create_user(user)
 
         # --- Session Logic ---
@@ -96,16 +109,15 @@ async def auth_google_callback(request: Request):
         response.set_cookie(
             key="session_token",
             value=access_token,
-            httponly=True,   # Critical: JavaScript cannot read this (prevents XSS)
+            httponly=True,   
             max_age=60 * 60 * 24 * 7,
-            samesite="lax",  # CSRF Protection
-            secure=False     # Set to True in Production (HTTPS)
+            samesite="lax",  
+            secure=False     
         )
         return response
 
     except Exception as e:
-        print(f"Auth Error: {e}")
-        # Redirect to login with error param
+        log.error(f"Auth Error: {e}")
         return RedirectResponse(url="http://localhost:5173/login?error=auth_failed")
 
 @router.post("/logout")
@@ -118,7 +130,6 @@ def logout(response: Response):
 def get_current_user(request: Request):
     """
     Frontend calls this to check if logged in.
-    Decodes the JWT cookie and fetches user from DB.
     """
     token = request.cookies.get("session_token")
     if not token:
@@ -129,7 +140,6 @@ def get_current_user(request: Request):
         user_id = payload.get("sub")
         
         registry = request.app.state.registry
-        # Ensure Registry has get_user_by_provider_id or get_user
         user = registry.get_user_by_provider_id(user_id)
         
         if not user:
@@ -137,5 +147,5 @@ def get_current_user(request: Request):
             
         return user
     except Exception as e:
-        print(f"Token verification failed: {e}")
+        log.error(f"Token verification failed: {e}")
         raise HTTPException(401, "Invalid session")

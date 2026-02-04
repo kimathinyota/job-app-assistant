@@ -65,6 +65,7 @@ def list_cvs(
 ):
     """List all base CVs belonging to the user."""
     registry: Registry = request.app.state.registry
+    print(f"Listing CVs for user_id: {user.id}")
     return registry.all_cvs(user.id)
 
 @router.get("/{cv_id}")
