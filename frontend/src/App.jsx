@@ -9,7 +9,8 @@ import AppTrackerPage from './components/AppTrackerPage';
 import ApplicationsView from './components/applications/ApplicationsView';
 import ApplicationDashboard from './components/applications/ApplicationDashboard';
 import GoalTrackerPage from './components/GoalTrackerPage';
-import LoginPage from './components/LoginPage'; // <--- Import the new page
+import LoginPage from './components/LoginPage'; 
+import { getCurrentUser } from './api/authClient'; 
 
 function App() {
   const [user, setUser] = useState(null);
@@ -17,31 +18,20 @@ function App() {
 
   // --- 1. THE AUTH CHECK ---
   useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        // We use 'credentials: include' to send the HttpOnly cookie
-        const response = await fetch("http://localhost:8000/auth/me", {
-          credentials: "include" 
+    getCurrentUser()
+        .then(response => {
+            setUser(response.data);
+        })
+        .catch(() => {
+            setUser(null);
+        })
+        // 2. ADD THIS FINALLY BLOCK
+        .finally(() => {
+            setLoading(false); // <--- This turns off the spinner
         });
-        
-        if (response.ok) {
-          const userData = await response.json();
-          setUser(userData);
-        } else {
-          setUser(null); // Not logged in
-        }
-      } catch (error) {
-        console.error("Auth check failed:", error);
-        setUser(null);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    checkAuth();
   }, []);
 
-  // --- 2. LOADING STATE ---
+  // --- 3. LOADING STATE ---
   if (loading) {
     return (
       <div className="h-screen w-full flex items-center justify-center bg-slate-50 text-slate-400">
@@ -53,12 +43,12 @@ function App() {
     );
   }
 
-  // --- 3. UNAUTHENTICATED STATE ---
+  // --- 4. UNAUTHENTICATED STATE ---
   if (!user) {
     return <LoginPage />;
   }
 
-  // --- 4. AUTHENTICATED STATE (Your Normal App) ---
+  // --- 5. AUTHENTICATED STATE ---
   return (
     <Routes>
       <Route path="/" element={<Layout />}>

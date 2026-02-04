@@ -1,12 +1,13 @@
-// frontend/src/components/LoginPage.jsx
 import React from 'react';
 import logo from '../assets/logo_dark.svg'; 
+// 1. Import the helper function
+import { getGoogleLoginUrl } from '../api/authClient';
 
 export default function LoginPage() {
   
   const handleLogin = () => {
-    // Redirect the browser to the Backend's Google OAuth endpoint
-    window.location.href = "http://localhost:8000/auth/login/google";
+    // 2. Use the helper to get the correct URL (including the /api prefix)
+    window.location.href = getGoogleLoginUrl();
   };
 
   return (

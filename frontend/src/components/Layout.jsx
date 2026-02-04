@@ -1,11 +1,13 @@
+// frontend/src/components/Layout.jsx
 import React from 'react';
+import { Outlet } from 'react-router-dom'; // 1. Import Outlet
 import Navbar from './Navbar';
 
-const Layout = ({ children, activeView, setActiveView }) => {
+const Layout = () => {
   return (
     <div className="d-flex flex-column min-vh-100">
       {/* 1. Navigation (Fixed at top) */}
-      <Navbar activeView={activeView} setActiveView={setActiveView} />
+      <Navbar />
 
       {/* 2. Main Content 
           - flex-grow-1: Pushes footer down if you have one
@@ -15,7 +17,8 @@ const Layout = ({ children, activeView, setActiveView }) => {
       */}
       <main className="flex-grow-1 mt-5 pt-4">
         <div className="container-xxl py-4">
-          {children}
+          {/* 3. Replace {children} with <Outlet /> to render nested routes */}
+          <Outlet />
         </div>
       </main>
 
