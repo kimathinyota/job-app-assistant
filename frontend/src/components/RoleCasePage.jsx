@@ -1,19 +1,17 @@
 import React from 'react';
 import { useSearchParams, useParams, useNavigate } from 'react-router-dom';
-import { RoleCaseView } from './rolecase/RoleCaseView'; // Ensure this path matches where you saved the main component
 import { createApplication } from '../api/applicationClient';
 
+import { RoleCaseView } from './rolecase/RoleCaseView';
 export const RoleCasePage = () => {
-  const { appId } = useParams(); 
+  // 1. Match the parameter name defined in App.jsx (path="application/:applicationId/mapping")
+  const { applicationId } = useParams(); 
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  // 1. Draft Mode (Query Params)
+  // 2. Draft Mode (Query Params)
   const jobId = searchParams.get('jobId');
   const cvId = searchParams.get('cvId');
-
-  // 2. Application Mode (URL Params)
-  const applicationId = appId;
 
   const handleSaveDraft = async () => {
     if (!jobId || !cvId) return;
@@ -28,7 +26,7 @@ export const RoleCasePage = () => {
   };
 
   return (
-    <div className="h-screen w-full bg-white">
+    <div className="min-h-screen w-full bg-white">
       <RoleCaseView 
         applicationId={applicationId} 
         jobId={jobId} 
@@ -38,3 +36,5 @@ export const RoleCasePage = () => {
     </div>
   );
 };
+
+export default RoleCasePage;

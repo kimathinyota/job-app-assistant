@@ -28,8 +28,11 @@ async def import_cv_text(
 
     try:
         # 1. Parse into a full Pydantic CV object
-        structured_cv = await parser.parse_cv(payload.text, cv_name=payload.name)
-        
+     
+        import logging
+        logging.getLogger(__name__).info(f"CV Import {user.id} or {user.provider_id}")
+        structured_cv = await parser.parse_cv(payload.text, user.id, cv_name=payload.name)
+
         # 2. Persist to TinyDB using the Registry
         # Enforce User Ownership on the new object
         structured_cv.user_id = user.id

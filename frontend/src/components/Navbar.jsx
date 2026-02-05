@@ -39,7 +39,7 @@ const Navbar = () => {
     { to: '/', label: 'Overview', icon: LayoutDashboard },
     { to: '/jobs', label: 'Jobs', icon: Briefcase },
     { to: '/applications', label: 'Applications', icon: KanbanSquare },
-    { to: '/cv', label: 'CV Library', icon: FileText },
+    { to: '/cvs', label: 'CV Library', icon: FileText },
     { to: '/goals', label: 'Goals', icon: Target },
   ];
 

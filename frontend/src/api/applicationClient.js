@@ -1,16 +1,18 @@
-// frontend/src/api/applicationClient.js
 import axios from 'axios';
 
+// The base URL MUST match the host/port defined in your backend/main.py
 // const API_BASE_URL = 'http://192.168.1.161:8000/api'; // <-- THIS IS THE FIX
+
 const API_BASE_URL = "http://localhost:8000/api"
+
 const apiClient = axios.create({
     baseURL: API_BASE_URL,
+    withCredentials: true,
     headers: {
-        'Content-Type': 'application/json',
+        // We generally use application/json, but the POST /cv endpoint needs special handling (see createBaseCV)
+        'Content-Type': 'application/json', 
     },
 });
-
-
 
 // --- JobDescription Endpoints (routes/job.py) ---
 export const fetchAllJobs = () => apiClient.get('/job/');

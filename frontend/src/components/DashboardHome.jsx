@@ -288,7 +288,7 @@ const DashboardHome = () => {
     // --- Helper for Deep Linking to CV Manager ---
     const handleNavigateToCVSection = (sectionName) => {
         // Navigate to /cv and pass the sectionName in location.state
-        navigate('/cv', { state: { initialSection: sectionName } });
+        navigate('/cvs', { state: { initialSection: sectionName } });
     };
 
     return (
@@ -320,7 +320,7 @@ const DashboardHome = () => {
                 {/* Card 1: The Engine (Deep Asset View) */}
                 <div className="col-md-4">
                     <div className="card border-0 shadow-sm h-100 bg-white hover-lift cursor-pointer" 
-                         onClick={() => navigate('/cv')}> {/* <-- UPDATED */}
+                         onClick={() => navigate('/cvs')}> {/* <-- UPDATED */}
                         <div className="card-body p-4">
                             <div className="d-flex align-items-center gap-3 mb-3">
                                 <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">

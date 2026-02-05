@@ -88,7 +88,7 @@ Return a single JSON object with no markdown formatting:
   "features": [
     {
       "type": "string (Must be one of: hard_skill, soft_skill, certification, responsibility, requirement, employer_culture, employer_mission, perk)",
-      "description": "string (The extracted text verbatim; seperate with semi-colon if multiple found)"
+      "description": "string (The extracted text verbatim; separate with SEMICOLON if multiple found)"
     }
   ]
 }
@@ -108,9 +108,9 @@ DO NOT RETURN MARKDOWN. DO NOT USE ```json BLOCKS. JUST THE RAW JSON.
             system_prompt=self.PROMPT_MASTER,
             user_text=job_text,
             doc_label="JOB DESCRIPTION",
-            is_private=False,
+            is_private=True,
             temperature=0.0,
-            max_tokens=4096
+            max_tokens=8192
         )
 
         # 2. Logic: Initialize Result
@@ -155,19 +155,22 @@ DO NOT RETURN MARKDOWN. DO NOT USE ```json BLOCKS. JUST THE RAW JSON.
 
             # Unbundling Logic (Semicolons)
             for raw_item in clean_desc_full.split(';'):
-                clean_desc = raw_item.strip()
-                if not clean_desc or len(clean_desc) < 2: continue
-                if clean_desc.lower().startswith("we are looking"): continue
-                if clean_desc == final_result.get("location"): continue
-                
-                sig = (feat_type, clean_desc.lower())
-                if sig not in seen:
-                    seen.add(sig)
-                    unique_features.append({
-                        "type": feat_type,
-                        "description": clean_desc,
-                        "preferred": bool(f.get("preferred", False))
-                    })
+                clean_desc_semi = raw_item.strip()
+                for raw_line in clean_desc_semi.split(','):
+                    clean_desc = raw_line.strip()
+                    # Final Filters
+                    if not clean_desc or len(clean_desc) < 2: continue
+                    if clean_desc.lower().startswith("we are looking"): continue
+                    if clean_desc == final_result.get("location"): continue
+                    
+                    sig = (feat_type, clean_desc.lower())
+                    if sig not in seen:
+                        seen.add(sig)
+                        unique_features.append({
+                            "type": feat_type,
+                            "description": clean_desc,
+                            "preferred": bool(f.get("preferred", False))
+                        })
 
         final_result["features"] = unique_features
         final_result["_meta"]["generation_time_sec"] = round(time.time() - start_time, 2)
@@ -308,7 +311,7 @@ NO MARKDOWN. RAW JSON ONLY.
     def __init__(self, manager: LLMManager):
         self.manager = manager
 
-    async def parse_cv(self, cv_text: str, cv_name: str = "Imported CV") -> CV:
+    async def parse_cv(self, cv_text: str, user_id: str, cv_name: str = "Imported CV") -> CV:
         log.info("🚀 Starting Fast CV Parse...")
         
         # 1. Run Inference (Sequential)
@@ -340,6 +343,7 @@ NO MARKDOWN. RAW JSON ONLY.
 
         # 3. Create CV Object
         cv_obj = CV.create(
+            user_id=user_id,
             name=cv_name,
             first_name=identity_data.get("first_name") or "Unknown",
             last_name=identity_data.get("last_name") or "Candidate",
