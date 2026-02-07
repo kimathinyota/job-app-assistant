@@ -221,4 +221,21 @@ export const fetchAggregatedSkills = async (cvId, listName, itemId) => {
 
 // --- Add more client methods for nested UPDATE (PATCH) and UNLINK (DELETE) here ---
 
+
+// ... existing code ...
+
+/**
+ * Exports the CV as a file (PDF, DOCX, TEX, ZIP).
+ * @param {string} cvId 
+ * @param {object} payload - { section_order, section_titles, file_format }
+ */
+export const exportCV = async (cvId, payload) => {
+    const response = await apiClient.post(`/cv/${cvId}/export`, payload, {
+        responseType: 'blob', // Important: Treat response as a binary file
+    });
+    return response; // returns the Axios response object (headers + data blob)
+};
+
+
+
 export default apiClient; // Ensure apiClient is exported if needed elsewhere, though usually named exports are preferred.

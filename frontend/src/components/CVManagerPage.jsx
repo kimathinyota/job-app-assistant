@@ -33,10 +33,12 @@ import {
     Smile, 
     ChevronLeft, 
     Trash2, 
-    Edit2 
+    Edit2,
+    Download // <--- Added Download Icon
 } from 'lucide-react';
 import { UploadCloud } from 'lucide-react'; 
 import ImportCVModal from './cv/ImportCVModal';
+import ExportCVModal from './cv/ExportCVModal'; // <--- Added Export Modal Import
 
 import CVSelector from './cv/CVList';
 import { getCVDisplayName } from '../utils/cvHelpers'; 
@@ -137,8 +139,8 @@ const CVManagerPage = () => {
 
     // 2. Add state for the import modal
     const [showImportModal, setShowImportModal] = useState(false);
-
-
+    // 3. Add state for export modal
+    const [showExportModal, setShowExportModal] = useState(false); // <--- Added State
 
     
     // 3. reloadData now determines which CV to select based on the URL
@@ -433,12 +435,22 @@ const CVManagerPage = () => {
                                             {detailedCV.summary || <span className="fst-italic opacity-50">No summary provided. Click edit to add one.</span>}
                                         </p>
                                     </div>
-                                    <button 
-                                        onClick={handleStartEditHeader} 
-                                        className="btn btn-outline-secondary btn-sm d-flex align-items-center gap-2"
-                                    >
-                                        <Edit2 size={14}/> Edit
-                                    </button>
+                                    
+                                    {/* --- ACTIONS BUTTONS --- */}
+                                    <div className="d-flex gap-2">
+                                        <button 
+                                            onClick={() => setShowExportModal(true)} 
+                                            className="btn btn-outline-success btn-sm d-flex align-items-center gap-2"
+                                        >
+                                            <Download size={14}/> Export
+                                        </button>
+                                        <button 
+                                            onClick={handleStartEditHeader} 
+                                            className="btn btn-outline-secondary btn-sm d-flex align-items-center gap-2"
+                                        >
+                                            <Edit2 size={14}/> Edit
+                                        </button>
+                                    </div>
                                 </div>
                             ) : (
                                 <form onSubmit={handleUpdateCVHeader} className="bg-light p-3 rounded">
@@ -535,6 +547,14 @@ const CVManagerPage = () => {
                 <ImportCVModal 
                     onClose={() => setShowImportModal(false)}
                     onSuccess={handleImportSuccess}
+                />
+            )}
+
+            {/* --- Export CV Modal --- */}
+            {showExportModal && detailedCV && (
+                <ExportCVModal 
+                    cvId={detailedCV.id} 
+                    onClose={() => setShowExportModal(false)} 
                 />
             )}
 

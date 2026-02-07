@@ -5,12 +5,18 @@ from backend.core.registry import Registry
 from backend.core.models import (
     CVUpdate, ExperienceUpdate, ExperienceComplexPayload, 
     EducationComplexPayload, HobbyComplexPayload, ProjectComplexPayload, 
-    CVImportRequest, CV, Experience, Project, Education, Skill, Hobby, User
+    CVImportRequest, CV, Experience, Project, Education, Skill, Hobby, User, CVExportRequest
 )
 from typing import Optional, List
 import logging as log
 from backend.routes.auth import get_current_user # Adjust import path
-
+# Add these to your existing imports
+import os
+import zipfile
+import io
+from pathlib import Path
+from fastapi.responses import Response
+from backend.core.services.cv_generator import PDFGenerator, WordGenerator
 router = APIRouter()
 
 @router.post("/import")
@@ -552,3 +558,165 @@ def get_item_details(
         raise HTTPException(404, "Item not found")
         
     return data
+
+
+def prepare_cv_for_export(cv: CV) -> tuple[dict, dict]:
+    """
+    Converts Pydantic CV model to a hydrated dict for templating.
+    """
+    data = cv.dict()
+    
+    # 1. Create Lookup Map for Achievements
+    ach_map = {ach['id']: ach for ach in data.get('achievements', [])}
+    
+    # 2. Hydrate Sections 
+    # Added 'hobbies' to this list to ensure their achievements are resolved
+    for section in ['experiences', 'education', 'projects', 'hobbies']:
+        for item in data.get(section, []):
+            item['achievements'] = [
+                ach_map[aid] for aid in item.get('achievement_ids', []) 
+                if aid in ach_map
+            ]
+
+    # 3. Group Skills
+    skill_groups = {}
+    category_map = {
+        "technical": "Languages & Tech",
+        "soft": "Professional Skills",
+        "language": "Languages",
+        "other": "Other"
+    }
+    
+    for skill in data.get('skills', []):
+        cat_display = category_map.get(skill.get('category'), "Other")
+        if cat_display not in skill_groups:
+            skill_groups[cat_display] = []
+        skill_groups[cat_display].append(skill['name'])
+        
+    return data, skill_groups
+
+@router.post("/{cv_id}/export")
+def export_cv(
+    cv_id: str,
+    payload: CVExportRequest,
+    request: Request,
+    user: User = Depends(get_current_user)
+):
+    """
+    Generates a specific format (PDF, Docx, LaTeX) OR a ZIP bundle based on the request.
+    """
+    registry: Registry = request.app.state.registry
+    cv = registry.get_cv(cv_id, user.id)
+    if not cv:
+        raise HTTPException(status_code=404, detail="CV not found")
+
+    # 1. Prepare Data
+    cv_dict, skill_groups = prepare_cv_for_export(cv)
+
+    # 2. Setup Generators
+    base_dir = Path(__file__).resolve().parent.parent 
+    template_dir = base_dir / "core" / "template"
+    
+    pdf_gen = PDFGenerator(template_dir=str(template_dir))
+    docx_gen = WordGenerator()
+    
+    base_filename = f"{cv.first_name}_{cv.last_name}_CV".replace(" ", "_")
+
+    try:
+        # --- CASE A: PDF ---
+        if payload.file_format == "pdf":
+            pdf_bytes = pdf_gen.render_cv(
+                context={"cv": cv_dict, "skill_groups": skill_groups},
+                section_order=payload.section_order,
+                section_titles=payload.section_titles
+            )
+            return Response(
+                content=pdf_bytes,
+                media_type="application/pdf",
+                headers={"Content-Disposition": f"attachment; filename={base_filename}.pdf"}
+            )
+
+        # --- CASE B: WORD (DOCX) ---
+        elif payload.file_format == "docx":
+            docx_path = docx_gen.create_docx(
+                cv_data=cv_dict,
+                skill_groups=skill_groups,
+                section_order=payload.section_order,
+                section_titles=payload.section_titles
+            )
+            
+            with open(docx_path, "rb") as f:
+                docx_bytes = f.read()
+            os.remove(docx_path) # Cleanup temp file
+            
+            return Response(
+                content=docx_bytes,
+                media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                headers={"Content-Disposition": f"attachment; filename={base_filename}.docx"}
+            )
+
+        # --- CASE C: LATEX SOURCE (.TEX) ---
+        elif payload.file_format == "tex":
+            # Manually render the template string using the PDF Generator's environment
+            tex_context = {
+                "cv": cv_dict, 
+                "skill_groups": skill_groups,
+                "section_order": [s.lower() for s in payload.section_order],
+                "section_titles": payload.section_titles
+            }
+            tex_template = pdf_gen.env.get_template('cv_template.tex')
+            tex_source = tex_template.render(**tex_context)
+            
+            return Response(
+                content=tex_source,
+                media_type="application/x-tex",
+                headers={"Content-Disposition": f"attachment; filename={base_filename}.tex"}
+            )
+
+        # --- CASE D: ZIP BUNDLE (Fallback) ---
+        else:
+            # 1. Generate PDF
+            pdf_bytes = pdf_gen.render_cv(
+                context={"cv": cv_dict, "skill_groups": skill_groups},
+                section_order=payload.section_order,
+                section_titles=payload.section_titles
+            )
+            
+            # 2. Generate TeX
+            tex_context = {
+                "cv": cv_dict, 
+                "skill_groups": skill_groups,
+                "section_order": [s.lower() for s in payload.section_order],
+                "section_titles": payload.section_titles
+            }
+            tex_source = pdf_gen.env.get_template('cv_template.tex').render(**tex_context)
+
+            # 3. Generate Docx
+            docx_path = docx_gen.create_docx(
+                cv_data=cv_dict,
+                skill_groups=skill_groups,
+                section_order=payload.section_order,
+                section_titles=payload.section_titles
+            )
+            with open(docx_path, "rb") as f:
+                docx_bytes = f.read()
+            os.remove(docx_path)
+
+            # 4. Zip them
+            zip_buffer = io.BytesIO()
+            with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+                zip_file.writestr(f"{base_filename}.pdf", pdf_bytes)
+                zip_file.writestr(f"{base_filename}.tex", tex_source)
+                zip_file.writestr(f"{base_filename}.docx", docx_bytes)
+            
+            zip_buffer.seek(0)
+            return Response(
+                content=zip_buffer.getvalue(),
+                media_type="application/zip",
+                headers={"Content-Disposition": f"attachment; filename={base_filename}_Bundle.zip"}
+            )
+
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Export Error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Generation failed: {str(e)}")

@@ -1,0 +1,186 @@
+\documentclass[letterpaper,11pt]{article}
+
+\usepackage{latexsym}
+\usepackage[empty]{fullpage}
+\usepackage{titlesec}
+\usepackage{marvosym}
+\usepackage[usenames,dvipsnames]{color}
+\usepackage{verbatim}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{fancyhdr}
+\usepackage[english]{babel}
+\usepackage{tabularx}
+
+% --- Typography & Page Setup ---
+\pagestyle{fancy}
+\fancyhf{} 
+\fancyfoot{}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+
+% Adjust margins
+\addtolength{\oddsidemargin}{-0.5in}
+\addtolength{\evensidemargin}{-0.5in}
+\addtolength{\textwidth}{1in}
+\addtolength{\topmargin}{-.5in}
+\addtolength{\textheight}{1.0in}
+
+\urlstyle{same}
+
+\raggedbottom
+\raggedright
+\setlength{\tabcolsep}{0in}
+
+% Sections formatting
+\titleformat{\section}{
+  \vspace{-4pt}\scshape\raggedright\large
+}{}{0em}{}[\color{black}\titlerule \vspace{-5pt}]
+
+% --- Custom Commands ---
+\newcommand{\resumeItem}[1]{
+  \item\small{
+    {#1 \vspace{-2pt}}
+  }
+}
+
+\newcommand{\resumeSubheading}[4]{
+  \vspace{-2pt}\item
+    \begin{tabular*}{0.97\textwidth}[t]{l@{\extracolsep{\fill}}r}
+      \textbf{#1} & #2 \\
+      \textit{\small#3} & \textit{\small #4} \\
+    \end{tabular*}\vspace{-7pt}
+}
+
+\newcommand{\resumeProjectHeading}[2]{
+    \item
+    \begin{tabular*}{0.97\textwidth}{l@{\extracolsep{\fill}}r}
+      \small#1 & #2 \\
+    \end{tabular*}\vspace{-7pt}
+}
+
+\newcommand{\resumeSubHeadingListStart}{\begin{itemize}[leftmargin=0.15in, label={}]}
+\newcommand{\resumeSubHeadingListEnd}{\end{itemize}}
+\newcommand{\resumeItemListStart}{\begin{itemize}}
+\newcommand{\resumeItemListEnd}{\end{itemize}\vspace{-5pt}}
+
+%-------------------------------------------
+% CV STARTS HERE
+%-------------------------------------------
+\begin{document}
+
+% --- Heading ---
+\begin{center}
+    \textbf{\Huge \scshape \VAR{cv.first_name | latex_escape} \VAR{cv.last_name | latex_escape}} \\ \vspace{1pt}
+    \footnotesize
+    \BLOCK{ for key, val in cv.contact_info.items() }
+        \BLOCK{ if key == 'email' }
+           \href{mailto:\VAR{val | latex_escape}}{\underline{\VAR{val | latex_escape}}}
+        \BLOCK{ elif key == 'linkedin' }
+           \href{\VAR{val | latex_escape}}{\underline{LinkedIn}}
+        \BLOCK{ else }
+           \VAR{val | latex_escape}
+        \BLOCK{ endif }
+        \BLOCK{ if not loop.last } $|$ \BLOCK{ endif }
+    \BLOCK{ endfor }
+\end{center}
+
+% --- Dynamic Body Sections ---
+\BLOCK{ for section in section_order }
+
+    % --- SUMMARY (NEW) ---
+    \BLOCK{ if section == 'summary' and cv.summary }
+        \section{\VAR{section_titles.summary | default('Professional Summary') | latex_escape}}
+        \small{\VAR{cv.summary | latex_escape}} \\
+    \BLOCK{ endif }
+
+    % --- EDUCATION ---
+    \BLOCK{ if section == 'education' and cv.education }
+        \section{\VAR{section_titles.education | default('Education') | latex_escape}}
+          \resumeSubHeadingListStart
+          \BLOCK{ for edu in cv.education }
+            \resumeSubheading
+              {\VAR{edu.institution | latex_escape}}{\VAR{edu.degree | latex_escape}}
+              {\VAR{edu.field | latex_escape}}{\VAR{edu.start_date | latex_escape} -- \VAR{edu.end_date | latex_escape}}
+              \BLOCK{ if edu.achievements }
+                  \resumeItemListStart
+                    \BLOCK{ for ach in edu.achievements }
+                    \resumeItem{\VAR{ach.text | latex_escape}}
+                    \BLOCK{ endfor }
+                  \resumeItemListEnd
+              \BLOCK{ endif }
+          \BLOCK{ endfor }
+          \resumeSubHeadingListEnd
+    \BLOCK{ endif }
+
+    % --- SKILLS ---
+    \BLOCK{ if section == 'skills' and skill_groups }
+        \section{\VAR{section_titles.skills | default('Technical Skills') | latex_escape}}
+         \begin{itemize}[leftmargin=0.15in, label={}]
+            \small{\item{
+             \BLOCK{ for category, skill_names in skill_groups.items() }
+              \textbf{\VAR{category | latex_escape}}{: \VAR{skill_names|join(', ') | latex_escape}} \\
+             \BLOCK{ endfor }
+            }}
+         \end{itemize}
+    \BLOCK{ endif }
+
+    % --- PROJECTS ---
+    \BLOCK{ if section == 'projects' and cv.projects }
+        \section{\VAR{section_titles.projects | default('Academic & Research Projects') | latex_escape}}
+            \resumeSubHeadingListStart
+              \BLOCK{ for proj in cv.projects }
+              \resumeProjectHeading
+                  {\textbf{\VAR{proj.title | latex_escape}} $|$ \emph{\VAR{proj.related_context | latex_escape}}}{\VAR{proj.dates | default('Present') | latex_escape}}
+                  \BLOCK{ if proj.achievements }
+                      \resumeItemListStart
+                        \BLOCK{ for ach in proj.achievements }
+                        \resumeItem{\VAR{ach.text | latex_escape}}
+                        \BLOCK{ endfor }
+                      \resumeItemListEnd
+                  \BLOCK{ endif }
+              \BLOCK{ endfor }
+            \resumeSubHeadingListEnd
+    \BLOCK{ endif }
+
+    % --- EXPERIENCE ---
+    \BLOCK{ if section == 'experience' and cv.experiences }
+        \section{\VAR{section_titles.experience | default('Experience') | latex_escape}}
+          \resumeSubHeadingListStart
+          \BLOCK{ for exp in cv.experiences }
+            \resumeSubheading
+              {\VAR{exp.title | latex_escape}}{\VAR{exp.company | latex_escape}}
+              {\VAR{exp.location | default('') | latex_escape}}{\VAR{exp.start_date | latex_escape} -- \VAR{exp.end_date | latex_escape}}
+              \BLOCK{ if exp.achievements }
+                  \resumeItemListStart
+                   \BLOCK{ for ach in exp.achievements }
+                    \resumeItem{\VAR{ach.text | latex_escape}}
+                   \BLOCK{ endfor }
+                  \resumeItemListEnd
+              \BLOCK{ endif }
+          \BLOCK{ endfor }
+          \resumeSubHeadingListEnd
+    \BLOCK{ endif }
+
+    % --- HOBBIES ---
+    \BLOCK{ if section == 'hobbies' and cv.hobbies }
+        \section{\VAR{section_titles.hobbies | default('Interests & Hobbies') | latex_escape}}
+          \resumeSubHeadingListStart
+          \BLOCK{ for hobby in cv.hobbies }
+            \item
+              \textbf{\VAR{hobby.name | latex_escape}}
+              \BLOCK{ if hobby.description }: \VAR{hobby.description | latex_escape} \BLOCK{ endif }
+              \BLOCK{ if hobby.achievements }
+                  \resumeItemListStart
+                    \BLOCK{ for ach in hobby.achievements }
+                    \resumeItem{\VAR{ach.text | latex_escape}}
+                    \BLOCK{ endfor }
+                  \resumeItemListEnd
+              \BLOCK{ endif }
+          \BLOCK{ endfor }
+          \resumeSubHeadingListEnd
+    \BLOCK{ endif }
+
+\BLOCK{ endfor }
+
+\end{document}
