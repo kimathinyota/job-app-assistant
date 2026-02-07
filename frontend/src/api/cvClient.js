@@ -26,18 +26,6 @@ export const fetchCVDetails = async (cvId) => {
     return response.data; // Should return the full CV object with nested lists
 };
 
-/**
- * Imports a CV from raw text.
- * Maps to: POST /cv/import
- * Payload: { text: "Raw CV Text...", name: "Internal Label" }
- */
-export const importCV = async (name, text) => {
-    const response = await apiClient.post('/cv/import', { 
-        name: name, 
-        text: text 
-    });
-    return response.data;
-};
 
 
 export const createBaseCV = async (name, firstName, lastName, title, summary) => {
@@ -234,6 +222,18 @@ export const exportCV = async (cvId, payload) => {
         responseType: 'blob', // Important: Treat response as a binary file
     });
     return response; // returns the Axios response object (headers + data blob)
+};
+
+// Start the task
+export const importCV = async (name, text) => {
+    const response = await apiClient.post('/cv/import', { name, text });
+    return response.data; // Returns { task_id, status }
+};
+
+// Check the task
+export const checkTaskStatus = async (taskId) => {
+    const response = await apiClient.get(`/cv/tasks/${taskId}`);
+    return response.data; // Returns { status, result, error }
 };
 
 

@@ -16,42 +16,102 @@ import zipfile
 import io
 from pathlib import Path
 from fastapi.responses import Response
+from redis import Redis
+from rq import Queue
+from backend.tasks import task_import_cv
+
 from backend.core.services.cv_generator import PDFGenerator, WordGenerator
 router = APIRouter()
+# Connect to Redis (ensure port matches your docker container)
+redis_conn = Redis(host='localhost', port=6379)
+q = Queue(connection=redis_conn)
 
 @router.post("/import")
-async def import_cv_text(
-    request: Request, 
-    payload: CVImportRequest,
+async def import_cv_background(
+    payload: CVImportRequest, 
     user: User = Depends(get_current_user)
 ):
     """
-    Imports a CV from raw text using the Fast Parse engine.
+    Starts the CV Import background task.
+    Returns: {"task_id": "...", "status": "queued"}
     """
-    parser = getattr(request.app.state, "cv_parser", None)
-    if not parser:
-        raise HTTPException(status_code=503, detail="LLM Model is not loaded.")
-
     try:
-        # 1. Parse into a full Pydantic CV object
-     
-        import logging
-        logging.getLogger(__name__).info(f"CV Import {user.id} or {user.provider_id}")
-        structured_cv = await parser.parse_cv(payload.text, user.id, cv_name=payload.name)
-
-        # 2. Persist to TinyDB using the Registry
-        # Enforce User Ownership on the new object
-        structured_cv.user_id = user.id
+        # Enqueue the task
+        # We pass arguments: user_id, cv_name, text_data
+        job = q.enqueue(
+            task_import_cv, 
+            user.id, 
+            payload.name, 
+            payload.text,
+            job_timeout='10m' # Allow 10 mins for slow LLMs
+        )
         
-        registry: Registry = request.app.state.registry
-        registry._insert("cvs", structured_cv)
-        
-        return structured_cv
-        
+        return {
+            "task_id": job.get_id(),
+            "status": "queued",
+            "message": f"Importing '{payload.name}' in background..."
+        }
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).error(f"CV Import Error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to parse CV: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Queue failed: {str(e)}")
+
+@router.get("/tasks/{task_id}")
+def get_cv_task_status(task_id: str, user: User = Depends(get_current_user)):
+    """
+    Frontend polls this to check progress.
+    """
+    try:
+        job = q.fetch_job(task_id)
+        
+        if not job:
+            return {"status": "not_found"}
+        
+        if job.is_finished:
+            # The task returns {"id": "cv_123...", "status": "success"}
+            return {"status": "finished", "result": job.result}
+        
+        elif job.is_failed:
+            return {"status": "failed", "error": str(job.exc_info)}
+        
+        else:
+            # You can add custom meta progress here if you implement it in the worker
+            return {"status": "processing"}
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# @router.post("/import")
+# async def import_cv_text(
+#     request: Request, 
+#     payload: CVImportRequest,
+#     user: User = Depends(get_current_user)
+# ):
+#     """
+#     Imports a CV from raw text using the Fast Parse engine.
+#     """
+#     parser = getattr(request.app.state, "cv_parser", None)
+#     if not parser:
+#         raise HTTPException(status_code=503, detail="LLM Model is not loaded.")
+
+#     try:
+#         # 1. Parse into a full Pydantic CV object
+     
+#         import logging
+#         logging.getLogger(__name__).info(f"CV Import {user.id} or {user.provider_id}")
+#         structured_cv = await parser.parse_cv(payload.text, user.id, cv_name=payload.name)
+
+#         # 2. Persist to TinyDB using the Registry
+#         # Enforce User Ownership on the new object
+#         structured_cv.user_id = user.id
+        
+#         registry: Registry = request.app.state.registry
+#         registry._insert("cvs", structured_cv)
+        
+#         return structured_cv
+        
+#     except Exception as e:
+#         import logging
+#         logging.getLogger(__name__).error(f"CV Import Error: {str(e)}", exc_info=True)
+#         raise HTTPException(status_code=500, detail=f"Failed to parse CV: {str(e)}")
 
 @router.post("/")
 def create_cv(

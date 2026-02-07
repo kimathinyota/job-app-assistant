@@ -1,47 +1,53 @@
 import React from 'react';
-import { FileText, Plus, CheckCircle } from 'lucide-react';
-import { getCVDisplayName } from '../../utils/cvHelpers'; // <--- IMPORT
+import { FileText, Plus, CheckCircle, Loader2 } from 'lucide-react'; 
 
-const CVSelector = ({ cvs, onSelect, selectedCVId, onCreate }) => {
+const CVSelector = ({ cvs, onSelect, selectedCVId, onCreate, activeImport, onImportClick }) => {
     return (
         <div className="d-flex align-items-center justify-content-between mb-4 border-bottom pb-2">
-            
-            {/* Scrollable Tabs Area */}
-            <div className="d-flex gap-2 overflow-auto py-2" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+            <div className="d-flex gap-2 overflow-auto py-2">
+                
+                {/* --- THE GHOST TAB (Background Process) --- */}
+                {activeImport && (
+                    <button 
+                        onClick={onImportClick}
+                        className={`btn d-flex align-items-center gap-2 px-3 py-2 rounded-pill shadow-sm ${
+                            activeImport.status === 'error' ? 'bg-danger-subtle text-danger border-danger' : 'bg-white border-primary text-primary'
+                        }`}
+                        style={{ whiteSpace: 'nowrap' }}
+                    >
+                        {activeImport.status === 'processing' ? (
+                            <Loader2 size={16} className="animate-spin" />
+                        ) : (
+                            <span className="fw-bold">!</span>
+                        )}
+                        <span className="fw-bold small">
+                            {activeImport.status === 'error' ? 'Import Failed' : `Importing: ${activeImport.name}`}
+                        </span>
+                    </button>
+                )}
+
+                {/* --- Normal Tabs --- */}
                 {cvs && cvs.map(cv => {
                     const isActive = selectedCVId === cv.id;
                     return (
                         <button 
                             key={cv.id} 
                             onClick={() => onSelect(cv.id)} 
-                            className={`btn d-flex align-items-center gap-2 px-3 py-2 rounded-pill border transition-all ${
-                                isActive 
-                                ? 'btn-primary shadow-sm' 
-                                : 'btn-light text-muted hover:bg-slate-100'
-                            }`}
-                            style={{ whiteSpace: 'nowrap' }}
+                            className={`btn d-flex align-items-center gap-2 px-3 py-2 rounded-pill border ${isActive ? 'btn-primary' : 'btn-light text-muted'}`}
                         >
                             {isActive ? <CheckCircle size={16} /> : <FileText size={16} />}
-                            {/* USE HELPER HERE */}
                             <span className="fw-medium">{cv.name}</span>
                         </button>
                     );
                 })}
             </div>
-
-            {/* Create New Action */}
+            
             <div className="ps-3 border-start ms-2">
-                <button 
-                    onClick={onCreate}
-                    className="btn btn-outline-primary d-flex align-items-center gap-2 rounded-pill px-3"
-                    style={{ whiteSpace: 'nowrap' }}
-                >
-                    <Plus size={16} />
-                    New CV
+                <button onClick={onCreate} className="btn btn-outline-primary rounded-pill px-3 gap-2 d-flex align-items-center">
+                    <Plus size={16} /> New CV
                 </button>
             </div>
         </div>
     );
 };
-
 export default CVSelector;
