@@ -48,13 +48,13 @@ async def lifespan(app: FastAPI):
             log.info("🚀 Startup: Initializing Llama Model...")
 
             llm_manager = LLMManager()
-            llm_manager.load_local_models(
-            model_path=MODEL_PATH, 
-            max_instances=MAX_MODEL_INSTANCES, 
-            machine_type="mac"
-         )
+        #     llm_manager.load_local_models(
+        #     model_path=MODEL_PATH, 
+        #     max_instances=MAX_MODEL_INSTANCES, 
+        #     machine_type="mac"
+        #  )
 
-            app.state.llm_manager = llm_manager
+            app.state.llm_manager = None
             app.state.job_parser = JobParser(manager=llm_manager)
             app.state.cv_parser = CVParser(manager=llm_manager)
 

@@ -6,9 +6,14 @@ from backend.core.models import JobDescriptionUpdate, JobUpsertPayload, User
 from backend.routes.auth import get_current_user # Adjust import path if needed
 from typing import Optional
 from pydantic import BaseModel, ValidationError
+from backend.tasks import task_parse_job
 import logging as log
+from redis import Redis
+from rq import Queue
 
 router = APIRouter()
+redis_conn = Redis(host='localhost', port=6379)
+q = Queue(connection=redis_conn)
 
 class JobTextRequest(BaseModel):
     text: str
@@ -37,6 +42,28 @@ async def parse_job_description(
          raise HTTPException(status_code=400, detail=result["error"])
 
     return result
+
+
+
+@router.post("/parse_external")
+async def parse_external_job(payload: JobTextRequest):
+    # 1. Send text to Redis
+    job = q.enqueue(task_parse_job, payload.text)
+    
+    # 2. Return the Ticket ID
+    return {"job_id": job.get_id(), "status": "processing"}
+
+@router.get("/status/{job_id}")
+def check_status(job_id: str):
+    job = q.fetch_job(job_id)
+    
+    if job.is_finished:
+        # RETURN THE PARSED JSON
+        return {"status": "finished", "data": job.result} 
+    elif job.is_failed:
+        return {"status": "failed", "error": str(job.exc_info)}
+    else:
+        return {"status": "processing"}
 
 @router.post("/")
 def create_job(
