@@ -4,6 +4,8 @@ import { Plus, Edit2, Trash2, BookOpen } from 'lucide-react';
 import EducationForm from './EducationForm';
 import AchievementDisplayGrid from './AchievementDisplayGrid';
 import SelectedSkillsDisplay from './SelectedSkillsDisplay';
+// --- Import the helper ---
+import { formatDateRange } from '../../utils/cvHelpers';
 
 const EducationManager = ({
   cvId,
@@ -117,7 +119,8 @@ const EducationManager = ({
                         </div>
                         {(item.start_date || item.end_date) && (
                             <div className="small text-muted mt-1">
-                                {item.start_date || '?'} – {item.end_date || 'Present'}
+                                {/* Use helper here */}
+                                {formatDateRange(item.start_date, item.end_date)}
                             </div>
                         )}
                     </div>

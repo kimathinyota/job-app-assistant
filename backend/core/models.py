@@ -3,7 +3,7 @@
 from __future__ import annotations
 from typing import List, Dict, Optional, Literal, Union, Any
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 import uuid
 
 
@@ -79,6 +79,33 @@ class Achievement(BaseEntity, SkillLinkMixin):
     context: Optional[str] = None
 
 
+# --- UPDATED DATE NORMALIZER ---
+def normalize_date_string(v: Optional[str], default_month: int = 1) -> Optional[str]:
+    """
+    Cleans date strings.
+    - "Present", "Now" -> None
+    - "2023" -> "2023-01-01" (if default_month=1) or "2023-09-01" (if default_month=9)
+    - Fallback: returns original string if parsing fails.
+    """
+    if not v:
+        return None
+    
+    s = str(v).strip().lower()
+    
+    # Handle "Present" keywords -> Null (Ongoing)
+    if s in ["present", "now", "current", "null", "none", "ongoing"]:
+        return None
+        
+    try:
+        # We use a default year of 2000, but the critical part is default_month and day=1.
+        # This prevents the parser from using "Today's" month/day.
+        default_date = datetime(2000, default_month, 1)
+        
+        dt = date_parser.parse(v, default=default_date)
+        return dt.strftime("%Y-%m-%d")
+    except:
+        return v
+
 # ---------------------------------------------------------------------
 # Experience, Education, Project, Hobby
 # ---------------------------------------------------------------------
@@ -90,6 +117,11 @@ class Experience(BaseEntity, SkillLinkMixin):
     end_date: Optional[str] = None
     description: Optional[str] = None
     achievement_ids: List[str] = Field(default_factory=list)
+
+    # --- 2. Add Validators ---
+    @validator('start_date', 'end_date', pre=True)
+    def clean_dates(cls, v):
+        return normalize_date_string(v, default_month=1)
 
     def add_achievement(self, achievement: Achievement):
         if achievement.id not in self.achievement_ids:
@@ -121,6 +153,11 @@ class Education(BaseEntity, SkillLinkMixin):
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     achievement_ids: List[str] = Field(default_factory=list)
+
+    # --- 2. Add Validators ---
+    @validator('start_date', 'end_date', pre=True)
+    def clean_dates(cls, v):
+        return normalize_date_string(v, default_month=9)
 
     def add_achievement(self, achievement: Achievement):
         if achievement.id not in self.achievement_ids:

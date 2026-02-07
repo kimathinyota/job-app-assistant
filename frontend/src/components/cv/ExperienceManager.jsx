@@ -4,6 +4,8 @@ import { Plus, Edit2, Trash2, Briefcase } from 'lucide-react';
 import ExperienceForm from './ExperienceForm';
 import AchievementDisplayGrid from './AchievementDisplayGrid';
 import SelectedSkillsDisplay from './SelectedSkillsDisplay';
+// --- Import the helper ---
+import { formatDateRange } from '../../utils/cvHelpers';
 
 const ExperienceManager = ({
   cvId,
@@ -12,7 +14,6 @@ const ExperienceManager = ({
   allAchievements = [],
   onSubmit,
   onDelete,
-  // onBack is no longer needed as navigation is handled by parent
 }) => {
   const [isCreating, setIsCreating] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -118,7 +119,8 @@ const ExperienceManager = ({
                             {item.company && <span>@{item.company}</span>}
                             {(item.start_date || item.end_date) && (
                                 <span className="ms-2 small text-secondary border-start ps-2">
-                                    {item.start_date || '?'} – {item.end_date || 'Present'}
+                                     {/* Use helper here */}
+                                    {formatDateRange(item.start_date, item.end_date)}
                                 </span>
                             )}
                         </div>
