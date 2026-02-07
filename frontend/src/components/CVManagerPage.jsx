@@ -34,11 +34,22 @@ import {
     ChevronLeft, 
     Trash2, 
     Edit2,
-    Download // <--- Added Download Icon
+    Download,
+    UploadCloud,
+    // --- NEW ICONS FOR CONTACT INFO ---
+    Phone, 
+    Mail, 
+    Globe, 
+    MapPin, 
+    Linkedin, 
+    Plus, 
+    X, 
+    Save
 } from 'lucide-react';
-import { UploadCloud } from 'lucide-react'; 
+
 import ImportCVModal from './cv/ImportCVModal';
-import ExportCVModal from './cv/ExportCVModal'; // <--- Added Export Modal Import
+import ExportCVModal from './cv/ExportCVModal'; 
+import { ContactInfoManager } from './cv/ContactInfoManager';
 
 import CVSelector from './cv/CVList';
 import { getCVDisplayName } from '../utils/cvHelpers'; 
@@ -115,6 +126,8 @@ const CVSectionDashboard = ({ cv, onSelectSection }) => (
         />
     </div>
 );
+
+
 
 // (Props removed)
 const CVManagerPage = () => {
@@ -251,6 +264,17 @@ const CVManagerPage = () => {
         } catch (error) {
             alert('Failed to update CV.');
             console.error(error);
+        }
+    };
+
+    // --- NEW HANDLER FOR CONTACT INFO ---
+    const handleUpdateContactInfo = async (newContactInfo) => {
+        try {
+            const updatedCV = await updateBaseCV(detailedCV.id, { contact_info: newContactInfo });
+            setDetailedCV(updatedCV);
+        } catch (error) {
+            console.error("Failed to update contact info:", error);
+            alert("Failed to update contact info.");
         }
     };
 
@@ -421,7 +445,7 @@ const CVManagerPage = () => {
                         <div className="bg-white rounded-xl border shadow-sm p-4 mb-4">
                             {!isEditingHeader ? (
                                 <div className="d-flex justify-content-between align-items-start">
-                                    <div>
+                                    <div className="w-100 me-3">
                                         <div className="d-flex align-items-center gap-2 mb-1">
                                             <h3 className="h4 fw-bold text-primary mb-0">
                                                 {getCVDisplayName(detailedCV)}
@@ -431,13 +455,22 @@ const CVManagerPage = () => {
                                         <p className="text-muted small mb-1">
                                             Internal ID: <span className="fw-medium text-dark">{detailedCV.name}</span>
                                         </p>
+                                        
+                                        {/* Summary */}
                                         <p className="text-muted mb-0" style={{whiteSpace: 'pre-wrap'}}>
                                             {detailedCV.summary || <span className="fst-italic opacity-50">No summary provided. Click edit to add one.</span>}
                                         </p>
+
+                                        {/* --- NEW CONTACT INFO SECTION --- */}
+                                        <ContactInfoManager 
+                                            contactInfo={detailedCV.contact_info} 
+                                            onSave={handleUpdateContactInfo} 
+                                        />
+
                                     </div>
                                     
                                     {/* --- ACTIONS BUTTONS --- */}
-                                    <div className="d-flex gap-2">
+                                    <div className="d-flex gap-2 flex-shrink-0">
                                         <button 
                                             onClick={() => setShowExportModal(true)} 
                                             className="btn btn-outline-success btn-sm d-flex align-items-center gap-2"
@@ -448,7 +481,7 @@ const CVManagerPage = () => {
                                             onClick={handleStartEditHeader} 
                                             className="btn btn-outline-secondary btn-sm d-flex align-items-center gap-2"
                                         >
-                                            <Edit2 size={14}/> Edit
+                                            <Edit2 size={14}/> Edit Header
                                         </button>
                                     </div>
                                 </div>
