@@ -97,6 +97,17 @@ class Experience(BaseEntity, SkillLinkMixin):
         self.touch()
         return achievement
 
+class CVExportRequest(BaseModel):
+    # Added "hobbies" to default list
+    section_order: List[str] = ["education", "skills", "projects", "experience", "hobbies"]
+    section_titles: Dict[str, str] = {
+        "education": "Education",
+        "skills": "Technical Skills",
+        "projects": "Academic & Research Projects",
+        "experience": "Experience",
+        "hobbies": "Interests & Hobbies"
+    }
+    file_format: Literal["pdf", "docx", "tex", "zip"] = "pdf"
 
 
 class CVImportRequest(BaseModel):
