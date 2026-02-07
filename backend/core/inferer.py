@@ -231,7 +231,7 @@ Extract professional experience into a structured list.
    - FORMAT: Combine into a single string separated by semicolons (;).
    - REJECT: General duties (e.g. "Responsible for coding"). Focus on results.
 6. "tools_used":
-   - MATCH: Specific tools/tech mentioned *within this role description*.
+   - MATCH: Specific tools/tech/skills mentioned *within this role description*.
    - FORMAT: Semicolon separated.
 
 ### OUTPUT SCHEMA (STRICT JSON):
@@ -291,7 +291,7 @@ Extract independent projects and identify their source context.
    - MATCH: The name of the Company, University, or Hobby this project belongs to.
    - RULE: If it is a personal project, set to "Personal".
 3. "achievements_list": Semicolon separated results.
-4. "tools_used": Semicolon separated tools.
+4. "tools_used": Semicolon separated tools/tech/skills.
 
 ### OUTPUT SCHEMA (STRICT JSON):
 {
@@ -307,9 +307,47 @@ Extract independent projects and identify their source context.
 }
 NO MARKDOWN. RAW JSON ONLY.
 """
+    PROMPT_CV_HOBBIES = """You are an Extracurricular Auditor.
+
+### OBJECTIVE:
+Extract GENUINE leisure pursuits, personal interests, and volunteering.
+You must STRICTLY separate these from professional work or academic coursework.
+
+### CRITICAL EXCLUSION RULES (IGNORE THESE):
+1. **Academic Work:** Do NOT include thesis topics, university societies related to the degree (e.g., "Law Society" for a lawyer), or coursework.
+2. **Professional Development:** Do NOT include "Reading about AI", "Coding Side Projects" (unless clearly distinct from their job), or "Attending Tech Conferences".
+3. **Career Generalities:** Do NOT include generic fillers like "Keeping up with industry trends" or "Networking".
+
+### INCLUSION CRITERIA (ONLY THESE):
+- Sports & Fitness (e.g., Marathon running, Football team).
+- Arts & Culture (e.g., Painting, Choir, Travel).
+- Volunteering & Charity (e.g., Food bank helper, Fundraising).
+- Distinct Personal Interests (e.g., Chess, Gaming, Cooking).
+
+### EXTRACTION RULES:
+1. "name": MATCH the activity name.
+2. "description": MATCH a brief summary of the leisure activity.
+3. "achievements_list": 
+   - MATCH: Personal awards (e.g., "Gold Duke of Edinburgh"), fundraising totals, or specific sporting times.
+   - FORMAT: Semicolon separated string.
+
+### OUTPUT SCHEMA (STRICT JSON):
+{
+  "items": [
+    {
+      "name": "string",
+      "description": "string",
+      "achievements_list": "string"
+    }
+  ]
+}
+NO MARKDOWN. RAW JSON ONLY.
+"""
 
     def __init__(self, manager: LLMManager):
         self.manager = manager
+
+    import re # Ensure this is imported at the top of the file
 
     async def parse_cv(self, cv_text: str, user_id: str, cv_name: str = "Imported CV") -> CV:
         log.info("🚀 Starting Fast CV Parse...")
@@ -331,8 +369,14 @@ NO MARKDOWN. RAW JSON ONLY.
             self.PROMPT_CV_PROJECTS + "\nOutput:", cv_text, 
             doc_label="CANDIDATE RESUME", is_private=True, temperature=0.1, max_tokens=1000
         )
+        # --- NEW: Hobbies Call ---
+        hobby_data = await self.manager.request_inference(
+            self.PROMPT_CV_HOBBIES + "\nOutput:", cv_text, 
+            doc_label="CANDIDATE RESUME", is_private=True, temperature=0.1, max_tokens=1000
+        )
 
-        # 2. Sanitization
+        # 2. Sanitization & 3. Create CV Object
+        # ... (Your existing contact/CV creation logic remains unchanged) ...
         raw_contact = {
             "email": identity_data.get("email"),
             "phone": identity_data.get("phone"),
@@ -341,21 +385,25 @@ NO MARKDOWN. RAW JSON ONLY.
         }
         clean_contact = {k: str(v) for k, v in raw_contact.items() if v and v != "null"}
 
-        # 3. Create CV Object
         cv_obj = CV.create(
             user_id=user_id,
             name=cv_name,
-            first_name=identity_data.get("first_name") or "Unknown",
-            last_name=identity_data.get("last_name") or "Candidate",
-            title=identity_data.get("title") or "Professional",
-            summary=identity_data.get("summary") or "",
+            first_name=identity_data.get("first_name"),
+            last_name=identity_data.get("last_name"),
+            title=identity_data.get("title"),
+            summary=identity_data.get("summary"),
             contact_info=clean_contact 
         )
 
-        # 4. Helper: Skill Dedup
+        # ---------------------------------------------------------
+        # 4. Helpers (Skills & Achievements)
+        # ---------------------------------------------------------
+        
         skill_registry = {} 
+
         def register_skills(raw_string):
             if not raw_string or not isinstance(raw_string, str): return []
+            raw_string = raw_string.replace('\n', ';').replace('|', ';').replace(',', ';')
             found_ids = []
             for s_name in raw_string.split(';'):
                 clean_name = s_name.strip()
@@ -371,7 +419,42 @@ NO MARKDOWN. RAW JSON ONLY.
                 found_ids.append(skill_registry[key])
             return list(set(found_ids))
 
+        # Centralized Achievement Parsing with Smart Merge
+        def process_achievements(raw_string, context_str, parent_obj, merge_threshold=3):
+            if not raw_string:
+                return
+
+            # 1. Regex Split (Aggressive)
+            # Split on semicolon OR (Comma+Space+Capital+Letter), ignoring brackets
+            pattern = r'(?:;|,(?=\s*[A-Z][a-zA-Z]))(?![^(]*\))'
+            initial_chunks = re.split(pattern, str(raw_string))
+            
+            # 2. Smart Merge Logic
+            final_list = []
+            if initial_chunks:
+                current_buffer = initial_chunks[0].strip()
+                for i in range(1, len(initial_chunks)):
+                    next_chunk = initial_chunks[i].strip()
+                    word_count = len(next_chunk.split())
+                    
+                    if word_count < merge_threshold:
+                        current_buffer += f", {next_chunk}"
+                    else:
+                        if len(current_buffer) > 3: 
+                            final_list.append(current_buffer)
+                        current_buffer = next_chunk
+                
+                if len(current_buffer) > 3:
+                    final_list.append(current_buffer)
+
+            # 3. Add to Parent Object
+            for ach_text in final_list:
+                ach = cv_obj.add_achievement(text=ach_text, context=context_str)
+                parent_obj.add_achievement(ach)
+
+        # ---------------------------------------------------------
         # 5. Assembly
+        # ---------------------------------------------------------
         register_skills(identity_data.get("skills_list", ""))
 
         # --- Experience ---
@@ -385,13 +468,11 @@ NO MARKDOWN. RAW JSON ONLY.
             )
             exp.skill_ids.extend(register_skills(item.get("tools_used")))
             
-            # FIX: Explicitly add achievement instead of chaining .link_to_experience()
-            if item.get("achievements_list"):
-                for ach_text in str(item.get("achievements_list", "")).split(';'):
-                    clean_text = ach_text.strip()
-                    if len(clean_text) > 3:
-                        ach = cv_obj.add_achievement(text=clean_text, context=item.get("company"))
-                        exp.add_achievement(ach) # This method exists on Experience model
+            process_achievements(
+                raw_string=item.get("achievements_list"), 
+                context_str=item.get("company"), 
+                parent_obj=exp
+            )
 
         # --- Education ---
         for item in edu_data.get("items", []) or []:
@@ -403,13 +484,13 @@ NO MARKDOWN. RAW JSON ONLY.
                 end_date=item.get("end_date")
             )
             
-            # FIX: Treat details as achievements and link explicitly
-            if item.get("details_list"):
-                for det_text in str(item.get("details_list", "")).split(';'):
-                     clean_text = det_text.strip()
-                     if len(clean_text) > 3:
-                        ach = cv_obj.add_achievement(text=clean_text, context=item.get("institution"))
-                        edu.add_achievement(ach) # This method exists on Education model
+            # Higher threshold for education to catch lists like "Maths, Physics, Art"
+            process_achievements(
+                raw_string=item.get("details_list"), 
+                context_str=item.get("institution"), 
+                parent_obj=edu,
+                merge_threshold=4 
+            )
 
         # --- Projects ---
         for item in proj_data.get("items", []) or []:
@@ -430,17 +511,32 @@ NO MARKDOWN. RAW JSON ONLY.
             )
             proj.skill_ids.extend(register_skills(item.get("tools_used")))
             
-            # FIX: Link Achievements explicitly
-            if item.get("achievements_list"):
-                for ach_text in str(item.get("achievements_list", "")).split(';'):
-                    clean_text = ach_text.strip()
-                    if len(clean_text) > 3:
-                        ach = cv_obj.add_achievement(text=clean_text, context="Project")
-                        proj.add_achievement(ach) # This method exists on Project model
+            process_achievements(
+                raw_string=item.get("achievements_list"), 
+                context_str="Project", 
+                parent_obj=proj
+            )
+
+        # --- NEW: Hobbies ---
+        for item in hobby_data.get("items", []) or []:
+            # Ensure your CV model has an add_hobby method
+            hobby = cv_obj.add_hobby(
+                name=item.get("name") or "Interest",
+                description=item.get("description") or ""
+            )
+            
+            # Using process_achievements is perfect here because
+            # lists like "Hiking, Swimming, Cycling" will be merged (short words)
+            # but descriptions like "Organized 5 events; Raised £500" will be split.
+            process_achievements(
+                raw_string=item.get("achievements_list"),
+                context_str="Hobby",
+                parent_obj=hobby,
+                merge_threshold=3
+            )
 
         log.info(f"✅ Fast Parse Complete: {len(cv_obj.experiences)} exps, {len(cv_obj.skills)} skills.")
         return cv_obj
-
 
 # =====================================================
 # Utilities
