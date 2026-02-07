@@ -242,6 +242,7 @@ export const fetchCoverLetterPromptPayload = (coverId) => {
 };
 
 
+
 // --- FORENSIC & ROLECASE ENDPOINTS ---
 
 /**
@@ -261,7 +262,8 @@ export const generateRoleCase = (jobId, cvId, mode = "balanced_default") => {
  * fast fetch for returning users.
  */
 export const fetchForensicAnalysis = (appId) => {
-    return apiClient.get(`/applications/${appId}/forensic-analysis`);
+    // FIX: Added /forensics prefix
+    return apiClient.get(`/forensics/applications/${appId}/forensic-analysis`);
 };
 
 /**
@@ -269,7 +271,8 @@ export const fetchForensicAnalysis = (appId) => {
  * Removes a match and returns the updated analysis instantly.
  */
 export const rejectMatch = (appId, featureId) => {
-    return apiClient.post(`/applications/${appId}/mappings/${featureId}/reject`);
+    // FIX: Added /forensics prefix
+    return apiClient.post(`/forensics/applications/${appId}/mappings/${featureId}/reject`);
 };
 
 /**
@@ -278,15 +281,16 @@ export const rejectMatch = (appId, featureId) => {
  * payload: { evidence_text: "...", cv_item_id: "optional", ... }
  */
 export const createManualMatch = (appId, featureId, payload) => {
-    return apiClient.post(`/applications/${appId}/mappings/${featureId}/manual`, payload);
+    // FIX: Added /forensics prefix
+    return apiClient.post(`/forensics/applications/${appId}/mappings/${featureId}/manual`, payload);
 };
 
-
-
 export const promoteMatch = (appId, featureId, alternativeId) => {
-    return apiClient.post(`/applications/${appId}/mappings/${featureId}/promote`, { alternative_id: alternativeId });
+    // FIX: Added /forensics prefix
+    return apiClient.post(`/forensics/applications/${appId}/mappings/${featureId}/promote`, { alternative_id: alternativeId });
 };
 
 export const approveMatch = (appId, featureId) => {
-    return apiClient.post(`/applications/${appId}/mappings/${featureId}/approve`);
+    // FIX: Added /forensics prefix
+    return apiClient.post(`/forensics/applications/${appId}/mappings/${featureId}/approve`);
 };

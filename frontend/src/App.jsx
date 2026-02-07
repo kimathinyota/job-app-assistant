@@ -67,7 +67,7 @@ function App() {
         
         {/* CV Manager */}
         <Route 
-          path="cv" 
+          path="cvs" 
           element={<CVManagerPage key="cv-base" initialSection={cvState.initialSection} />} 
         />
         <Route 
@@ -79,8 +79,7 @@ function App() {
         <Route path="jobs" element={<JobLibrary />} />
         
         {/* Application Views */}
-        <Route path="applications" element={<ApplicationsView />} />
-        <Route path="tracker" element={<AppTrackerPage />} />
+        <Route path="applications" element={<AppTrackerPage />} />
 
         {/* --- APPLICATION WORKSPACE ROUTES --- */}
         {/* Root Dashboard */}
