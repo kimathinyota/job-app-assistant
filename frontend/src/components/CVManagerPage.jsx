@@ -1,59 +1,23 @@
 // frontend/src/components/CVManagerPage.jsx
-import React, { useState, useEffect,  useRef } from 'react';
-// 1. Import useParams and useNavigate
+import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useParams, useNavigate } from 'react-router-dom'; 
 import {
-    fetchAllCVs, 
-    deleteBaseCV,
-    fetchCVDetails,
-    updateBaseCV,
-    createBaseCV,
-    // --- NEW IMPORTS FOR BACKGROUND TASKS ---
-    importCV,
-    checkTaskStatus,
-    // Complex Managers
-    addExperienceComplex,
-    updateExperienceComplex,
-    addEducationComplex,
-    updateEducationComplex,
-    addHobbyComplex,
-    updateHobbyComplex,
-    addProjectComplex,
-    updateProjectComplex,
-    
-    // Simple Managers
-    addSkill,
-    deleteNestedItem
+    fetchAllCVs, deleteBaseCV, fetchCVDetails, updateBaseCV, createBaseCV,
+    importCV, checkTaskStatus,
+    addExperienceComplex, updateExperienceComplex, addEducationComplex, updateEducationComplex,
+    addHobbyComplex, updateHobbyComplex, addProjectComplex, updateProjectComplex,
+    addSkill, deleteNestedItem
 } from '../api/cvClient';
 
-// --- Icons & UI ---
 import { 
-    Briefcase, 
-    BookOpen, 
-    Cpu, 
-    Layers, 
-    Award, 
-    Smile, 
-    ChevronLeft, 
-    Trash2, 
-    Edit2,
-    Download,
-    UploadCloud,
-    // --- NEW ICONS FOR CONTACT INFO ---
-    Phone, 
-    Mail, 
-    Globe, 
-    MapPin, 
-    Linkedin, 
-    Plus, 
-    X, 
-    Save
+    Briefcase, BookOpen, Cpu, Layers, Award, Smile, 
+    ChevronLeft, Trash2, Edit2, Download, UploadCloud,
+    Phone, Mail, Globe, MapPin, Linkedin, Plus, X, Save, Loader2
 } from 'lucide-react';
 
 import ImportCVModal from './cv/ImportCVModal';
 import ExportCVModal from './cv/ExportCVModal'; 
 import { ContactInfoManager } from './cv/ContactInfoManager';
-
 import CVSelector from './cv/CVList';
 import { getCVDisplayName } from '../utils/cvHelpers'; 
 
@@ -65,27 +29,25 @@ import ProjectManager from './cv/ProjectManager';
 import SkillsetManager from './cv/SkillsetManager';
 import AchievementHub from './cv/AchievementHub';
 
-
-// --- Professional Section Card ---
+// --- Dashboard Grid Card ---
 const SectionCard = ({ title, count, icon: Icon, colorClass, onClick }) => (
-    <div onClick={onClick} className="col-md-4 mb-3">
+    // FIX: col-lg-4 puts 3 items per row on Desktop (Total 2 rows for 6 items)
+    // col-md-6 puts 2 items per row on Tablet
+    <div onClick={onClick} className="col-12 col-md-6 col-lg-4 mb-3">
         <div className="card border-0 shadow-sm h-100 hover-lift cursor-pointer transition-all">
-            <div className="card-body d-flex align-items-center gap-3 p-4">
-                <div className={`p-3 rounded-circle bg-opacity-10 ${colorClass.replace('text-', 'bg-')}`}>
-                    <Icon size={24} className={colorClass} />
+            <div className="card-body d-flex flex-column align-items-center justify-content-center text-center p-4">
+                <div className={`p-3 rounded-circle bg-opacity-10 mb-3 ${colorClass.replace('text-', 'bg-')}`}>
+                    <Icon size={28} className={colorClass} />
                 </div>
-                <div>
-                    <h5 className="fw-bold text-dark mb-0">{title}</h5>
-                    <span className="text-muted small">{count} items</span>
-                </div>
+                <h5 className="fw-bold text-dark mb-1">{title}</h5>
+                <span className="text-muted small">{count} items</span>
             </div>
         </div>
     </div>
 );
 
-// --- CVSectionDashboard ---
 const CVSectionDashboard = ({ cv, onSelectSection }) => (
-    <div className="row g-3 py-2">
+    <div className="row g-3">
         <SectionCard title="Experience" count={cv.experiences?.length || 0} icon={Briefcase} colorClass="text-blue-600" onClick={() => onSelectSection('Experiences')} />
         <SectionCard title="Education" count={cv.education?.length || 0} icon={BookOpen} colorClass="text-indigo-600" onClick={() => onSelectSection('Education')} />
         <SectionCard title="Projects" count={cv.projects?.length || 0} icon={Cpu} colorClass="text-purple-600" onClick={() => onSelectSection('Projects')} />
@@ -110,18 +72,19 @@ const CVManagerPage = () => {
     const [loadingDetails, setLoadingDetails] = useState(false);
     const [activeSection, setActiveSection] = useState(null);
     const [isEditingHeader, setIsEditingHeader] = useState(false);
-    const [editFormData, setEditFormData] = useState({ name: '', first_name: '', last_name: '', title: '', summary: '' });
+    // Updated initial state to include contact_info object
+    const [editFormData, setEditFormData] = useState({ name: '', first_name: '', last_name: '', title: '', summary: '', contact_info: {} });
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [createFormData, setCreateFormData] = useState({ name: '', first_name: '', last_name: '', title: '', summary: '' });
 
     const [showImportModal, setShowImportModal] = useState(false);
     const [showExportModal, setShowExportModal] = useState(false);
 
-    // --- NEW: Background Import State ---
+    // --- Background Import State ---
     const [activeImport, setActiveImport] = useState(null); 
     const pollingInterval = useRef(null);
 
-    // --- DATA LOADING ---
+    // --- Data Loading ---
     const reloadData = async () => {
         setLoadingCvs(true);
         let newSelectedCvId = null;
@@ -131,11 +94,7 @@ const CVManagerPage = () => {
             
             if (data && data.length > 0) {
                 const cvFromUrl = data.find(cv => cv.id === cvId);
-                if (cvFromUrl) {
-                    newSelectedCvId = cvFromUrl.id;
-                } else {
-                    newSelectedCvId = data[0].id;
-                }
+                newSelectedCvId = cvFromUrl ? cvFromUrl.id : data[0].id;
             }
         } catch (error) {
             console.error("Failed to reload CVs:", error);
@@ -175,63 +134,49 @@ const CVManagerPage = () => {
     }, [selectedCVId, cvs.length, initialSection, loadingCvs, cvId, navigate]);
 
 
-    // --- NEW: POLLING ENGINE ---
+    // --- Polling Engine ---
     useEffect(() => {
         if (activeImport && activeImport.status === 'processing') {
-            // Check status every 2 seconds
             pollingInterval.current = setInterval(async () => {
                 try {
                     const statusData = await checkTaskStatus(activeImport.taskId);
-                    
                     if (statusData.status === 'finished') {
                         clearInterval(pollingInterval.current);
                         setActiveImport(null); 
                         alert(`CV "${activeImport.name}" imported successfully!`);
-                        
                         await reloadData(); 
-                        if (statusData.result && statusData.result.id) {
-                            setSelectedCVId(statusData.result.id);
-                        }
-                    } 
-                    else if (statusData.status === 'failed') {
+                        if (statusData.result?.id) setSelectedCVId(statusData.result.id);
+                    } else if (statusData.status === 'failed') {
                         clearInterval(pollingInterval.current);
                         setActiveImport(prev => ({ ...prev, status: 'error', error: statusData.error }));
                         alert("Import failed. Click the loading tab for details.");
                     }
-                } catch (err) {
-                    console.error("Polling error", err);
-                }
+                } catch (err) { console.error("Polling error", err); }
             }, 2000);
         }
         return () => { if (pollingInterval.current) clearInterval(pollingInterval.current); };
     }, [activeImport]);
 
 
-    // --- HANDLERS ---
+    // --- Handlers ---
 
     const handleStartImport = async (name, textData) => {
         try {
-            setShowImportModal(false); // Close modal
-            
-            const data = await importCV(name, textData); // Start Task
-            
-            // Start Polling
-            setActiveImport({
-                taskId: data.task_id,
-                name: name,
-                status: 'processing',
-                startTime: Date.now()
-            });
-        } catch (error) {
-            console.error("Import start failed", error);
-            alert("Could not start import task.");
-        }
+            setShowImportModal(false);
+            const data = await importCV(name, textData);
+            setActiveImport({ taskId: data.task_id, name, status: 'processing', startTime: Date.now() });
+        } catch (error) { console.error(error); alert("Could not start import task."); }
     };
 
-    // ... (Keep existing edit/update/create handlers) ...
     const handleStartEditHeader = () => {
+        // Initialize form data INCLUDING contact info
         setEditFormData({
-            name: detailedCV.name, first_name: detailedCV.first_name || '', last_name: detailedCV.last_name || '', title: detailedCV.title || '', summary: detailedCV.summary || ''
+            name: detailedCV.name, 
+            first_name: detailedCV.first_name || '', 
+            last_name: detailedCV.last_name || '', 
+            title: detailedCV.title || '', 
+            summary: detailedCV.summary || '',
+            contact_info: detailedCV.contact_info || {}
         });
         setIsEditingHeader(true);
     };
@@ -240,16 +185,12 @@ const CVManagerPage = () => {
         e.preventDefault();
         if (!editFormData.name.trim()) return alert('CV Internal Name is required.');
         try {
+            // This saves EVERYTHING (Header + Contact Info) in one go
             const updatedCV = await updateBaseCV(detailedCV.id, editFormData);
-            setDetailedCV(updatedCV); setIsEditingHeader(false); await reloadData(); 
+            setDetailedCV(updatedCV); 
+            setIsEditingHeader(false); 
+            await reloadData(); 
         } catch (error) { alert('Failed to update CV.'); }
-    };
-
-    const handleUpdateContactInfo = async (newContactInfo) => {
-        try {
-            const updatedCV = await updateBaseCV(detailedCV.id, { contact_info: newContactInfo });
-            setDetailedCV(updatedCV);
-        } catch (error) { alert("Failed to update contact info."); }
     };
 
     const handleCreateCV = async (e) => {
@@ -257,12 +198,15 @@ const CVManagerPage = () => {
         if (!createFormData.name.trim()) return alert("Internal Name is required");
         try {
             const newCV = await createBaseCV(createFormData.name, createFormData.first_name, createFormData.last_name, createFormData.title, createFormData.summary);
-            setSelectedCVId(newCV.id); await reloadData(); setShowCreateModal(false);
+            setSelectedCVId(newCV.id); 
+            await reloadData(); 
+            setShowCreateModal(false);
             setCreateFormData({ name: '', first_name: '', last_name: '', title: '', summary: '' });
         } catch (err) { alert("Failed to create CV"); }
     };
 
     const handleAddOrUpdateNestedItem = async (cvId, data, itemType) => {
+        // ... (Keep existing logic)
         const isUpdating = Boolean(data.id);
         const itemId = data.id;
         const apiFunctions = {
@@ -273,16 +217,12 @@ const CVManagerPage = () => {
             'Skill': { add: addSkill, update: addSkill }, 
         };
         try {
-            let apiFn;
-            if (isUpdating) {
-                apiFn = apiFunctions[itemType]?.update;
-                if (itemType === 'Skill') await apiFn(cvId, data); else await apiFn(cvId, itemId, data);
-                alert(`${itemType} updated successfully!`);
-            } else {
-                apiFn = apiFunctions[itemType]?.add;
-                await apiFn(cvId, data);
-                alert(`${itemType} added successfully!`);
-            }
+            let apiFn = isUpdating ? apiFunctions[itemType]?.update : apiFunctions[itemType]?.add;
+            if (itemType === 'Skill' && isUpdating) await apiFn(cvId, data); 
+            else if (isUpdating) await apiFn(cvId, itemId, data);
+            else await apiFn(cvId, data);
+            
+            alert(`${itemType} ${isUpdating ? 'updated' : 'added'} successfully!`);
             await reloadData(); await fetchAndSetDetails(cvId); 
         } catch (error) { alert(`Failed to save ${itemType}.`); console.error(error); }
     };
@@ -318,37 +258,31 @@ const CVManagerPage = () => {
         return sections[activeSection] || <p>Section not found.</p>; 
     };
 
-    // --- RENDER ---
-    
     if (loadingCvs) {
-        return (
-            <div className="text-center py-5">
-                <div className="spinner-border text-primary" role="status"><span className="visually-hidden">Loading...</span></div>
-            </div>
-        );
+        return <div className="text-center py-5"><Loader2 className="animate-spin text-primary" size={32}/></div>;
     }
     
     return (
-        <div className="text-start pb-5">
+        <div className="text-start pb-5 w-100">
             <style>{`.hover-lift:hover { transform: translateY(-4px); box-shadow: 0 10px 20px rgba(0,0,0,0.1) !important; } .cursor-pointer { cursor: pointer; }`}</style>
 
             <div className="mb-4">
-                <h2 className="fw-bold text-dark mb-3">CV Library</h2>
+                <div className="d-flex justify-content-between align-items-center mb-3">
+                    <h2 className="fw-bold text-dark mb-0">CV Library</h2>
+                    {/* RESTORED: Explicit Import Button */}
+                    <button onClick={() => setShowImportModal(true)} className="btn btn-outline-primary d-flex align-items-center gap-2">
+                        <UploadCloud size={18} /> Import CV
+                    </button>
+                </div>
 
-                <button onClick={() => setShowImportModal(true)} className="btn btn-outline-primary d-flex align-items-center gap-2">
-                    <UploadCloud size={18} /> Import CV
-                </button>
-
-                {/* --- CV SELECTOR (Passing Background State) --- */}
                 <CVSelector 
                     cvs={cvs} 
                     onSelect={setSelectedCVId} 
                     selectedCVId={selectedCVId} 
-                    onCreate={() => setShowCreateModal(true)} 
-                    
-                    // NEW PROPS
                     activeImport={activeImport}
                     onImportClick={() => setShowImportModal(true)}
+                    // RESTORED: Pass the handler to open the Create Modal
+                    onCreate={() => setShowCreateModal(true)} 
                 />
             </div>
             
@@ -357,39 +291,63 @@ const CVManagerPage = () => {
                     <div className="text-center py-5 text-muted">Loading CV details...</div>
                 ) : detailedCV ? (
                     <div className="animate-fade-in">
-                        {/* Header */}
-                        <div className="bg-white rounded-xl border shadow-sm p-4 mb-4">
-                            {!isEditingHeader ? (
-                                <div className="d-flex justify-content-between align-items-start">
-                                    <div className="w-100 me-3">
-                                        <div className="d-flex align-items-center gap-2 mb-1">
-                                            <h3 className="h4 fw-bold text-primary mb-0">{getCVDisplayName(detailedCV)}</h3>
-                                            <span className="badge bg-light text-muted border">Master</span>
+                        
+                        {/* --- ALIGNMENT FIX: Wrapper Row --- */}
+                        <div className="row mb-4">
+                            <div className="col-12">
+                                <div className="bg-white rounded-xl border shadow-sm p-4">
+                                    {!isEditingHeader ? (
+                                        // --- VIEW MODE ---
+                                        <div className="d-flex justify-content-between align-items-start">
+                                            <div className="w-100 me-3">
+                                                <div className="d-flex align-items-center gap-2 mb-1">
+                                                    <h3 className="h4 fw-bold text-primary mb-0">{getCVDisplayName(detailedCV)}</h3>
+                                                    <span className="badge bg-light text-muted border">Master</span>
+                                                </div>
+                                                <p className="text-muted small mb-1">Internal ID: <span className="fw-medium text-dark">{detailedCV.name}</span></p>
+                                                <p className="text-muted mb-0" style={{whiteSpace: 'pre-wrap'}}>{detailedCV.summary || <span className="fst-italic opacity-50">No summary.</span>}</p>
+                                                
+                                                {/* Unified View: Contact Info embedded here */}
+                                                <ContactInfoManager 
+                                                    contactInfo={detailedCV.contact_info} 
+                                                    isEditing={false} // View Mode
+                                                />
+                                            </div>
+                                            <div className="d-flex gap-2 flex-shrink-0">
+                                                <button onClick={() => setShowExportModal(true)} className="btn btn-outline-success btn-sm d-flex align-items-center gap-2"><Download size={14}/> Export</button>
+                                                <button onClick={handleStartEditHeader} className="btn btn-outline-secondary btn-sm d-flex align-items-center gap-2"><Edit2 size={14}/> Edit Header</button>
+                                            </div>
                                         </div>
-                                        <p className="text-muted small mb-1">Internal ID: <span className="fw-medium text-dark">{detailedCV.name}</span></p>
-                                        <p className="text-muted mb-0" style={{whiteSpace: 'pre-wrap'}}>{detailedCV.summary || <span className="fst-italic opacity-50">No summary.</span>}</p>
-                                        <ContactInfoManager contactInfo={detailedCV.contact_info} onSave={handleUpdateContactInfo} />
-                                    </div>
-                                    <div className="d-flex gap-2 flex-shrink-0">
-                                        <button onClick={() => setShowExportModal(true)} className="btn btn-outline-success btn-sm d-flex align-items-center gap-2"><Download size={14}/> Export</button>
-                                        <button onClick={handleStartEditHeader} className="btn btn-outline-secondary btn-sm d-flex align-items-center gap-2"><Edit2 size={14}/> Edit Header</button>
-                                    </div>
+                                    ) : (
+                                        // --- EDIT MODE ---
+                                        <form onSubmit={handleUpdateCVHeader} className="bg-light p-3 rounded">
+                                            <div className="row g-3 mb-3">
+                                                <div className="col-12"><label className="form-label fw-bold small text-muted">Internal Name</label><input type="text" className="form-control" value={editFormData.name} onChange={e => setEditFormData({...editFormData, name: e.target.value})} required /></div>
+                                                <div className="col-md-2"><label className="form-label fw-bold small text-muted">Title</label><input type="text" className="form-control" value={editFormData.title} onChange={e => setEditFormData({...editFormData, title: e.target.value})} /></div>
+                                                <div className="col-md-5"><label className="form-label fw-bold small text-muted">First Name</label><input type="text" className="form-control" value={editFormData.first_name} onChange={e => setEditFormData({...editFormData, first_name: e.target.value})} /></div>
+                                                <div className="col-md-5"><label className="form-label fw-bold small text-muted">Last Name</label><input type="text" className="form-control" value={editFormData.last_name} onChange={e => setEditFormData({...editFormData, last_name: e.target.value})} /></div>
+                                                <div className="col-12"><label className="form-label fw-bold small text-muted">Summary</label><textarea className="form-control" rows="3" value={editFormData.summary} onChange={e => setEditFormData({...editFormData, summary: e.target.value})} /></div>
+                                                
+                                                {/* Unified Edit: Contact Info embedded here */}
+                                                <div className="col-12">
+                                                    <ContactInfoManager 
+                                                        contactInfo={editFormData.contact_info} 
+                                                        isEditing={true} // Edit Mode
+                                                        onChange={(newInfo) => setEditFormData(prev => ({ ...prev, contact_info: newInfo }))}
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div className="d-flex gap-2 justify-content-end mt-3 border-top pt-3">
+                                                <button type="button" className="btn btn-light" onClick={() => setIsEditingHeader(false)}>Cancel</button>
+                                                <button type="submit" className="btn btn-primary px-4">Save Changes</button>
+                                            </div>
+                                        </form>
+                                    )}
                                 </div>
-                            ) : (
-                                <form onSubmit={handleUpdateCVHeader} className="bg-light p-3 rounded">
-                                    <div className="row g-3 mb-3">
-                                        <div className="col-12"><label className="form-label">Internal Name</label><input type="text" className="form-control" value={editFormData.name} onChange={e => setEditFormData({...editFormData, name: e.target.value})} required /></div>
-                                        {/* ... (Other fields can be added here if needed) ... */}
-                                    </div>
-                                    <div className="d-flex gap-2">
-                                        <button type="submit" className="btn btn-primary btn-sm">Save</button>
-                                        <button type="button" className="btn btn-light btn-sm" onClick={() => setIsEditingHeader(false)}>Cancel</button>
-                                    </div>
-                                </form>
-                            )}
+                            </div>
                         </div>
 
-                        {/* Content */}
+                        {/* Content Area */}
                         {activeSection === null ? (
                             <>
                                 <CVSectionDashboard cv={detailedCV} onSelectSection={setActiveSection} />
@@ -398,11 +356,15 @@ const CVManagerPage = () => {
                                 </div>
                             </>
                         ) : (
-                            <div className="bg-white rounded-xl border shadow-sm p-4">
-                                <div className="mb-3 d-flex justify-content-end"> 
-                                    <button onClick={() => setActiveSection(null)} className="btn btn-link text-decoration-none p-0 d-flex align-items-center gap-1 text-muted"><ChevronLeft size={16}/> Back to Dashboard</button>
+                            <div className="row">
+                                <div className="col-12">
+                                    <div className="bg-white rounded-xl border shadow-sm p-4">
+                                        <div className="mb-3 d-flex justify-content-end"> 
+                                            <button onClick={() => setActiveSection(null)} className="btn btn-link text-decoration-none p-0 d-flex align-items-center gap-1 text-muted"><ChevronLeft size={16}/> Back to Dashboard</button>
+                                        </div>
+                                        {renderSectionDetail()}
+                                    </div>
                                 </div>
-                                {renderSectionDetail()}
                             </div>
                         )}
                     </div>
@@ -414,13 +376,11 @@ const CVManagerPage = () => {
                 )}
             </div>
 
-            {/* --- FIX IS HERE: PASS CORRECT PROPS TO MODAL --- */}
+            {/* Modals */}
             {showImportModal && (
                 <ImportCVModal 
                     onClose={() => setShowImportModal(false)}
-                    // Pass the Background Function, NOT onSuccess
                     onStartBackgroundImport={handleStartImport}
-                    // Pass the State Object for Progress View
                     activeImportTask={activeImport}
                 />
             )}
@@ -432,13 +392,40 @@ const CVManagerPage = () => {
             {showCreateModal && (
                 <div className="modal fade show d-block" style={{background: 'rgba(0,0,0,0.5)'}}>
                     <div className="modal-dialog modal-dialog-centered">
-                        <div className="modal-content">
-                            <div className="modal-header"><h5 className="modal-title">Create CV</h5><button type="button" className="btn-close" onClick={() => setShowCreateModal(false)}></button></div>
+                        <div className="modal-content shadow-lg border-0">
+                            <div className="modal-header border-bottom-0 pb-0">
+                                <h5 className="modal-title fw-bold">Create New Master CV</h5>
+                                <button type="button" className="btn-close" onClick={() => setShowCreateModal(false)}></button>
+                            </div>
                             <form onSubmit={handleCreateCV}>
-                                <div className="modal-body">
-                                    <div className="mb-3"><label className="form-label">Name</label><input type="text" className="form-control" value={createFormData.name} onChange={e => setCreateFormData({...createFormData, name: e.target.value})} autoFocus required/></div>
+                                <div className="modal-body pt-4">
+                                    <div className="mb-3">
+                                        <label className="form-label fw-bold small text-muted text-uppercase">Internal Name (Required)</label>
+                                        <input type="text" className="form-control" placeholder="e.g. Full Stack 2025" value={createFormData.name} onChange={(e) => setCreateFormData({...createFormData, name: e.target.value})} required autoFocus />
+                                    </div>
+                                    <div className="row mb-3">
+                                        <div className="col-2">
+                                            <label className="form-label fw-bold small text-muted text-uppercase">Title</label>
+                                            <input type="text" className="form-control" placeholder="Dr." value={createFormData.title} onChange={(e) => setCreateFormData({...createFormData, title: e.target.value})} />
+                                        </div>
+                                        <div className="col-5">
+                                            <label className="form-label fw-bold small text-muted text-uppercase">First Name</label>
+                                            <input type="text" className="form-control" value={createFormData.first_name} onChange={(e) => setCreateFormData({...createFormData, first_name: e.target.value})} />
+                                        </div>
+                                        <div className="col-5">
+                                            <label className="form-label fw-bold small text-muted text-uppercase">Last Name</label>
+                                            <input type="text" className="form-control" value={createFormData.last_name} onChange={(e) => setCreateFormData({...createFormData, last_name: e.target.value})} />
+                                        </div>
+                                    </div>
+                                    <div className="mb-3">
+                                        <label className="form-label fw-bold small text-muted text-uppercase">Summary</label>
+                                        <textarea className="form-control" rows="3" placeholder="Professional summary..." value={createFormData.summary} onChange={(e) => setCreateFormData({...createFormData, summary: e.target.value})} />
+                                    </div>
                                 </div>
-                                <div className="modal-footer"><button type="button" className="btn btn-light" onClick={() => setShowCreateModal(false)}>Cancel</button><button type="submit" className="btn btn-primary">Create</button></div>
+                                <div className="modal-footer border-top-0">
+                                    <button type="button" className="btn btn-light" onClick={() => setShowCreateModal(false)}>Cancel</button>
+                                    <button type="submit" className="btn btn-primary px-4">Create CV</button>
+                                </div>
                             </form>
                         </div>
                     </div>
