@@ -16,16 +16,25 @@ import DashboardHome from './components/DashboardHome';
 import JobLibrary from './components/JobLibrary';
 import GoalTrackerPage from './components/GoalTrackerPage';
 
-// --- CV Components ---
-import CVManagerPage from './components/CVManagerPage';
+// --- CV Components (Refactored) ---
+import CVLibraryPage from './components/CVLibraryPage'; // New List Page
+import CVWorkspace from './components/cv/CVWorkspace';   // New Edit Layout
+import CVDashboard from './components/cv/CVDashboard';   // New Dashboard Grid
+import CVSectionWrapper from './components/cv/CVSectionWrapper'; // Adapter for sections
+
+// --- Managers (Reused) ---
+import ExperienceManager from './components/cv/ExperienceManager';
+import EducationManager from './components/cv/EducationManager';
+import ProjectManager from './components/cv/ProjectManager';
+import SkillsetManager from './components/cv/SkillsetManager';
+import AchievementHub from './components/cv/AchievementHub';
+import HobbyManager from './components/cv/HobbyManager';
 
 // --- Application & Tracker Components ---
 import AppTrackerPage from './components/AppTrackerPage';
 import ApplicationsView from './components/applications/ApplicationsView';
 import ApplicationDashboard from './components/applications/ApplicationDashboard';
-
-// --- Workspace Sub-Components ---
-import RoleCasePage from './components/RoleCasePage'; // <--- NEW IMPORT
+import RoleCasePage from './components/RoleCasePage'; 
 import TailoredCVManager from './components/applications/TailoredCVManager';
 import SupportingDocStudio from './components/applications/SupportingDocStudio';
 
@@ -34,7 +43,6 @@ function App() {
   const [loading, setLoading] = useState(true);
   
   const location = useLocation();
-  const cvState = location.state || {};
 
   useEffect(() => {
     getCurrentUser()
@@ -54,26 +62,50 @@ function App() {
     );
   }
 
-  if (!user) {
-    return <LoginPage />;
-  }
+  if (!user) return <LoginPage />;
 
   return (
     <Routes>
       <Route path="/" element={<Layout />}>
-        {/* Dashboard */}
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={<DashboardHome />} />
         
-        {/* CV Manager */}
-        <Route 
-          path="cvs" 
-          element={<CVManagerPage key="cv-base" initialSection={cvState.initialSection} />} 
-        />
-        <Route 
-          path="cv/:cvId" 
-          element={<CVManagerPage key="cv-id" initialSection={cvState.initialSection} />} 
-        />
+        {/* --- CV ROUTES REFACTORED --- */}
+        
+        {/* 1. CV Library (List View) */}
+        <Route path="cvs" element={<CVLibraryPage />} />
+
+        {/* 2. CV Workspace (Edit View) */}
+        <Route path="cv/:cvId" element={<CVWorkspace />}>
+            {/* Grid View */}
+            <Route index element={<CVDashboard />} />
+            
+            {/* Individual Sections */}
+            <Route 
+              path="experience" 
+              element={<CVSectionWrapper component={ExperienceManager} section="experiences" />} 
+            />
+            <Route 
+              path="education" 
+              element={<CVSectionWrapper component={EducationManager} section="education" />} 
+            />
+            <Route 
+              path="projects" 
+              element={<CVSectionWrapper component={ProjectManager} section="projects" />} 
+            />
+            <Route 
+              path="skills" 
+              element={<CVSectionWrapper component={SkillsetManager} section="skills" />} 
+            />
+            <Route 
+              path="achievements" 
+              element={<CVSectionWrapper component={AchievementHub} section="achievements" />} 
+            />
+            <Route 
+              path="hobbies" 
+              element={<CVSectionWrapper component={HobbyManager} section="hobbies" />} 
+            />
+        </Route>
         
         {/* Job Library */}
         <Route path="jobs" element={<JobLibrary />} />
@@ -81,20 +113,12 @@ function App() {
         {/* Application Views */}
         <Route path="applications" element={<AppTrackerPage />} />
 
-        {/* --- APPLICATION WORKSPACE ROUTES --- */}
-        {/* Root Dashboard */}
+        {/* Application Workspace */}
         <Route path="application/:applicationId" element={<ApplicationDashboard />} />
-        
-        {/* RoleCase Strategy Mapping (The new page) */}
         <Route path="application/:applicationId/mapping" element={<RoleCasePage />} />
-        
-        {/* Tailored CV */}
         <Route path="application/:applicationId/cv" element={<TailoredCVManager />} />
-        
-        {/* Supporting Documents */}
         <Route path="application/:applicationId/doc/:documentId" element={<SupportingDocStudio />} />
         
-        {/* Goals */}
         <Route path="goals" element={<GoalTrackerPage />} />
       </Route>
     </Routes>
