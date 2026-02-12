@@ -1,12 +1,13 @@
 // frontend/src/components/cv/SkillForm.jsx
 import React, { useState, useEffect } from 'react';
-import { Layers } from 'lucide-react'; // Added Icon
+import { Layers } from 'lucide-react'; 
 
 const SkillForm = ({ 
     onSubmit, 
     cvId, 
     initialData, 
-    onCancelEdit 
+    onCancelEdit,
+    existingCategories = ['technical', 'soft', 'language', 'other'] // Default fallback
 }) => {
     const [name, setName] = useState('');
     const [category, setCategory] = useState('technical');
@@ -62,7 +63,7 @@ const SkillForm = ({
     return (
         <form 
             onSubmit={handleSubmit} 
-            className="card border-0 shadow-sm p-4" // Modern Card
+            className="card border-0 shadow-sm p-4" 
         >
             {/* Header Title */}
             <div className="d-flex align-items-center gap-2 mb-4 border-bottom pb-2">
@@ -88,17 +89,35 @@ const SkillForm = ({
                 </div>
                 <div className="col-md-6">
                     <label htmlFor="skill-category" className="form-label fw-bold small text-uppercase text-muted">Category</label>
-                    <select
+                    
+                    <input
+                        list="category-options"
                         id="skill-category"
                         value={category}
                         onChange={(e) => setCategory(e.target.value)}
-                        className="form-select"
-                    >
-                        <option value="technical">Technical</option>
-                        <option value="soft">Soft</option>
-                        <option value="language">Language</option>
-                        <option value="other">Other</option>
-                    </select>
+                        className="form-control"
+                        placeholder="Select or Type..."
+                    />
+                    <datalist id="category-options">
+                        {existingCategories.map((cat, index) => (
+                             <option key={`${cat}-${index}`} value={cat} />
+                        ))}
+                    </datalist>
+                    
+                    {/* Visual Helper: Quick Select Chips */}
+                    <div className="mt-2 d-flex flex-wrap gap-1">
+                        <small className="text-muted me-1">Suggested:</small>
+                        {existingCategories.slice(0, 5).map(cat => (
+                            <span 
+                                key={cat}
+                                onClick={() => setCategory(cat)}
+                                className="badge bg-light text-secondary border cursor-pointer hover:bg-gray-200"
+                            >
+                                {cat}
+                            </span>
+                        ))}
+                    </div>
+
                 </div>
             </div>
 

@@ -1,5 +1,4 @@
-// frontend/src/components/cv/SkillLinker.jsx
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Plus, Search, Check } from 'lucide-react';
 
 const SkillLinker = ({
@@ -8,11 +7,20 @@ const SkillLinker = ({
   setSelectedSkillIds,
   pendingSkills,
   setPendingSkills,
-  sessionSkills = [] // <--- NEW PROP: Skills created elsewhere in this session
+  sessionSkills = [] 
 }) => {
   const [newSkillName, setNewSkillName] = useState('');
   const [newSkillCategory, setNewSkillCategory] = useState('technical');
   const [searchTerm, setSearchTerm] = useState('');
+
+  // --- NEW: Dynamic Categories Logic ---
+  const availableCategories = useMemo(() => {
+    const defaultCats = ['technical', 'soft', 'language', 'other'];
+    // Gather categories from existing skills
+    const usedCats = allSkills.map(s => s.category).filter(Boolean);
+    // Combine, deduplicate, and sort
+    return [...new Set([...defaultCats, ...usedCats])].sort();
+  }, [allSkills]);
 
   // Toggle Master ID
   const handleToggleSkill = (skillId) => {
@@ -79,13 +87,6 @@ const SkillLinker = ({
           Create New Skill (Local)
         </label>
         
-        {/* --- THIS IS THE FIX ---
-          * Replaced `className="input-group"` with:
-          * `d-flex`: Enables flexbox
-          * `flex-column`: Stacks items vertically by default (on mobile)
-          * `flex-sm-row`: Switches to a horizontal row on 'sm' screens and up
-          * `gap-2`: Adds spacing that works in both column and row
-        */}
         <div className="d-flex flex-column flex-sm-row gap-2">
             <input
                 type="text"
@@ -94,20 +95,22 @@ const SkillLinker = ({
                 placeholder="e.g., React Native"
                 className="form-control"
             />
-            <select
+            
+            {/* Dynamic Category Input */}
+            <input
+                list="linker-category-options"
                 value={newSkillCategory}
                 onChange={(e) => setNewSkillCategory(e.target.value)}
-                className="form-select bg-light"
-                // This style works with the fix:
-                // On mobile (column): form-select is 100% width, capped at 130px.
-                // On desktop (row): form-select is capped at 130px, which is what you want.
+                className="form-control bg-light"
+                placeholder="Category"
                 style={{ maxWidth: '130px' }}
-            >
-                <option value="technical">Technical</option>
-                <option value="soft">Soft</option>
-                <option value="language">Language</option>
-                <option value="other">Other</option>
-            </select>
+            />
+             <datalist id="linker-category-options">
+                {availableCategories.map((cat, index) => (
+                    <option key={`${cat}-${index}`} value={cat} />
+                ))}
+            </datalist>
+
             <button
                 type="button"
                 onClick={handleAddPendingSkill}
@@ -117,8 +120,6 @@ const SkillLinker = ({
                 <Plus size={18} /> Add
             </button>
         </div>
-        {/* --- END FIX --- */}
-
 
         {/* Display Currently Added (Pending) */}
         {pendingSkills.length > 0 && (
