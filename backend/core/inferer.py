@@ -178,7 +178,6 @@ DO NOT RETURN MARKDOWN. DO NOT USE ```json BLOCKS. JUST THE RAW JSON.
         log.info(f"✅ Fast Parse Complete in {final_result['_meta']['generation_time_sec']}s")
         return final_result
 
-
 class CVParser:
     """
     Handles logic for parsing CVs.
@@ -186,7 +185,7 @@ class CVParser:
     PROMPT_CV_IDENTITY = """You are a Lead CV Analyst.
 
 ### OBJECTIVE:
-Extract candidate metadata and a global skill set.
+Extract candidate metadata and a global skill set with inferred categories.
 
 ### SECTION 1: METADATA RULES
 - "first_name": Extract the first name.
@@ -198,9 +197,10 @@ Extract candidate metadata and a global skill set.
 - "summary": MATCH the professional summary or introduction paragraph verbatim.
 
 ### SECTION 2: SKILL EXTRACTION
-- "skills_list": 
-   - MATCH: A single string containing ALL technical tools, languages, and frameworks found in the document.
-   - FORMAT: Semicolon separated (e.g. "Python; SQL; AWS").
+- "skills": 
+   - MATCH: All technical tools, soft skills, languages, and frameworks.
+   - CATEGORY: Infer a category for each skill based on the CV context (e.g. "Technical", "Soft", "Language", "Data", "Leadership", "Tool").
+   - CONSTRAINT: Category must NEVER be null. Default to "Technical" if unsure.
 
 ### OUTPUT SCHEMA (STRICT JSON):
 {
@@ -211,7 +211,9 @@ Extract candidate metadata and a global skill set.
   "linkedin": "string or null",
   "location": "string",
   "summary": "string",
-  "skills_list": "string"
+  "skills": [
+    { "name": "string", "category": "string" }
+  ]
 }
 NO MARKDOWN. NO NOTES. RAW JSON ONLY.
 """
@@ -254,14 +256,15 @@ NO MARKDOWN. NO NOTES. RAW JSON ONLY.
     PROMPT_CV_EDUCATION = """You are an Academic Researcher.
 
 ### OBJECTIVE:
-Extract education history.
+Extract education history and specific grades.
 
 ### EXTRACTION RULES:
 1. "institution": MATCH the university or school name.
-2. "degree": MATCH the degree type (e.g., BS, MS, PhD).
-3. "field": MATCH the major or field of study.
-4. "details_list":
-   - MATCH: Honors, GPA, Awards, or Thesis titles.
+2. "qualification": MATCH the certification type (e.g. "BSc", "MSc", "PhD", "A Levels", "High School Diploma", "Certificate").
+3. "field": MATCH the major or subject. If not explicitly stated, infer it or use "General".
+4. "grade": MATCH the specific GPA, classification (e.g. "First Class"), or score. If not found, return null.
+5. "details_list":
+   - MATCH: Honors, Awards, or Thesis titles (excluding the grade).
    - FORMAT: Semicolon separated string.
 
 ### OUTPUT SCHEMA (STRICT JSON):
@@ -269,10 +272,11 @@ Extract education history.
   "items": [
     {
       "institution": "string",
-      "degree": "string",
+      "qualification": "string",
       "field": "string",
       "start_date": "string",
       "end_date": "string",
+      "grade": "string or null",
       "details_list": "string"
     }
   ]
@@ -283,13 +287,21 @@ NO MARKDOWN. RAW JSON ONLY.
     PROMPT_CV_PROJECTS = """You are a Portfolio Analyst.
 
 ### OBJECTIVE:
-Extract independent projects and identify their source context.
+Extract independent projects ONLY from dedicated project sections.
+
+### STRICT EXCLUSION RULES (CRITICAL):
+1. **IGNORE Work Experience:** Do NOT extract items listed under "Experience", "Work History", or "Employment".
+2. **IGNORE Education:** Do NOT extract items listed under "Education" (like thesis titles) unless they are in a separate "Projects" section.
+3. **IGNORE Lists:** Do not invent projects from lists of skills.
+
+### INCLUSION CRITERIA:
+- Only extract items found under headers like "Projects", "Personal Projects", "Academic Projects", "Portfolio", "Hackathons", or "Case Studies".
+- If the CV has NO such section, return an empty list.
 
 ### EXTRACTION RULES:
 1. "title": MATCH the project name.
 2. "related_context":
-   - MATCH: The name of the Company, University, or Hobby this project belongs to.
-   - RULE: If it is a personal project, set to "Personal".
+   - MATCH: The name of the Company, University, or "Personal".
 3. "achievements_list": Semicolon separated results.
 4. "tools_used": Semicolon separated tools/tech/skills.
 
@@ -347,36 +359,63 @@ NO MARKDOWN. RAW JSON ONLY.
     def __init__(self, manager: LLMManager):
         self.manager = manager
 
-    import re # Ensure this is imported at the top of the file
+    import re 
 
     async def parse_cv(self, cv_text: str, user_id: str, cv_name: str = "Imported CV") -> CV:
         log.info("🚀 Starting Fast CV Parse...")
         
         # 1. Run Inference (Sequential)
+        print("--- EXTRACTING IDENTITY ---")
         identity_data = await self.manager.request_inference(
             self.PROMPT_CV_IDENTITY + "\nOutput:", cv_text, 
             doc_label="CANDIDATE RESUME", is_private=True, temperature=0.1, max_tokens=1000
         )
+        print(f"Identity Result: {identity_data}")
+
+        print("--- EXTRACTING EXPERIENCE ---")
         exp_data = await self.manager.request_inference(
             self.PROMPT_CV_EXPERIENCE + "\nOutput:", cv_text, 
             doc_label="CANDIDATE RESUME", is_private=True, temperature=0.1, max_tokens=2500
         )
+        print(f"Experience Result: {exp_data}")
+
+        print("--- EXTRACTING EDUCATION ---")
         edu_data = await self.manager.request_inference(
             self.PROMPT_CV_EDUCATION + "\nOutput:", cv_text, 
             doc_label="CANDIDATE RESUME", is_private=True, temperature=0.1, max_tokens=1000
         )
+        print(f"Education Result: {edu_data}")
+
+        print("--- EXTRACTING PROJECTS ---")
         proj_data = await self.manager.request_inference(
             self.PROMPT_CV_PROJECTS + "\nOutput:", cv_text, 
             doc_label="CANDIDATE RESUME", is_private=True, temperature=0.1, max_tokens=1000
         )
-        # --- NEW: Hobbies Call ---
+        print(f"Projects Result: {proj_data}")
+
+        print("--- EXTRACTING HOBBIES ---")
         hobby_data = await self.manager.request_inference(
             self.PROMPT_CV_HOBBIES + "\nOutput:", cv_text, 
             doc_label="CANDIDATE RESUME", is_private=True, temperature=0.1, max_tokens=1000
         )
+        print(f"Hobbies Result: {hobby_data}")
+
+        # ---------------------------------------------------------
+        # NEW HELPER: Safely handle if LLM returns a list instead of dict
+        # ---------------------------------------------------------
+        def ensure_list(data):
+            if isinstance(data, list):
+                return data
+            if isinstance(data, dict):
+                return data.get("items", []) or []
+            return []
 
         # 2. Sanitization & 3. Create CV Object
-        # ... (Your existing contact/CV creation logic remains unchanged) ...
+        if isinstance(identity_data, list) and len(identity_data) > 0:
+            identity_data = identity_data[0]
+        elif not isinstance(identity_data, dict):
+            identity_data = {}
+
         raw_contact = {
             "email": identity_data.get("email"),
             "phone": identity_data.get("phone"),
@@ -401,20 +440,35 @@ NO MARKDOWN. RAW JSON ONLY.
         
         skill_registry = {} 
 
-        def register_skills(raw_string):
-            if not raw_string or not isinstance(raw_string, str): return []
-            raw_string = raw_string.replace('\n', ';').replace('|', ';').replace(',', ';')
+        def register_skills(skill_input, default_category="Technical"):
+            items_to_process = []
+            
+            if isinstance(skill_input, str) and skill_input:
+                raw_string = skill_input.replace('\n', ';').replace('|', ';').replace(',', ';')
+                for s in raw_string.split(';'):
+                    if s.strip():
+                        items_to_process.append({"name": s.strip(), "category": default_category})
+            elif isinstance(skill_input, list):
+                items_to_process = skill_input
+
             found_ids = []
-            for s_name in raw_string.split(';'):
-                clean_name = s_name.strip()
-                if len(clean_name) < 2: continue
-                key = clean_name.lower()
+            for item in items_to_process:
+                if isinstance(item, str): 
+                     item = {"name": item, "category": default_category}
+                     
+                name = item.get("name", "").strip()
+                raw_cat = item.get("category")
+                category = (raw_cat if raw_cat else default_category).lower() 
+                
+                if len(name) < 2: continue
+                key = name.lower()
+                
                 if key not in skill_registry:
                     existing = next((s for s in cv_obj.skills if s.name.lower() == key), None)
                     if existing:
                         skill_registry[key] = existing.id
                     else:
-                        new_sk = cv_obj.add_skill(name=clean_name)
+                        new_sk = cv_obj.add_skill(name=name, category=category)
                         skill_registry[key] = new_sk.id
                 found_ids.append(skill_registry[key])
             return list(set(found_ids))
@@ -424,12 +478,9 @@ NO MARKDOWN. RAW JSON ONLY.
             if not raw_string:
                 return
 
-            # 1. Regex Split (Aggressive)
-            # Split on semicolon OR (Comma+Space+Capital+Letter), ignoring brackets
             pattern = r'(?:;|,(?=\s*[A-Z][a-zA-Z]))(?![^(]*\))'
             initial_chunks = re.split(pattern, str(raw_string))
             
-            # 2. Smart Merge Logic
             final_list = []
             if initial_chunks:
                 current_buffer = initial_chunks[0].strip()
@@ -447,7 +498,6 @@ NO MARKDOWN. RAW JSON ONLY.
                 if len(current_buffer) > 3:
                     final_list.append(current_buffer)
 
-            # 3. Add to Parent Object
             for ach_text in final_list:
                 ach = cv_obj.add_achievement(text=ach_text, context=context_str)
                 parent_obj.add_achievement(ach)
@@ -455,10 +505,11 @@ NO MARKDOWN. RAW JSON ONLY.
         # ---------------------------------------------------------
         # 5. Assembly
         # ---------------------------------------------------------
-        register_skills(identity_data.get("skills_list", ""))
+        
+        register_skills(identity_data.get("skills", []))
 
         # --- Experience ---
-        for item in exp_data.get("items", []) or []:
+        for item in ensure_list(exp_data):
             exp = cv_obj.add_experience(
                 title=item.get("title") or "Role",
                 company=item.get("company") or "Company",
@@ -466,7 +517,7 @@ NO MARKDOWN. RAW JSON ONLY.
                 end_date=item.get("end_date"),
                 description=item.get("description")
             )
-            exp.skill_ids.extend(register_skills(item.get("tools_used")))
+            exp.skill_ids.extend(register_skills(item.get("tools_used"), default_category="Technical"))
             
             process_achievements(
                 raw_string=item.get("achievements_list"), 
@@ -475,16 +526,24 @@ NO MARKDOWN. RAW JSON ONLY.
             )
 
         # --- Education ---
-        for item in edu_data.get("items", []) or []:
+        for item in ensure_list(edu_data):
+            qual = item.get("qualification") or "Qualification"
+            field_val = item.get("field") or "General"
+
             edu = cv_obj.add_education(
                 institution=item.get("institution") or "Institution",
-                degree=item.get("degree") or "Degree",
-                field=item.get("field"),
+                degree=qual, 
+                field=field_val, 
                 start_date=item.get("start_date"),
                 end_date=item.get("end_date")
             )
             
-            # Higher threshold for education to catch lists like "Maths, Physics, Art"
+            # Extract Grade
+            grade = item.get("grade")
+            if grade and str(grade).lower() != "null":
+                ach = cv_obj.add_achievement(text=f"Grade: {grade}", context=edu.institution)
+                edu.add_achievement(ach)
+
             process_achievements(
                 raw_string=item.get("details_list"), 
                 context_str=item.get("institution"), 
@@ -493,7 +552,7 @@ NO MARKDOWN. RAW JSON ONLY.
             )
 
         # --- Projects ---
-        for item in proj_data.get("items", []) or []:
+        for item in ensure_list(proj_data):
             rel_exp_ids = []
             rel_edu_ids = []
             ctx = (item.get("related_context") or "").lower()
@@ -509,7 +568,7 @@ NO MARKDOWN. RAW JSON ONLY.
                 related_experience_ids=rel_exp_ids,
                 related_education_ids=rel_edu_ids
             )
-            proj.skill_ids.extend(register_skills(item.get("tools_used")))
+            proj.skill_ids.extend(register_skills(item.get("tools_used"), default_category="Technical"))
             
             process_achievements(
                 raw_string=item.get("achievements_list"), 
@@ -517,17 +576,13 @@ NO MARKDOWN. RAW JSON ONLY.
                 parent_obj=proj
             )
 
-        # --- NEW: Hobbies ---
-        for item in hobby_data.get("items", []) or []:
-            # Ensure your CV model has an add_hobby method
+        # --- Hobbies ---
+        for item in ensure_list(hobby_data):
             hobby = cv_obj.add_hobby(
                 name=item.get("name") or "Interest",
                 description=item.get("description") or ""
             )
             
-            # Using process_achievements is perfect here because
-            # lists like "Hiking, Swimming, Cycling" will be merged (short words)
-            # but descriptions like "Organized 5 events; Raised £500" will be split.
             process_achievements(
                 raw_string=item.get("achievements_list"),
                 context_str="Hobby",
@@ -536,10 +591,7 @@ NO MARKDOWN. RAW JSON ONLY.
             )
 
         log.info(f"✅ Fast Parse Complete: {len(cv_obj.experiences)} exps, {len(cv_obj.skills)} skills.")
-        return cv_obj
-
-# =====================================================
-# Utilities
+        return cv_obj# Utilities
 # =====================================================
 def normalize_text(text: str) -> str:
     """Simple normalization: lowercase, strip punctuation, squeeze spaces."""
