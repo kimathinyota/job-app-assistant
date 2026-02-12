@@ -12,7 +12,7 @@ import {
 import { 
     Briefcase, BookOpen, Cpu, Layers, Award, Smile, 
     ChevronLeft, Trash2, Edit2, Download, UploadCloud,
-    Phone, Mail, Globe, MapPin, Linkedin, Plus, X, Save, Loader2
+    Loader2
 } from 'lucide-react';
 
 import ImportCVModal from './cv/ImportCVModal';
@@ -31,8 +31,6 @@ import AchievementHub from './cv/AchievementHub';
 
 // --- Dashboard Grid Card ---
 const SectionCard = ({ title, count, icon: Icon, colorClass, onClick }) => (
-    // FIX: col-lg-4 puts 3 items per row on Desktop (Total 2 rows for 6 items)
-    // col-md-6 puts 2 items per row on Tablet
     <div onClick={onClick} className="col-12 col-md-6 col-lg-4 mb-3">
         <div className="card border-0 shadow-sm h-100 hover-lift cursor-pointer transition-all">
             <div className="card-body d-flex flex-column align-items-center justify-content-center text-center p-4">
@@ -72,7 +70,6 @@ const CVManagerPage = () => {
     const [loadingDetails, setLoadingDetails] = useState(false);
     const [activeSection, setActiveSection] = useState(null);
     const [isEditingHeader, setIsEditingHeader] = useState(false);
-    // Updated initial state to include contact_info object
     const [editFormData, setEditFormData] = useState({ name: '', first_name: '', last_name: '', title: '', summary: '', contact_info: {} });
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [createFormData, setCreateFormData] = useState({ name: '', first_name: '', last_name: '', title: '', summary: '' });
@@ -80,19 +77,17 @@ const CVManagerPage = () => {
     const [showImportModal, setShowImportModal] = useState(false);
     const [showExportModal, setShowExportModal] = useState(false);
 
-    // --- Background Import State ---
-    const [activeImport, setActiveImport] = useState(null); 
-    const pollingInterval = useRef(null);
-
     // --- Data Loading ---
     const reloadData = async () => {
-        setLoadingCvs(true);
+        // Only set global loading on first load to prevent UI flicker during polling updates
+        if (cvs.length === 0) setLoadingCvs(true);
+        
         let newSelectedCvId = null;
         try {
             const data = await fetchAllCVs();
             setCvs(data || []);
             
-            if (data && data.length > 0) {
+            if (data && data.length > 0 && !selectedCVId) {
                 const cvFromUrl = data.find(cv => cv.id === cvId);
                 newSelectedCvId = cvFromUrl ? cvFromUrl.id : data[0].id;
             }
@@ -100,7 +95,7 @@ const CVManagerPage = () => {
             console.error("Failed to reload CVs:", error);
         } finally {
             setLoadingCvs(false);
-            setSelectedCVId(newSelectedCvId);
+            if (newSelectedCvId) setSelectedCVId(newSelectedCvId);
         }
     };
     
@@ -125,37 +120,59 @@ const CVManagerPage = () => {
         else setActiveSection(null);
 
         if (selectedCVId) {
-            fetchAndSetDetails(selectedCVId);
+            // Don't fetch details if it's currently importing (it has no data yet)
+            const isImporting = cvs.find(c => c.id === selectedCVId)?.is_importing;
+            if (!isImporting) {
+                fetchAndSetDetails(selectedCVId);
+            } else {
+                setDetailedCV(null);
+            }
+            
             if (cvId !== selectedCVId) navigate(`/cv/${selectedCVId}`, { replace: true });
         } else if (!loadingCvs && cvs.length === 0) {
              setDetailedCV(null);
              if (cvId) navigate('/cv', { replace: true });
         }
-    }, [selectedCVId, cvs.length, initialSection, loadingCvs, cvId, navigate]);
+    }, [selectedCVId, cvs, initialSection, loadingCvs, cvId, navigate]);
 
 
-    // --- Polling Engine ---
+    // --- ROBUST POLLING ENGINE ---
+    // Watches the `cvs` list. If any CV has `is_importing: true`, it polls the task.
+    // This survives page refreshes because the flag comes from the DB.
     useEffect(() => {
-        if (activeImport && activeImport.status === 'processing') {
-            pollingInterval.current = setInterval(async () => {
+        const importingCv = cvs.find(c => c.is_importing);
+        
+        let intervalId = null;
+
+        if (importingCv && importingCv.import_task_id) {
+            intervalId = setInterval(async () => {
                 try {
-                    const statusData = await checkTaskStatus(activeImport.taskId);
+                    const statusData = await checkTaskStatus(importingCv.import_task_id);
+                    
                     if (statusData.status === 'finished') {
-                        clearInterval(pollingInterval.current);
-                        setActiveImport(null); 
-                        alert(`CV "${activeImport.name}" imported successfully!`);
+                        // Task Complete
+                        clearInterval(intervalId);
+                        // Refresh data to get the final CV (is_importing will be false)
                         await reloadData(); 
-                        if (statusData.result?.id) setSelectedCVId(statusData.result.id);
+                        setSelectedCVId(importingCv.id); // Auto-select the new CV
+                        
                     } else if (statusData.status === 'failed') {
-                        clearInterval(pollingInterval.current);
-                        setActiveImport(prev => ({ ...prev, status: 'error', error: statusData.error }));
-                        alert("Import failed. Click the loading tab for details.");
+                        // Task Failed
+                        clearInterval(intervalId);
+                        alert(`Import failed: ${statusData.error}`);
+                        await reloadData(); 
                     }
-                } catch (err) { console.error("Polling error", err); }
-            }, 2000);
+                    // If 'processing' or 'queued', simply continue polling
+                } catch (err) { 
+                    console.error("Polling error", err); 
+                }
+            }, 2000); // Poll every 2 seconds
         }
-        return () => { if (pollingInterval.current) clearInterval(pollingInterval.current); };
-    }, [activeImport]);
+
+        return () => { 
+            if (intervalId) clearInterval(intervalId); 
+        };
+    }, [cvs]); 
 
 
     // --- Handlers ---
@@ -163,13 +180,20 @@ const CVManagerPage = () => {
     const handleStartImport = async (name, textData) => {
         try {
             setShowImportModal(false);
-            const data = await importCV(name, textData);
-            setActiveImport({ taskId: data.task_id, name, status: 'processing', startTime: Date.now() });
-        } catch (error) { console.error(error); alert("Could not start import task."); }
+            // 1. Kick off import (Backend creates Placeholder CV immediately)
+            await importCV(name, textData);
+            
+            // 2. Immediate reload to fetch the Placeholder CV
+            // This adds the "Loading Card" to the UI instantly
+            await reloadData(); 
+            
+        } catch (error) { 
+            console.error(error); 
+            alert("Could not start import task."); 
+        }
     };
 
     const handleStartEditHeader = () => {
-        // Initialize form data INCLUDING contact info
         setEditFormData({
             name: detailedCV.name, 
             first_name: detailedCV.first_name || '', 
@@ -185,7 +209,6 @@ const CVManagerPage = () => {
         e.preventDefault();
         if (!editFormData.name.trim()) return alert('CV Internal Name is required.');
         try {
-            // This saves EVERYTHING (Header + Contact Info) in one go
             const updatedCV = await updateBaseCV(detailedCV.id, editFormData);
             setDetailedCV(updatedCV); 
             setIsEditingHeader(false); 
@@ -206,7 +229,6 @@ const CVManagerPage = () => {
     };
 
     const handleAddOrUpdateNestedItem = async (cvId, data, itemType) => {
-        // ... (Keep existing logic)
         const isUpdating = Boolean(data.id);
         const itemId = data.id;
         const apiFunctions = {
@@ -222,7 +244,6 @@ const CVManagerPage = () => {
             else if (isUpdating) await apiFn(cvId, itemId, data);
             else await apiFn(cvId, data);
             
-            alert(`${itemType} ${isUpdating ? 'updated' : 'added'} successfully!`);
             await reloadData(); await fetchAndSetDetails(cvId); 
         } catch (error) { alert(`Failed to save ${itemType}.`); console.error(error); }
     };
@@ -269,7 +290,6 @@ const CVManagerPage = () => {
             <div className="mb-4">
                 <div className="d-flex justify-content-between align-items-center mb-3">
                     <h2 className="fw-bold text-dark mb-0">CV Library</h2>
-                    {/* RESTORED: Explicit Import Button */}
                     <button onClick={() => setShowImportModal(true)} className="btn btn-outline-primary d-flex align-items-center gap-2">
                         <UploadCloud size={18} /> Import CV
                     </button>
@@ -279,9 +299,8 @@ const CVManagerPage = () => {
                     cvs={cvs} 
                     onSelect={setSelectedCVId} 
                     selectedCVId={selectedCVId} 
-                    activeImport={activeImport}
+                    // No need to pass activeImport prop anymore
                     onImportClick={() => setShowImportModal(true)}
-                    // RESTORED: Pass the handler to open the Create Modal
                     onCreate={() => setShowCreateModal(true)} 
                 />
             </div>
@@ -292,12 +311,10 @@ const CVManagerPage = () => {
                 ) : detailedCV ? (
                     <div className="animate-fade-in">
                         
-                        {/* --- ALIGNMENT FIX: Wrapper Row --- */}
                         <div className="row mb-4">
                             <div className="col-12">
                                 <div className="bg-white rounded-xl border shadow-sm p-4">
                                     {!isEditingHeader ? (
-                                        // --- VIEW MODE ---
                                         <div className="d-flex justify-content-between align-items-start">
                                             <div className="w-100 me-3">
                                                 <div className="d-flex align-items-center gap-2 mb-1">
@@ -307,10 +324,9 @@ const CVManagerPage = () => {
                                                 <p className="text-muted small mb-1">Internal ID: <span className="fw-medium text-dark">{detailedCV.name}</span></p>
                                                 <p className="text-muted mb-0" style={{whiteSpace: 'pre-wrap'}}>{detailedCV.summary || <span className="fst-italic opacity-50">No summary.</span>}</p>
                                                 
-                                                {/* Unified View: Contact Info embedded here */}
                                                 <ContactInfoManager 
                                                     contactInfo={detailedCV.contact_info} 
-                                                    isEditing={false} // View Mode
+                                                    isEditing={false} 
                                                 />
                                             </div>
                                             <div className="d-flex gap-2 flex-shrink-0">
@@ -319,7 +335,6 @@ const CVManagerPage = () => {
                                             </div>
                                         </div>
                                     ) : (
-                                        // --- EDIT MODE ---
                                         <form onSubmit={handleUpdateCVHeader} className="bg-light p-3 rounded">
                                             <div className="row g-3 mb-3">
                                                 <div className="col-12"><label className="form-label fw-bold small text-muted">Internal Name</label><input type="text" className="form-control" value={editFormData.name} onChange={e => setEditFormData({...editFormData, name: e.target.value})} required /></div>
@@ -328,11 +343,10 @@ const CVManagerPage = () => {
                                                 <div className="col-md-5"><label className="form-label fw-bold small text-muted">Last Name</label><input type="text" className="form-control" value={editFormData.last_name} onChange={e => setEditFormData({...editFormData, last_name: e.target.value})} /></div>
                                                 <div className="col-12"><label className="form-label fw-bold small text-muted">Summary</label><textarea className="form-control" rows="3" value={editFormData.summary} onChange={e => setEditFormData({...editFormData, summary: e.target.value})} /></div>
                                                 
-                                                {/* Unified Edit: Contact Info embedded here */}
                                                 <div className="col-12">
                                                     <ContactInfoManager 
                                                         contactInfo={editFormData.contact_info} 
-                                                        isEditing={true} // Edit Mode
+                                                        isEditing={true} 
                                                         onChange={(newInfo) => setEditFormData(prev => ({ ...prev, contact_info: newInfo }))}
                                                     />
                                                 </div>
@@ -347,7 +361,6 @@ const CVManagerPage = () => {
                             </div>
                         </div>
 
-                        {/* Content Area */}
                         {activeSection === null ? (
                             <>
                                 <CVSectionDashboard cv={detailedCV} onSelectSection={setActiveSection} />
@@ -370,18 +383,16 @@ const CVManagerPage = () => {
                     </div>
                 ) : (
                     <div className="text-center py-5 border rounded-xl border-dashed bg-light">
-                        <p className="text-muted mb-3">{cvs.length > 0 ? "No CV Selected." : "No CVs found."}</p>
+                        <p className="text-muted mb-3">{cvs.length > 0 ? "Select a CV from the list above." : "No CVs found."}</p>
                         <button onClick={() => setShowCreateModal(true)} className="btn btn-primary">Create your first CV</button>
                     </div>
                 )}
             </div>
 
-            {/* Modals */}
             {showImportModal && (
                 <ImportCVModal 
                     onClose={() => setShowImportModal(false)}
                     onStartBackgroundImport={handleStartImport}
-                    activeImportTask={activeImport}
                 />
             )}
 
