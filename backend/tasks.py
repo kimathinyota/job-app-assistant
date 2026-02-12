@@ -30,13 +30,14 @@ def initialize_worker():
         )
         print("✅ WORKER: Model Loaded.")
 
+# ... imports ...
+
 # ---------------------------------------------------------
-# TASK 1: PARSE CV (For your Import Feature)
+# TASK 1: PARSE CV
 # ---------------------------------------------------------
-def task_import_cv(user_id: str, cv_name: str, text_data: str):
+def task_import_cv(user_id: str, cv_id: str, text_data: str,  cv_name: str):
     """
-    Parses a CV and saves it to the database.
-    Returns: The ID of the new CV.
+    Parses a CV and updates the existing placeholder in the database.
     """
     # 1. Ensure Model is Ready
     if worker_llm is None:
@@ -46,25 +47,48 @@ def task_import_cv(user_id: str, cv_name: str, text_data: str):
     registry = Registry()
     parser = CVParser(worker_llm)
 
-    print(f"📄 START: Parsing CV '{cv_name}'...")
+    print(f"📄 START: Parsing content for CV ID '{cv_id}'...")
 
     try:
-        # 3. Run Async Parsing Synchronously (Bridge for RQ)
-        # We assume parse_cv returns a CV object
-        structured_cv = asyncio.run(
+        # 3. Run Async Parsing
+        # Note: We pass a temp name, but we will override the ID shortly
+        parsed_cv = asyncio.run(
             parser.parse_cv(text_data, user_id, cv_name=cv_name)
         )
 
-        # 4. Save to DB
-        registry._insert("cvs", structured_cv)
-        print(f"✅ DONE: Saved CV {structured_cv.id}")
+        # 4. MERGE/OVERWRITE LOGIC
+        # We take the parsed object, assign it the ORIGINAL ID, and save it.
+        # This effectively replaces the placeholder with the real data.
+        parsed_cv.id = cv_id  # <--- CRITICAL: Adopt the placeholder's ID
         
-        return {"id": structured_cv.id, "status": "success"}
+        # Restore the original name if the parser didn't find a better one, 
+        # or just trust the user's input name from the placeholder if you wish.
+        # Here we keep the parsed structure but ensure flags are reset.
+        parsed_cv.is_importing = False
+        parsed_cv.import_task_id = None
+        
+        # 5. Save (Overwrite) to DB
+        registry._update("cvs", parsed_cv,  user_id)
+        print(f"✅ DONE: Updated CV {cv_id} with parsed data.")
+        
+        return {"id": cv_id, "status": "success"}
 
     except Exception as e:
+        # On failure, mark the specific CV as failed so the user sees it
+        try:
+            error_cv = registry.get_cv(cv_id, user_id)
+            if error_cv:
+                error_cv.summary = f"Import Failed: {str(e)}"
+                error_cv.is_importing = False
+                error_cv.import_task_id = None
+                # Keep is_importing=True or add an is_failed flag if you prefer
+                # For now, let's leave it so the user can delete it
+                registry._update("cvs", error_cv,  user_id)
+        except:
+            pass
+            
         logging.error(f"CV Parse Failed: {e}")
         raise e
-
 # ---------------------------------------------------------
 # TASK 2: PARSE JOB (For your Browser Extension)
 # ---------------------------------------------------------

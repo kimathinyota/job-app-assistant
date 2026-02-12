@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import List, Dict, Optional, Literal, Union, Any
 from datetime import datetime
 from pydantic import BaseModel, Field, validator
+from dateutil import parser as date_parser
 import uuid
 
 
@@ -59,7 +60,7 @@ class UserOwnedEntity(BaseEntity):
 
 class Skill(BaseEntity):
     name: str
-    category: Literal["technical", "soft", "language", "other"] = "technical"
+    category: str = "technical"
     level: Optional[str] = None
     importance: Optional[int] = Field(default=None, ge=1, le=5)  # 1–5 scale
     description: Optional[str] = None
@@ -220,6 +221,11 @@ class CV(UserOwnedEntity):
     projects: List[Project] = Field(default_factory=list)
     hobbies: List[Hobby] = Field(default_factory=list)
     achievements: List[Achievement] = Field(default_factory=list)
+
+    # --- NEW FIELDS FOR BACKGROUND TASKS ---
+    is_importing: Optional[bool] = False
+    import_task_id: Optional[str] = None
+    # ---------------------------------------
 
     # --- Helpers ---
     def add_skill(self, name: str, category: str = "technical", **kwargs) -> Skill:

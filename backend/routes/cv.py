@@ -28,31 +28,50 @@ q = Queue(connection=redis_conn)
 
 @router.post("/import")
 async def import_cv_background(
+    request: Request,
     payload: CVImportRequest, 
     user: User = Depends(get_current_user)
 ):
     """
     Starts the CV Import background task.
-    Returns: {"task_id": "...", "status": "queued"}
+    Creates a placeholder CV immediately so it survives page refreshes.
     """
+    registry: Registry = request.app.state.registry
+
     try:
-        # Enqueue the task
-        # We pass arguments: user_id, cv_name, text_data
+        # 1. Create Placeholder CV in DB
+        placeholder_cv = CV.create(
+            user_id=user.id,
+            name=payload.name,
+            is_importing=True,
+            summary="Importing from document..."
+        )
+        # Save explicitly using the registry's internal insert
+        registry._insert("cvs", placeholder_cv)
+
+        # 2. Enqueue the task with the placeholder ID
         job = q.enqueue(
             task_import_cv, 
             user.id, 
-            payload.name, 
+            placeholder_cv.id,  # <--- Pass the ID
             payload.text,
-            job_timeout='10m' # Allow 10 mins for slow LLMs
+            payload.name,
+            job_timeout='10m'
         )
         
+        # 3. Update task ID (Optional, helps with debugging)
+        placeholder_cv.import_task_id = job.get_id()
+        registry.update_cv(user.id, placeholder_cv.id, CVUpdate(summary="Queued for processing..."))
+
         return {
             "task_id": job.get_id(),
+            "cv_id": placeholder_cv.id, # Return the ID so frontend can highlight it if needed
             "status": "queued",
             "message": f"Importing '{payload.name}' in background..."
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Queue failed: {str(e)}")
+    
 
 @router.get("/tasks/{task_id}")
 def get_cv_task_status(task_id: str, user: User = Depends(get_current_user)):
