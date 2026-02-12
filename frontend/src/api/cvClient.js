@@ -237,5 +237,11 @@ export const checkTaskStatus = async (taskId) => {
 };
 
 
+export const fetchItemDetails = async (id, type) => {
+    const response = await apiClient.get(`/cv/item-details/${id}?type=${type}`);
+    return response.data; // Should return { item, skills, achievements, experiences, education, hobbies }
+};
+
+
 
 export default apiClient; // Ensure apiClient is exported if needed elsewhere, though usually named exports are preferred.

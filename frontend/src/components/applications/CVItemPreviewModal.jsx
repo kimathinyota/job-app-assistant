@@ -4,7 +4,7 @@ import axios from 'axios';
 import CVItemDisplayCard from './CVItemDisplayCard';
 import { X } from 'lucide-react';
 
-const API_BASE_URL = "http://localhost:8000/api";
+import {fetchItemDetails} from '../../api/cvClient';
 
 const CVItemPreviewModal = ({
     isOpen,
@@ -34,8 +34,8 @@ const CVItemPreviewModal = ({
         setLoading(true);
         setError(null);
         try {
-            const response = await axios.get(`${API_BASE_URL}/cv/item-details/${id}?type=${type}`);
-            setFetchedData(response.data);
+            const resp = await fetchItemDetails(id, type);
+            setFetchedData(resp);
         } catch (err) {
             console.error(err);
             setError("Could not load full item context.");
