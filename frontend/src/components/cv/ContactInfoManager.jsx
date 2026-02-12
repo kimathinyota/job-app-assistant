@@ -66,9 +66,9 @@ export const ContactInfoManager = ({ contactInfo = {}, onSave }) => {
         if (k.includes('phone') || k.includes('tel') || k.includes('mobile')) {
              return <a href={`tel:${v}`} className={linkClass}>{v}</a>;
         }
-        if (v.startsWith('http') || v.startsWith('www')) {
-            const href = v.startsWith('www') ? `https://${v}` : v;
-            return <a href={href} target="_blank" rel="noopener noreferrer" className={linkClass}>{v}</a>;
+        if (v.startsWith('http') || v.startsWith('www') || v.includes('.co')) {
+            const href = `https://${v}`;
+            return <a href={href}  className={linkClass}>{v}</a>;
         }
         return <span className="text-dark fw-bold">{v}</span>;
     };
