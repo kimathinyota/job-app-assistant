@@ -182,22 +182,53 @@ def get_forensic_analysis(
 ):
     registry: Registry = request.app.state.registry
     
+    # 1. Fetch Context
     app = registry.get_application(app_id, user.id)
     if not app: raise HTTPException(404, "Application not found")
     
     job = registry.get_job(app.job_id, user.id)
-    mapping = registry.get_mapping(app.mapping_id, user.id)
     
+    # Handle missing mapping gracefully (Auto-create if missing)
+    if not app.mapping_id:
+        mapping = registry.create_mapping(user.id, app.job_id, app.base_cv_id)
+        app.mapping_id = mapping.id
+        registry.update_application(user.id, app.id, ApplicationUpdate(mapping_id=mapping.id))
+    else:
+        mapping = registry.get_mapping(app.mapping_id, user.id)
+
     if not job or not mapping:
         raise HTTPException(404, "Job or Mapping data missing")
 
+    # --- LAZY INFERENCE FIX ---
+    # 2. Check if mapping is empty. If so, run the AI "Just in Time".
+    if not mapping.pairs:
+        print(f"[Forensics] Mapping {mapping.id} is empty. Running Lazy Inference...")
+        try:
+            inferer = request.app.state.inferer
+            cv = registry.get_cv(app.base_cv_id, user.id)
+            
+            # Use default balanced settings
+            mode_settings = TUNING_MODES["balanced_default"]
+            config_params = mode_settings.get("config", {})
+            
+            # Run AI
+            suggestions = inferer.infer_mappings(job, cv, **config_params)
+            
+            # Save results
+            mapping.pairs = suggestions
+            registry.save_mapping(user.id, mapping)
+            print(f"[Forensics] Inference complete. Found {len(suggestions)} matches.")
+            
+        except Exception as e:
+            # Log error but don't crash if AI fails (return empty analysis)
+            print(f"[Forensics] Lazy Inference Failed: {str(e)}")
+
+    # 3. Calculate & Return
     calculator = ForensicCalculator()
     analysis = calculator.calculate(job, mapping)
     
     analysis.application_id = app_id
     return analysis
-
-
 # -----------------------------------------------------------------------------
 # 3. REJECT MATCH (Interactive Triage)
 # -----------------------------------------------------------------------------
