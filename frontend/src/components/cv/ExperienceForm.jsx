@@ -4,8 +4,8 @@ import SkillLinker from './SkillLinker';
 import SelectedSkillsDisplay from './SelectedSkillsDisplay';
 import AchievementManagerPanel from './AchievementManagerPanel';
 import AchievementDisplayGrid from './AchievementDisplayGrid';
-import SkillManagerPanel from './SkillManagerPanel'; // <-- 1. NEW IMPORT
-import { useWindowSize } from '../../hooks/useWindowSize'; // <-- THE FIX
+import SkillManagerPanel from './SkillManagerPanel';
+import { useWindowSize } from '../../hooks/useWindowSize';
 
 
 const ExperienceForm = ({
@@ -16,9 +16,8 @@ const ExperienceForm = ({
     initialData,
     onCancelEdit
 }) => {
-    // --- 3. HOOK FOR RESPONSIVENESS ---
     const { width } = useWindowSize();
-    const isMobile = width <= 768; // Bootstrap 'md' breakpoint
+    const isMobile = width <= 768; 
 
     // Form fields
     const [title, setTitle] = useState('');
@@ -38,23 +37,34 @@ const ExperienceForm = ({
     // Toggles
     const [showSkillLinker, setShowSkillLinker] = useState(false);
     const [isAchievementPanelOpen, setIsAchievementPanelOpen] = useState(false);
-    const [isSkillPanelOpen, setIsSkillPanelOpen] = useState(false); // <-- 4. NEW STATE
+    const [isSkillPanelOpen, setIsSkillPanelOpen] = useState(false); 
 
-    // --- *** THE FIX *** ---
-    // These state variables were missing, causing the ReferenceError
     const [aggregatedSkillIds, setAggregatedSkillIds] = useState([]);
     const [aggregatedPendingSkills, setAggregatedPendingSkills] = useState([]);
-    // --- *** END FIX *** ---
 
     const isEditing = Boolean(initialData);
+
+    // --- HELPER: Ensure date is YYYY-MM-DD for input ---
+    const formatDateForInput = (dateString) => {
+        console.log("Formatting date:", dateString);
+        if (!dateString) return '';
+        // If it's already YYYY-MM-DD, return it
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dateString)) return dateString;
+        // If ISO string (e.g. 2023-01-01T00:00:00), split it
+        if (dateString.includes('T')) return dateString.split('T')[0];
+        return '';
+    };
 
     // Populate form on load
     useEffect(() => {
         if (isEditing) {
             setTitle(initialData.title || '');
             setCompany(initialData.company || '');
-            setStartDate(initialData.start_date || '');
-            setEndDate(initialData.end_date || '');
+            
+            // --- FIX: Use helper to format dates ---
+            setStartDate(formatDateForInput(initialData.start_date));
+            setEndDate(formatDateForInput(initialData.end_date));
+            
             setDescription(initialData.description || '');
             
             setDirectSkillIds(initialData.skill_ids || []);
@@ -81,7 +91,7 @@ const ExperienceForm = ({
     }, [initialData, isEditing, cvId, allAchievements]); 
 
     
-    // Calculate aggregated lists (Unchanged)
+    // Calculate aggregated lists
     useEffect(() => {
         const allIds = new Set(directSkillIds);
         const achIds = new Set(); 
@@ -94,7 +104,7 @@ const ExperienceForm = ({
         });
 
         achIds.forEach(id => allIds.add(id));
-        setAggregatedSkillIds(Array.from(allIds)); // Now works
+        setAggregatedSkillIds(Array.from(allIds)); 
 
         const allPending = [...directPendingSkills];
         const pendingNames = new Set(directPendingSkills.map(s => s.name));
@@ -107,12 +117,12 @@ const ExperienceForm = ({
                 }
             });
         });
-        setAggregatedPendingSkills(allPending); // Now works
+        setAggregatedPendingSkills(allPending); 
 
     }, [directSkillIds, directPendingSkills, linkedExistingAchievements, pendingAchievements]);
     
     
-    // Handler: Achievement Selection (Unchanged)
+    // Handler: Achievement Selection
     const handleExistingAchievementSelection = (newIdList) => {
         const newIds = newIdList.filter(id => !linkedExistingAchievements.some(a => a.id === id));
         const removedIds = linkedExistingAchievements.map(a => a.id).filter(id => !newIdList.includes(id));
@@ -127,9 +137,9 @@ const ExperienceForm = ({
         setLinkedExistingAchievements(newList);
     };
 
-    // Handler: Skill Selection (Unchanged)
+    // Handler: Skill Selection
     const handleSkillSelectionChange = (newAggregatedList) => {
-        const oldAggregatedList = aggregatedSkillIds; // Now works
+        const oldAggregatedList = aggregatedSkillIds; 
 
         const removedSkillIds = oldAggregatedList.filter(id => !newAggregatedList.includes(id));
         const addedSkillIds = newAggregatedList.filter(id => !oldAggregatedList.includes(id));
@@ -173,10 +183,10 @@ const ExperienceForm = ({
         }
     };
 
-    // Handler: Smart Pending Skills (Unchanged)
+    // Handler: Smart Pending Skills
     const smartSetAggregatedPendingSkills = (updaterFn) => {
-        const currentAggregated = aggregatedPendingSkills; // Now works
-        const newAggregated = updaterFn(currentAggregated);
+        const currentAggregated = aggregatedPendingSkills; 
+        const newAggregated = typeof updaterFn === 'function' ? updaterFn(currentAggregated) : updaterFn;
         const currentNames = new Set(currentAggregated.map(s => s.name));
         const newNames = new Set(newAggregated.map(s => s.name));
         const addedSkills = newAggregated.filter(s => !currentNames.has(s.name));
@@ -204,7 +214,7 @@ const ExperienceForm = ({
         }
     };
 
-    // Handler: Submit (Unchanged)
+    // Handler: Submit
     const handleSubmit = (e) => {
         e.preventDefault();
         if (!title.trim() || !company.trim()) return;
@@ -251,14 +261,10 @@ const ExperienceForm = ({
         }
     };
 
-    // --- 5. THE BUG FIX ---
-    // Add flags here so AchievementDisplayGrid renders them correctly
     const linkedWithFlag = linkedExistingAchievements.map(a => ({ ...a, isPending: false }));
     const pendingWithFlag = pendingAchievements.map(a => ({ ...a, isPending: true }));
     const allAchievementsToShow = [...linkedWithFlag, ...pendingWithFlag];
-    // --- END FIX ---
 
-    // --- 6. NEW RESPONSIVE HANDLER ---
     const handleSkillToggle = () => {
         if (isMobile) {
             setIsSkillPanelOpen(true);
@@ -271,9 +277,9 @@ const ExperienceForm = ({
         <form 
             key={initialData?.id || 'new'} 
             onSubmit={handleSubmit} 
-            className="card border-0 shadow-sm p-3 p-md-4 bg-white" // Responsive padding
+            className="card border-0 shadow-sm p-3 p-md-4 bg-white" 
         >
-            {/* Header (Unchanged) */}
+            {/* Header */}
             <div className="d-flex align-items-center gap-2 mb-4 border-bottom pb-2">
                 <Briefcase className="text-primary" size={20}/>
                 <h5 className="mb-0 fw-bold text-dark">
@@ -281,7 +287,7 @@ const ExperienceForm = ({
                 </h5>
             </div>
 
-            {/* Fields (Unchanged) */}
+            {/* Fields */}
             <div className="row g-3">
                 <div className="col-md-6">
                     <label htmlFor="exp-title" className="form-label fw-bold small text-uppercase text-muted">Job Title</label>
@@ -323,11 +329,11 @@ const ExperienceForm = ({
 
             <hr className="my-4 opacity-10" />
 
-            {/* --- 7. SKILLS SECTION (RESPONSIVE) --- */}
+            {/* --- SKILLS SECTION (RESPONSIVE) --- */}
             <div className="mb-4">
                 <div 
                     className="d-flex justify-content-between align-items-center mb-2 cursor-pointer"
-                    onClick={handleSkillToggle} // Use new handler
+                    onClick={handleSkillToggle} 
                 >
                     <label className="form-label fw-bold text-dark d-flex align-items-center gap-2 mb-0 cursor-pointer">
                         <Layers size={16} className="text-emerald-600"/> 
@@ -340,7 +346,6 @@ const ExperienceForm = ({
                         type="button" 
                         className="btn btn-light btn-sm text-secondary"
                     >
-                        {/* Show chevron on mobile, or toggle up/down on desktop */}
                         {isMobile ? 
                             <ChevronDown size={16}/> : 
                             (showSkillLinker ? <ChevronUp size={16}/> : <ChevronDown size={16}/>)
@@ -348,8 +353,6 @@ const ExperienceForm = ({
                     </button>
                 </div>
 
-                {/* --- RENDER LOGIC FOR SKILLS --- */}
-                {/* A. On Desktop, show inline linker */}
                 {!isMobile && showSkillLinker && (
                     <div className="animate-fade-in mt-2 p-3 bg-light rounded border">
                         <SkillLinker
@@ -363,11 +366,10 @@ const ExperienceForm = ({
                     </div>
                 )}
                 
-                {/* B. On Desktop AND Mobile, show display card when linker is hidden */}
-                {(isMobile || !showSkillLinker) && (aggregatedSkillIds.length > 0 || aggregatedPendingSkills.length > 0) ? ( // <-- THIS LINE IS CHANGED
+                {(isMobile || !showSkillLinker) && (aggregatedSkillIds.length > 0 || aggregatedPendingSkills.length > 0) ? ( 
                     <div 
                         className="bg-light p-3 rounded border cursor-pointer hover-bg-slate-100 transition-all"
-                        onClick={handleSkillToggle} // This will now open the panel on mobile
+                        onClick={handleSkillToggle} 
                     >
                         <SelectedSkillsDisplay
                             allSkills={allSkills}
@@ -377,27 +379,23 @@ const ExperienceForm = ({
                     </div>
                 ) : null}
                 
-                {/* C. On Desktop AND Mobile, show empty state when linker is hidden */}
-                {(isMobile || !showSkillLinker) && !(aggregatedSkillIds.length > 0 || aggregatedPendingSkills.length > 0) ? ( // <-- THIS LINE IS CHANGED
+                {(isMobile || !showSkillLinker) && !(aggregatedSkillIds.length > 0 || aggregatedPendingSkills.length > 0) ? ( 
                     <div 
                         className="text-muted small fst-italic border border-dashed rounded p-2 text-center cursor-pointer hover:bg-light"
-                        onClick={handleSkillToggle} // This will now open the panel on mobile
+                        onClick={handleSkillToggle} 
                     >
                         Click to link skills...
                     </div>
                 ) : null}
-                
-                {/* D. On Mobile, this logic is now handled by B and C */}
 
             </div>
 
-            {/* --- 8. ACHIEVEMENTS SECTION (RESPONSIVE) --- */}
+            {/* --- ACHIEVEMENTS SECTION (RESPONSIVE) --- */}
             <div className="mb-4">
                  <div className="d-flex justify-content-between align-items-center mb-2">
                      <label className="form-label fw-bold text-dark d-flex align-items-center gap-2 mb-0">
                         <Award size={16} className="text-amber-500"/> Achievements
                      </label>
-                     {/* Responsive Button */}
                      <button 
                         type="button" 
                         onClick={() => setIsAchievementPanelOpen(true)}
@@ -412,7 +410,7 @@ const ExperienceForm = ({
                  </div>
                  
                  {allAchievementsToShow.length > 0 ? (
-                     <div // Make grid clickable
+                     <div 
                         className="bg-light p-3 rounded border cursor-pointer hover-bg-slate-100 transition-all"
                         onClick={() => setIsAchievementPanelOpen(true)} 
                     >
@@ -423,7 +421,7 @@ const ExperienceForm = ({
                         />
                      </div>
                  ) : (
-                     <div // Make empty state clickable
+                     <div 
                         className="bg-light p-3 rounded border text-center cursor-pointer hover-bg-slate-100 transition-all"
                         onClick={() => setIsAchievementPanelOpen(true)}
                     >
@@ -432,7 +430,7 @@ const ExperienceForm = ({
                  )}
             </div>
 
-            {/* --- 9. RENDER THE PANELS --- */}
+            {/* --- PANELS --- */}
              <AchievementManagerPanel
                  isOpen={isAchievementPanelOpen}
                  onClose={() => setIsAchievementPanelOpen(false)}
@@ -456,7 +454,6 @@ const ExperienceForm = ({
                 sessionSkills={aggregatedPendingSkills}
              />
 
-            {/* ACTION BUTTONS (Unchanged) */}
             <div className="d-flex gap-2 justify-content-end mt-4 pt-3 border-top">
                 {onCancelEdit && (
                     <button 
