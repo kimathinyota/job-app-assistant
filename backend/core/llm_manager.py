@@ -126,63 +126,56 @@ class LLMManager:
 
     def _clean_and_parse_json(self, result_text: str) -> Dict[str, Any]:
         """
-        Implements the ROBUST cleanup logic you requested.
+        Robustly extracts the largest JSON object found in the text.
         """
-        # 1. Robust Markdown Cleanup
-        if "```" in result_text:
-            parts = result_text.split("```")
-            found_json = False
-            for p in parts:
-                clean_p = p.strip()
-                if clean_p.lower().startswith("json"):
-                    clean_p = clean_p[4:].strip()
-                if clean_p.startswith("{"):
-                    result_text = clean_p
-                    found_json = True
-                    break
-            
-            if not found_json:
-                 for p in reversed(parts):
-                     if p.strip().startswith("{"):
-                         result_text = p.strip()
-                         break
-
-        result_text = result_text.strip()
+        # 1. Regex to find content starting with '{' and ending with '}'
+        #    flags=re.DOTALL allows the dot (.) to match newlines
+        match = re.search(r"(\{.*\})", result_text, flags=re.DOTALL)
         
-        start_idx = result_text.find("{")
-        if start_idx != -1:
-            result_text = result_text[start_idx:]
+        if match:
+            # We found a candidate block.
+            json_candidate = match.group(1).strip()
+        else:
+            # Fallback: Try your old manual method if regex fails
+            start_idx = result_text.find("{")
+            end_idx = result_text.rfind("}") # Look for the LAST brace
+            
+            if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+                json_candidate = result_text[start_idx : end_idx + 1]
+            else:
+                log.error("❌ No JSON braces found in LLM output.")
+                return {}
 
+        print(f"🔍 Extracted JSON Candidate:\n{json_candidate}\n")
+
+        # 2. Attempt Parse
         try:
-            return json.loads(result_text)
+            return json.loads(json_candidate)
         except json.JSONDecodeError:
             log.warning("⚠️ JSON Decode Error. Attempting repair...")
-            fixed_text = self._repair_json(result_text)
+            fixed_text = self._repair_json(json_candidate)
             try:
                 return json.loads(fixed_text)
-            except:
-                log.error("❌ Failed to repair JSON.")
+            except Exception as e:
+                log.error(f"❌ Failed to repair JSON: {e}")
                 return {}
 
     def _repair_json(self, json_str: str) -> str:
-        """Your specific repair logic."""
+        """
+        Fixes common LLM syntax errors.
+        """
         json_str = json_str.strip()
-        # 1. Fix missing commas between key-value pairs
+
+        # 1. Fix missing commas between key-value pairs (e.g. "val" "next_key")
+        #    This looks for "quote" newline "quote"
         json_str = re.sub(r'\"\s*\n\s*\"', '",\n"', json_str)
-        # 2. Close unclosed string quotes
-        if json_str.count('"') % 2 != 0: json_str += '"'
-        # 3. Remove trailing commas
+
+        # 2. Remove trailing commas before closing braces/brackets
+        #    Example: { "a": 1, } -> { "a": 1 }
         json_str = re.sub(r',\s*([\]}])', r'\1', json_str)
-        # 4. Bruteforce closure
-        closers = ["}", "]}", ""]
-        for c in closers:
-            try:
-                candidate = json_str + c
-                json.loads(candidate)
-                return candidate
-            except:
-                continue
-        if not json_str.endswith("}"): return json_str + "]}"
+
+        # 3. Ensure the string actually ends with a closing brace (brute force closure)
+        if not json_str.endswith("}"): 
+            json_str += "}"
+            
         return json_str
-
-
