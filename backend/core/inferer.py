@@ -102,6 +102,9 @@ DO NOT RETURN MARKDOWN. DO NOT USE ```json BLOCKS. JUST THE RAW JSON.
         log.info("⚡ Starting Fast Parse (Master Agent v1)...")
         start_time = time.time()
 
+        print("Job Text for Parsing:")
+        print(job_text)
+
         # 1. Request Inference via Manager
         # Note: Using temperature=0.0 as per your 'job' requirement
         data = await self.manager.request_inference(
@@ -112,6 +115,9 @@ DO NOT RETURN MARKDOWN. DO NOT USE ```json BLOCKS. JUST THE RAW JSON.
             temperature=0.0,
             max_tokens=8192
         )
+
+        print("Raw LLM Output:")
+        print(data)
 
         # 2. Logic: Initialize Result
         final_result = {
@@ -650,7 +656,7 @@ class DebertaMultiLabel(nn.Module):
         logits = self.classifier(cls)
         return logits
 
-class JobSegmentEmbedder:
+class JobSegmentEmbedderOld:
     def __init__(self, checkpoint_path: str, model_name: str = "microsoft/deberta-v3-small"):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.tokenizer = None
@@ -691,6 +697,29 @@ class JobSegmentEmbedder:
                 return None
         return np.vstack(embeddings) if embeddings else None
 
+
+from sentence_transformers import SentenceTransformer
+
+
+class JobSegmentEmbedder:
+    def __init__(self, model_name="sentence-transformers/all-MiniLM-L6-v2"):
+        log.info(f"Loading SentenceTransformer: {model_name}...")
+        self.model = SentenceTransformer(model_name)
+
+    def encode(self, texts: List[str]) -> np.ndarray:
+        """
+        Generates embeddings for a list of texts.
+        Returns a numpy array of shape (n_texts, embedding_dim).
+        """
+        # Basic cleanup to help the model
+        cleaned_texts = [str(t).replace("\n", " ").strip() for t in texts]
+        
+        # Remove empty strings to prevent errors, replacing them with a placeholder
+        # (Though your preprocess_cv logic should have handled this, it's a safety net)
+        safe_texts = [t if t else " " for t in cleaned_texts]
+        
+        return self.model.encode(safe_texts)
+    
 # =====================================================
 # 2. Atomic Evidence Model (Structured Lineage)
 # =====================================================
@@ -1049,7 +1078,7 @@ from backend.core.utils.inference import MatchScoring, SmartNoteBuilder
 
 class MappingInferer:
     def __init__(self):
-        self.default_min_score = 0.28
+        self.default_min_score = 0.20
         self.embedder: Optional[JobSegmentEmbedder] = None
         self.tfidf: Optional[TfidfVectorizer] = None
         self.nlp: Optional[Any] = None
@@ -1070,7 +1099,11 @@ class MappingInferer:
             except Exception:
                 pass
         log.info("Initializing JobSegmentEmbedder...")
-        self.embedder = JobSegmentEmbedder(self.CHECKPOINT_PATH)
+        # self.embedder = JobSegmentEmbedder(self.CHECKPOINT_PATH)
+        if not self.embedder:
+            log.info("Initializing JobSegmentEmbedder (all-MiniLM-L6-v2)...")
+            # No arguments needed, it defaults to the HuggingFace model
+            self.embedder = JobSegmentEmbedder()
 
     def _preprocess_cv(self, cv: CV) -> List[CVEvidence]:
         """
@@ -1331,3 +1364,4 @@ class MappingInferer:
             mappings.extend(group_results)
 
         return mappings
+    
