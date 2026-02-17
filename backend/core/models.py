@@ -340,7 +340,6 @@ class JobDescription(UserOwnedEntity):
     
     location: Optional[str] = None
     salary_range: Optional[str] = None
-    notes: Optional[str] = None
     # --- END NEW FIELDS ---
 
     # --- INTELLIGENCE CACHE (For Spotlight & Sorting) ---
@@ -391,31 +390,31 @@ class JobFeatureInput(BaseModel):
 
 class JobUpsertPayload(BaseModel):
     """
-    The all-in-one payload to create or update a job.
-    The backend will handle creating new IDs for features.
+    The all-in-one payload to create or fully update a job.
+    Used by POST /job/upsert.
     """
     id: Optional[str] = None # If null, create new job. If set, update job.
     title: str
     company: str
+    
     job_url: Optional[str] = None
-    application_end_date: Optional[str] = None
     location: Optional[str] = None
     salary_range: Optional[str] = None
     notes: Optional[str] = None
 
+    # Date handling
+    application_end_date: Optional[str] = None # Deprecated alias for date_closing
     date_closing: Optional[str] = None 
-    date_posted: Optional[str] = None      # <--- ADDED
-    date_extracted: Optional[str] = None   # <--- ADDED
+    date_posted: Optional[str] = None
+    date_extracted: Optional[str] = None
     
-    # --- CONTENT ---
-    description: Optional[str] = None           # <--- ADDED: Raw text
-    displayed_description: Optional[str] = None # <--- ADDED: HTML/Formatted
+    # Content
+    description: Optional[str] = None           
+    displayed_description: Optional[str] = None 
     
-    # The frontend will send the *full* list of features.
-    # The backend will replace the old list with this new one.
+    # Features List
+    # The backend will replace the old list with this new one for the given Job ID.
     features: List[JobFeatureInput] = Field(default_factory=list)
-
-
 
 # 1. Atomic Lineage Step (The Breadcrumb)
 class LineageItem(BaseModel):
@@ -801,10 +800,26 @@ class CVUpdate(BaseModel):
     # so we don't include List[T] here for partial updates.
 
 class JobDescriptionUpdate(BaseModel):
+    """
+    Validation schema for PATCH /job/{id}.
+    Allows partial updates to any specific field without requiring the full object.
+    """
     title: Optional[str] = None
     company: Optional[str] = None
     notes: Optional[str] = None
-
+    
+    # --- New Fields Added to Support Frontend Editing ---
+    job_url: Optional[str] = None
+    location: Optional[str] = None
+    salary_range: Optional[str] = None
+    
+    date_closing: Optional[str] = None
+    date_posted: Optional[str] = None
+    date_extracted: Optional[str] = None # Usually backend-only, but allowed for manual overrides
+    
+    description: Optional[str] = None
+    displayed_description: Optional[str] = None
+    
 class ApplicationStatus(BaseModel):
     """A minimal model used specifically for the PUT /application/{id}/status route."""
     status: Literal["draft", "applied", "interview", "offer", "rejected"]
