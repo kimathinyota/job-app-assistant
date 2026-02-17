@@ -37,6 +37,7 @@ import ApplicationDashboard from './components/applications/ApplicationDashboard
 import RoleCasePage from './components/RoleCasePage'; 
 import TailoredCVManager from './components/applications/TailoredCVManager';
 import SupportingDocStudio from './components/applications/SupportingDocStudio';
+import JobDetails from './components/JobDetails';
 
 function App() {
   const [user, setUser] = useState(null);
@@ -109,6 +110,7 @@ function App() {
         
         {/* Job Library */}
         <Route path="jobs" element={<JobLibrary />} />
+        <Route path="/job/:jobId" element={<JobDetails />} />
         
         {/* Application Views */}
         <Route path="applications" element={<AppTrackerPage />} />

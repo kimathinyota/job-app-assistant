@@ -1,5 +1,5 @@
-// frontend/src/components/applications/JobCard.jsx
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom'; // [1] Import Navigation Hook
 import { 
     MapPin, Banknote, Calendar, MoreVertical, Building2, 
     CheckCircle2, Trash2, Edit, TrendingUp, Sparkles, 
@@ -18,11 +18,11 @@ const JobCard = ({
     onViewApplication,
     onEdit,
     onDelete,
-    onViewDescription,
+    onViewDescription, // This opens the Modal
     matchScore = 0,
     badges = [] 
 }) => {
-
+    const navigate = useNavigate(); // [2] Init Hook
     const hasApplication = Boolean(application);
     const [selectedCvId, setSelectedCvId] = useState(
         hasApplication ? application.base_cv_id : (defaultCvId || '')
@@ -32,7 +32,6 @@ const JobCard = ({
     const [previewData, setPreviewData] = useState(null); 
     const [isLoadingPreview, setIsLoadingPreview] = useState(false);
 
-    // Active Data Logic
     const activeScore = previewData ? previewData.score : matchScore;
     const activeBadges = previewData ? previewData.badges : badges;
     const isPreviewMode = !!previewData; 
@@ -53,7 +52,18 @@ const JobCard = ({
         return () => { isMounted = false; };
     }, [selectedCvId, defaultCvId, hasApplication, job.id]);
 
-    const handleStartClick = () => { if (selectedCvId) onStartApplication(job.id, selectedCvId); };
+    // --- HANDLERS ---
+    
+    // [3] The Main Card Click -> Goes to Full Page
+    const handleCardClick = (e) => {
+        // We do NOT stop propagation here; this is the default action
+        navigate(`/job/${job.id}`);
+    };
+
+    const handleStartClick = (e) => { 
+        e.stopPropagation(); // Stop card click
+        if (selectedCvId) onStartApplication(job.id, selectedCvId); 
+    };
     
     const getSelectedCvName = () => {
         if (!application) return "Unknown CV";
@@ -72,50 +82,40 @@ const JobCard = ({
     };
 
     // --- 2. HIGHLIGHT PILL STYLES ---
-    // [UPDATED] Supports more types now
     const getFeatureStyle = (type) => {
         const t = type ? type.toLowerCase() : '';
-        
         if (t.includes('responsibility')) return { label: 'Task', badgeClass: 'bg-primary-subtle text-primary border-primary-subtle' };
         if (t.includes('require') || t.includes('must')) return { label: 'Must Have', badgeClass: 'bg-danger-subtle text-danger border-danger-subtle' };
         if (t.includes('hard_skill') || t.includes('tech')) return { label: 'Skill', badgeClass: 'bg-dark-subtle text-dark border-dark-subtle' };
         if (t.includes('soft_skill')) return { label: 'Soft Skill', badgeClass: 'bg-info-subtle text-info border-info-subtle' };
         if (t.includes('nice') || t.includes('bonus')) return { label: 'Bonus', badgeClass: 'bg-success-subtle text-success border-success-subtle' };
-        
         return { label: t.replace('_', ' '), badgeClass: 'bg-secondary-subtle text-secondary border-secondary-subtle text-capitalize' };
     };
 
     const theme = getGradeTheme(activeScore);
     const ScoreIcon = theme.icon;
     const closingDate = job.date_closing || job.application_end_date;
-    const postedDate = job.date_posted;
 
     const displayBadges = (activeBadges && activeBadges.length > 0) 
         ? activeBadges 
         : (activeScore > 0 ? [theme.label] : []);
 
-    // [UPDATED] Sorting Logic for Features
-    // Priority: Responsibility > Requirement > Hard Skill > Soft Skill > Bonus > Other
     const sortedFeatures = job.features ? [...job.features].sort((a, b) => {
-        const priority = {
-            'responsibility': 1,
-            'requirement': 2,
-            'hard_skill': 3,
-            'soft_skill': 4,
-            'nice_to_have': 5,
-            'bonus': 5
-        };
+        const priority = { 'responsibility': 1, 'requirement': 2, 'hard_skill': 3, 'soft_skill': 4, 'nice_to_have': 5, 'bonus': 5 };
         const getP = (type) => {
             const t = type.toLowerCase();
             for (const key in priority) if (t.includes(key)) return priority[key];
-            return 99; // Default low priority
+            return 99;
         };
         return getP(a.type) - getP(b.type);
     }) : [];
 
-
     return (
-        <div className={`card h-100 transition-all hover-shadow-md border-2 ${theme.border} ${hasApplication ? 'shadow-sm' : ''}`}>
+        // [4] Card is now a clickable container
+        <div 
+            className={`card h-100 transition-all hover-shadow-md border-2 cursor-pointer ${theme.border} ${hasApplication ? 'shadow-sm' : ''}`}
+            onClick={handleCardClick}
+        >
             <style>
                 {`
                 .text-xs { font-size: 0.75rem; }
@@ -125,12 +125,14 @@ const JobCard = ({
                 .safe-pill { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
                 .spin-slow { animation: spin 2s linear infinite; }
                 @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+                /* Critical: Ensure Dropdown works on top of clickable card */
+                .dropdown-menu { z-index: 1050; } 
                 `}
             </style>
             
             <div className="card-body p-4 pb-0 d-flex flex-column">
                 
-                {/* --- HEADER ROW --- */}
+                {/* --- HEADER --- */}
                 <div className="d-flex justify-content-between align-items-start mb-2 w-100">
                     <div className="d-flex gap-3 align-items-center overflow-hidden flex-grow-1" style={{ minWidth: 0 }}> 
                         <div className="rounded-3 d-flex align-items-center justify-content-center bg-light border flex-shrink-0 text-primary fw-bold fs-5 shadow-sm" 
@@ -145,7 +147,7 @@ const JobCard = ({
 
                     <div className="flex-shrink-0 ms-2 d-flex align-items-center gap-1">
                         
-                        {/* [1] External Link Button (New Feature) */}
+                        {/* External Link (Stop Propagation) */}
                         {job.job_url && (
                             <a 
                                 href={job.job_url} 
@@ -159,20 +161,30 @@ const JobCard = ({
                             </a>
                         )}
 
-                        <div className="dropdown">
+                        {/* Dropdown Menu (Stop Propagation) */}
+                        <div className="dropdown" onClick={(e) => e.stopPropagation()}>
                             <button className="btn btn-link text-muted p-0 opacity-50 hover-opacity-100" type="button" data-bs-toggle="dropdown">
                                 <MoreVertical size={20} />
                             </button>
                             <ul className="dropdown-menu dropdown-menu-end shadow-sm border-0">
-                                <li><button className="dropdown-item small" onClick={onEdit} disabled={hasApplication}><Edit size={14} className="me-2"/> Edit Details</button></li>
+                                {/* NOTE: Edit opens the Modal (via parent handler), not the page */}
+                                <li>
+                                    <button className="dropdown-item small" onClick={() => onEdit()}>
+                                        <Edit size={14} className="me-2"/> Edit Details
+                                    </button>
+                                </li>
                                 <li><hr className="dropdown-divider"/></li>
-                                <li><button className="dropdown-item small text-danger" onClick={onDelete}><Trash2 size={14} className="me-2"/> Delete Job</button></li>
+                                <li>
+                                    <button className="dropdown-item small text-danger" onClick={() => onDelete()}>
+                                        <Trash2 size={14} className="me-2"/> Delete Job
+                                    </button>
+                                </li>
                             </ul>
                         </div>
                     </div>
                 </div>
 
-                {/* --- METADATA ROW & STATUS --- */}
+                {/* --- METADATA --- */}
                 <div className="d-flex flex-wrap align-items-center gap-2 mb-3 text-xs fw-medium">
                     {hasApplication && (
                         <span className="badge bg-success-subtle text-success border border-success-subtle d-flex align-items-center gap-1 py-1 px-2 rounded-pill">
@@ -196,7 +208,7 @@ const JobCard = ({
                     )}
                 </div>
 
-                {/* --- MATCH INSIGHT BOX --- */}
+                {/* --- MATCH INSIGHT --- */}
                 <div className={`rounded-3 p-3 mb-3 d-flex align-items-center gap-3 border ${theme.bg} ${theme.border} bg-opacity-25`}>
                     <div className="d-flex align-items-center gap-3 pe-3 border-end border-dark border-opacity-10">
                         {isLoadingPreview ? (
@@ -217,14 +229,17 @@ const JobCard = ({
                     </div>
                 </div>
 
-                {/* --- HIGHLIGHTS (Sorted List) --- */}
+                {/* --- HIGHLIGHTS --- */}
                 <div className="flex-grow-1 mb-3 pt-2 border-top border-light">
                     <div className="d-flex justify-content-between align-items-center mb-2">
                         <span className="text-xs fw-bold text-secondary text-uppercase tracking-wide">Key Highlights</span>
                         {(job.displayed_description || job.description) && (
                             <button 
                                 type="button" 
-                                onClick={(e) => { e.stopPropagation(); onViewDescription(job); }}
+                                onClick={(e) => { 
+                                    e.stopPropagation(); // [5] Stop Prop: Open Modal, don't navigate
+                                    onViewDescription(job); 
+                                }}
                                 className="btn btn-link p-0 text-primary text-xs text-decoration-none d-flex align-items-center gap-1 hover-underline"
                             >
                                 <Eye size={12} /> View Desc
@@ -232,7 +247,6 @@ const JobCard = ({
                         )}
                     </div>
                     
-                    {/* [3] USING SORTED FEATURES LIST HERE */}
                     {sortedFeatures.length > 0 ? (
                         <div className="bg-light bg-opacity-50 rounded-3 p-3 custom-scroll border border-dashed" style={{ maxHeight: '140px', overflowY: 'auto' }}>
                             <ul className="list-unstyled mb-0">
@@ -269,7 +283,10 @@ const JobCard = ({
                         <button 
                             type="button"
                             className="btn btn-sm btn-white border border-success-subtle text-success shadow-sm fw-medium"
-                            onClick={(e) => { e.stopPropagation(); onViewApplication(application.id); }}
+                            onClick={(e) => {
+                                e.stopPropagation(); // [6] Stop Prop: Go to Application Dashboard
+                                onViewApplication(application.id); 
+                            }}
                         >
                             View Application
                         </button>
@@ -284,6 +301,7 @@ const JobCard = ({
                                 className={`form-select form-select-sm shadow-none ps-5 ${isPreviewMode ? 'border-primary text-primary fw-medium bg-primary-subtle' : 'border-0 bg-light'}`}
                                 value={selectedCvId || ''} 
                                 onChange={(e) => setSelectedCvId(e.target.value)}
+                                onClick={(e) => e.stopPropagation()} // [7] Stop Prop: Selecting Dropdown
                                 disabled={cvs.length === 0}
                                 style={{fontSize: '0.9rem', cursor: 'pointer'}}
                             >
@@ -293,7 +311,7 @@ const JobCard = ({
                         </div>
                         <button 
                             className="btn btn-sm btn-primary px-4 fw-medium shadow-sm d-flex align-items-center gap-1"
-                            onClick={handleStartClick}
+                            onClick={handleStartClick} // Already has stopPropagation
                             disabled={!selectedCvId}
                         >
                             Start

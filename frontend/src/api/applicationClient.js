@@ -314,3 +314,12 @@ export const fetchMatchPreview = async (jobId, cvId) => {
     });
     return response.data; // Expects { score: 90.0, badges: [...] }
 };
+
+// [NEW] Update Feature (For Inline Editing)
+// Note: If your backend doesn't support PATCH feature directly, 
+// you might need to implement "delete then add" in the backend or frontend.
+// Assuming backend has: PATCH /job/{job_id}/feature/{feature_id}
+export const updateJobFeature = (jobId, featureId, data) => {
+    // data = { description: "...", type: "..." }
+    return apiClient.patch(`/job/${jobId}/feature/${featureId}`, data);
+};
