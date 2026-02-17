@@ -433,6 +433,34 @@ class Registry:
 
     def all_jobs(self, user_id: str):
         return self._all("jobs", JobDescription, user_id=user_id)
+    
+    def update_job_feature(self, user_id: str, job_id: str, feature_id: str, description: str, type: str):
+        """
+        Updates an existing feature within a job description.
+        """
+        # 1. Find the job (includes security check for user_id)
+        job = self.get_job(job_id, user_id)
+        if not job:
+            raise ValueError("Job not found")
+
+        # 2. Find the feature in job.features
+        feature = next((f for f in job.features if f.id == feature_id), None)
+        
+        if not feature:
+            raise ValueError(f"Feature with ID {feature_id} not found in job {job_id}")
+
+        # 3. Update fields
+        # Only update if values are provided (though typically they are required)
+        if description:
+            feature.description = description
+        if type:
+            feature.type = type
+
+        # 4. Save job
+        job.touch()  # Update the job's 'updated_at' timestamp
+        self._update("jobs", job, user_id)
+        
+        return feature
 
 
     # ---- CVs ----
