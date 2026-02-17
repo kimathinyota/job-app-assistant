@@ -1,161 +1,153 @@
-import React, { useState, useEffect, useMemo } from 'react';
+// frontend/src/pages/JobLibrary.js
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom'; 
 import { 
-    Plus, 
-    Search, 
-    Briefcase, 
-    XCircle, 
-    LayoutGrid, 
-    Filter,
-    FileText,
-    CheckCircle2,
-    CircleDashed
+    Plus, Search, Briefcase, XCircle, Filter, 
+    CheckCircle2, CircleDashed, ArrowUpDown, Sparkles, Loader2, FileText 
 } from 'lucide-react';
+import { debounce } from 'lodash'; 
 
 import { 
     fetchAllJobs, 
     fetchAllApplications, 
     createMapping,
     createApplication,
-    deleteJob
+    deleteJob,
+    scoreAllJobs 
 } from '../api/applicationClient';
 import { fetchAllCVs } from '../api/cvClient';
+import { getCurrentUser } from '../api/authClient'; 
 
 // Components
-// frontend/src/components/applications/JobCard.jsx
 import JobCard from './applications/JobCard';
 import JobModal from './applications/JobModal'; 
-import DeleteConfirmationModal from './common/DeleteConfirmationModal'; 
+import DeleteConfirmationModal from './common/DeleteConfirmationModal';
+// [1] IMPORT THE NEW MODAL
+import JobPreviewModal from './applications/JobPreviewModal'; 
 
 const JobLibrary = () => {
     const navigate = useNavigate();
 
     // --- Data State ---
     const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null);
+    const [analyzing, setAnalyzing] = useState(false);
     const [jobs, setJobs] = useState([]);
     const [applications, setApplications] = useState([]);
     const [cvs, setCvs] = useState([]);
+    const [user, setUser] = useState(null);
 
     // --- UI States ---
     const [searchQuery, setSearchQuery] = useState('');
-    const [isSearchOpen, setIsSearchOpen] = useState(false);
-    
-    // RESTORED: Status Filter State
-    const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'pending' | 'started'
+    const [statusFilter, setStatusFilter] = useState('all'); 
+    const [sortBy, setSortBy] = useState('recommended'); 
 
     // --- Modal States ---
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [modalJobId, setModalJobId] = useState(null); 
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
     const [itemToDelete, setItemToDelete] = useState(null);
-    const [viewingDescJob, setViewingDescJob] = useState(null);
+
+    // [2] ADD STATE FOR PREVIEW MODAL
+    const [previewJob, setPreviewJob] = useState(null); 
 
     // --- 1. Load Data ---
-    const loadData = async () => {
+    const loadData = useCallback(async (query = '', sort = 'recommended') => {
         setLoading(true);
-        setError(null);
         try {
-            const [cvsRes, appsRes, jobsRes] = await Promise.all([
+            const [userRes, cvsRes, appsRes, jobsRes] = await Promise.all([
+                getCurrentUser(), 
                 fetchAllCVs(), 
                 fetchAllApplications(),
-                fetchAllJobs(),
+                fetchAllJobs({ q: query, sort: sort }), 
             ]);
-            
+
+            setUser(userRes.data || userRes); 
             setJobs(jobsRes.data || []);
             setApplications(appsRes.data || []);
             setCvs(cvsRes || []); 
 
         } catch (err) {
-            setError("Failed to load library.");
-            console.error(err);
+            console.error("Failed to load library", err);
         } finally {
             setLoading(false);
         }
-    };
-
-    useEffect(() => {
-        loadData();
     }, []);
 
+    useEffect(() => {
+        const debouncedLoad = debounce(() => loadData(searchQuery, sortBy), 500);
+        debouncedLoad();
+        return () => debouncedLoad.cancel();
+    }, [searchQuery, sortBy, loadData]);
+
+
     // --- 2. Computed Data ---
-    
     const defaultCvId = useMemo(() => {
-        if (cvs && cvs.length > 0) return cvs[0].id;
-        return null;
-    }, [cvs]);
+        if (user?.primary_cv_id) return user.primary_cv_id;
+        return cvs?.[0]?.id || null;
+    }, [user, cvs]);
+
+    const targetCvName = useMemo(() => {
+        if (!defaultCvId) return null;
+        const found = cvs.find(c => c.id === defaultCvId);
+        return found ? found.name : 'Unknown CV';
+    }, [cvs, defaultCvId]);
 
     const applicationMap = useMemo(() => {
         const map = new Map();
-        for (const app of applications) {
-            map.set(app.job_id, app);
-        }
+        applications.forEach(app => map.set(app.job_id, app));
         return map;
     }, [applications]);
 
-    // RESTORED: Counts Logic
     const counts = useMemo(() => {
         const pending = jobs.filter(j => !applicationMap.has(j.id)).length;
         const started = jobs.filter(j => applicationMap.has(j.id)).length;
         return { all: jobs.length, pending, started };
     }, [jobs, applicationMap]);
 
-    const processedJobs = useMemo(() => {
-        let result = [...jobs];
-
-        // 1. Text Search
-        if (searchQuery.trim()) {
-            const term = searchQuery.toLowerCase();
-            result = result.filter(job => 
-                job.title.toLowerCase().includes(term) || 
-                job.company.toLowerCase().includes(term)
-            );
-        }
-
-        // 2. RESTORED: Status Filtering
-        if (statusFilter === 'pending') {
-            result = result.filter(job => !applicationMap.has(job.id));
-        } else if (statusFilter === 'started') {
-            result = result.filter(job => applicationMap.has(job.id));
-        }
-
-        // 3. Sorting (Newest first, but prioritize applied if 'all' selected)
-        result.sort((a, b) => {
-            // If viewing 'all', grouping applied ones together can be nice, 
-            // but strict date sorting is usually better for a library. 
-            // Let's stick to simple reverse order (newest first).
-            return b.id.localeCompare(a.id); 
-        });
-
-        return result; 
-    }, [jobs, searchQuery, statusFilter, applicationMap]);
+    const displayJobs = useMemo(() => {
+        let filtered = jobs;
+        if (statusFilter === 'pending') filtered = jobs.filter(j => !applicationMap.has(j.id));
+        if (statusFilter === 'started') filtered = jobs.filter(j => applicationMap.has(j.id));
+        return filtered;
+    }, [jobs, statusFilter, applicationMap]);
 
     // --- 3. Handlers ---
+    const handleRunAnalysis = async () => {
+        if (!defaultCvId) return alert("Please upload a CV first.");
+        setAnalyzing(true);
+        try {
+            await scoreAllJobs(defaultCvId);
+            await loadData(searchQuery, sortBy);
+        } catch (err) {
+            alert("Analysis failed.");
+        } finally {
+            setAnalyzing(false);
+        }
+    };
 
     const handleOpenAddModal = () => { setModalJobId(null); setIsModalOpen(true); };
     const handleOpenEditModal = (jobId) => { setModalJobId(jobId); setIsModalOpen(true); };
+    
+    // [3] UPDATE HANDLER: Open the Preview Modal instead of the Edit Modal
+    const handleViewDescription = (job) => {
+        setPreviewJob(job);
+    };
+
     const handleCloseModal = () => { setIsModalOpen(false); setModalJobId(null); };
-    const handleJobUpdated = () => { loadData(); };
+    const handleJobUpdated = () => { loadData(searchQuery, sortBy); };
     
     const handleOpenDeleteModal = (job) => { setItemToDelete(job); setIsDeleteModalOpen(true); };
     const handleCloseDeleteModal = () => { setItemToDelete(null); setIsDeleteModalOpen(false); };
-
-    const handleViewDescription = (job) => { setViewingDescJob(job); };
-    const handleCloseDescModal = () => { setViewingDescJob(null); };
 
     const handleConfirmDelete = async () => {
         if (!itemToDelete) return;
         try {
             await deleteJob(itemToDelete.id);
             handleCloseDeleteModal();
-            loadData(); 
+            loadData(searchQuery, sortBy); 
         } catch (err) {
             alert(`Failed to delete job: ${err.message}`);
         }
-    };
-
-    const handleViewApplication = (applicationId) => {
-        navigate(`/application/${applicationId}`);
     };
 
     const handleStartApplication = async (jobId, baseCvId) => {
@@ -165,13 +157,9 @@ const JobLibrary = () => {
             const appRes = await createApplication(jobId, baseCvId, mappingRes.data.id);
             navigate(`/application/${appRes.data.id}`);
         } catch (err) {
-            alert("Failed to start application.");
             console.error(err);
         }
     };
-
-    if (loading) return <div className="text-center p-5 text-muted">Loading Library...</div>;
-    if (error) return <p className="text-danger p-4">{error}</p>;
 
     return (
         <div className="container-fluid px-0 pb-5">
@@ -179,138 +167,107 @@ const JobLibrary = () => {
                 {`
                 .hover-lift { transition: transform 0.2s ease, box-shadow 0.2s ease; }
                 .hover-lift:hover { transform: translateY(-3px); box-shadow: 0 10px 20px rgba(0,0,0,0.08) !important; }
-                .search-enter { animation: slideDown 0.2s ease-out; }
-                @keyframes slideDown {
-                    from { opacity: 0; transform: translateY(-10px); }
-                    to { opacity: 1; transform: translateY(0); }
-                }
-                .status-pill {
-                    cursor: pointer;
-                    font-size: 0.85rem;
-                    font-weight: 500;
-                    padding: 6px 12px;
-                    border-radius: 20px;
-                    transition: all 0.2s;
-                    color: #64748b;
-                    background: transparent;
-                    border: 1px solid transparent;
-                }
-                .status-pill:hover {
-                    background-color: #f1f5f9;
-                    color: #0f172a;
-                }
-                .status-pill.active {
-                    background-color: #0f172a;
-                    color: white;
-                    box-shadow: 0 2px 4px rgba(15, 23, 42, 0.2);
-                }
-                .job-desc-content h1, .job-desc-content h2, .job-desc-content h3 { font-size: 1.1rem; font-weight: bold; margin-top: 1rem; margin-bottom: 0.5rem; }
-                .job-desc-content ul { padding-left: 1.5rem; margin-bottom: 1rem; }
-                .job-desc-content p { margin-bottom: 0.75rem; }
+                .nav-pills .nav-link { color: #64748b; font-weight: 500; font-size: 0.9rem; padding: 0.5rem 1rem; border-radius: 6px; transition: all 0.2s; }
+                .nav-pills .nav-link:hover { background-color: #f1f5f9; color: #0f172a; }
+                .nav-pills .nav-link.active { background-color: white; color: var(--bs-primary); box-shadow: 0 1px 3px rgba(0,0,0,0.1); font-weight: 600; }
+                .search-input:focus { box-shadow: none; border-color: var(--bs-primary); }
                 `}
             </style>
 
-            {/* Header Section */}
-            <div className="d-flex flex-column flex-xl-row justify-content-between align-items-xl-center mb-4 gap-3">
+            {/* --- HEADER --- */}
+            <div className="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4 gap-3">
                 <div className="d-flex align-items-center gap-3">
-                    <div className="bg-primary bg-opacity-10 p-2 rounded-circle text-primary">
-                        <Briefcase size={20} />
+                    <div className="bg-primary bg-opacity-10 p-3 rounded-3 text-primary">
+                        <Briefcase size={24} />
                     </div>
                     <div>
-                        <h2 className="fw-bold text-dark mb-0 h5">Job Library</h2>
-                        <p className="text-muted mb-0 small">
-                            Manage your saved opportunities
-                        </p>
-                    </div>
-                    <div className="vr mx-2 d-none d-md-block opacity-25"></div>
-                    
-                    {/* RESTORED: Toggle Pills */}
-                    <div className="d-flex gap-1 p-1 bg-white border rounded-pill shadow-sm">
-                        <button 
-                            className={`status-pill d-flex align-items-center gap-2 ${statusFilter === 'all' ? 'active' : ''}`}
-                            onClick={() => setStatusFilter('all')}
-                        >
-                            All <span className="opacity-75 small">({counts.all})</span>
-                        </button>
-                        <button 
-                            className={`status-pill d-flex align-items-center gap-2 ${statusFilter === 'pending' ? 'active' : ''}`}
-                            onClick={() => setStatusFilter('pending')}
-                        >
-                            <CircleDashed size={14}/> To Apply <span className="opacity-75 small">({counts.pending})</span>
-                        </button>
-                        <button 
-                            className={`status-pill d-flex align-items-center gap-2 ${statusFilter === 'started' ? 'active' : ''}`}
-                            onClick={() => setStatusFilter('started')}
-                        >
-                            <CheckCircle2 size={14}/> Applied <span className="opacity-75 small">({counts.started})</span>
-                        </button>
+                        <h2 className="fw-bold text-dark mb-1 h4">Job Library</h2>
+                        <div className="d-flex align-items-center gap-2 text-muted small">
+                            {defaultCvId ? (
+                                <span className="d-flex align-items-center gap-1 bg-light px-2 py-1 rounded border">
+                                    <FileText size={12}/> 
+                                    Targeting: <strong className="text-dark">{targetCvName}</strong>
+                                </span>
+                            ) : (
+                                <span>Manage your job opportunities</span>
+                            )}
+                        </div>
                     </div>
                 </div>
-
-                <div className="d-flex gap-2">
-                    <button 
-                        onClick={() => setIsSearchOpen(!isSearchOpen)}
-                        className={`btn btn-white bg-white border shadow-sm d-flex align-items-center gap-2 text-muted hover-lift ${isSearchOpen || searchQuery ? 'text-primary border-primary' : ''}`}
-                    >
-                        <Search size={16}/> <span className="d-none d-sm-inline">Search</span>
-                    </button>
-                    <button 
-                        className="btn btn-primary d-flex align-items-center gap-2 shadow-sm hover-lift" 
-                        onClick={handleOpenAddModal}
-                    >
-                        <Plus size={18}/> Add Job
+                <div>
+                    <button className="btn btn-primary d-flex align-items-center gap-2 shadow-sm hover-lift px-4 py-2" onClick={handleOpenAddModal}>
+                        <Plus size={18} strokeWidth={2.5}/> <span className="fw-medium">Add Job</span>
                     </button>
                 </div>
             </div>
 
-            {/* Search Bar */}
-            {isSearchOpen && (
-                <div className="mb-4 search-enter">
-                    <div className="input-group shadow-sm border rounded-3 overflow-hidden">
-                        <span className="input-group-text bg-white border-0 ps-3">
-                            <Filter size={18} className="text-muted"/>
-                        </span>
-                        <input 
-                            type="text" 
-                            className="form-control border-0 py-2 shadow-none" 
-                            placeholder="Filter jobs by title or company..." 
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            autoFocus
-                        />
-                        {searchQuery && (
-                            <button className="btn btn-white border-0 text-muted" onClick={() => setSearchQuery('')}>
-                                <XCircle size={16}/>
+            {/* --- TOOLBAR --- */}
+            <div className="card border-0 shadow-sm mb-4 bg-light bg-opacity-50">
+                <div className="card-body p-2">
+                    <div className="d-flex flex-column flex-lg-row gap-3 align-items-center justify-content-between">
+                        {/* Tabs */}
+                        <div className="nav nav-pills bg-light rounded p-1 border d-inline-flex w-100 w-lg-auto justify-content-center justify-content-lg-start">
+                            <button className={`nav-link d-flex align-items-center gap-2 ${statusFilter === 'all' ? 'active' : ''}`} onClick={() => setStatusFilter('all')}>
+                                All Jobs <span className="badge bg-secondary bg-opacity-10 text-secondary rounded-pill">{counts.all}</span>
                             </button>
-                        )}
-                    </div>
-                </div>
-            )}
+                            <button className={`nav-link d-flex align-items-center gap-2 ${statusFilter === 'pending' ? 'active' : ''}`} onClick={() => setStatusFilter('pending')}>
+                                To Apply <span className="badge bg-warning bg-opacity-10 text-warning border border-warning border-opacity-25 rounded-pill">{counts.pending}</span>
+                            </button>
+                            <button className={`nav-link d-flex align-items-center gap-2 ${statusFilter === 'started' ? 'active' : ''}`} onClick={() => setStatusFilter('started')}>
+                                Applied <span className="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 rounded-pill">{counts.started}</span>
+                            </button>
+                        </div>
 
-            {/* Job Grid */}
-            <div className="row g-4">
-                {processedJobs.length === 0 ? (
-                    <div className="col-12">
-                        <div className="text-center py-5 bg-light rounded-3 border border-dashed">
-                            <div className="mb-3 text-muted opacity-50">
-                                <Briefcase size={48} />
+                        {/* Search & Actions */}
+                        <div className="d-flex gap-2 w-100 w-lg-auto">
+                            <div className="input-group shadow-sm" style={{maxWidth: '300px'}}>
+                                <span className="input-group-text bg-white border-end-0 text-muted ps-3"><Search size={16}/></span>
+                                <input type="text" className="form-control border-start-0 ps-0 search-input py-2" placeholder="Search..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}/>
+                                {searchQuery && <button className="btn btn-white border border-start-0" onClick={() => setSearchQuery('')}><XCircle size={14} className="text-muted"/></button>}
                             </div>
-                            <h5 className="fw-bold text-muted">No jobs found</h5>
-                            <p className="text-muted small">
-                                {searchQuery ? "Try adjusting your search terms." : 
-                                 statusFilter !== 'all' ? `No jobs matching '${statusFilter}' status.` :
-                                 "Start building your library by adding a job."}
-                            </p>
-                            {(searchQuery || statusFilter !== 'all') ? (
-                                <button className="btn btn-link text-primary" onClick={() => {setSearchQuery(''); setStatusFilter('all');}}>Clear Filters</button>
-                            ) : (
-                                <button className="btn btn-primary btn-sm mt-2" onClick={handleOpenAddModal}>+ Add Job</button>
-                            )}
+
+                            <div className="dropdown">
+                                <button className="btn btn-white bg-white border shadow-sm d-flex align-items-center gap-2 text-muted h-100 px-3" type="button" data-bs-toggle="dropdown">
+                                    <ArrowUpDown size={16}/> <span className="d-none d-md-inline small fw-medium">Sort</span>
+                                </button>
+                                <ul className="dropdown-menu dropdown-menu-end shadow-sm border-0">
+                                    <li><button className="dropdown-item" onClick={() => setSortBy('recommended')}>✨ Recommended</button></li>
+                                    <li><button className="dropdown-item" onClick={() => setSortBy('score')}>🎯 Best Score</button></li>
+                                    <li><button className="dropdown-item" onClick={() => setSortBy('deadline')}>⏰ Closing Soon</button></li>
+                                    <li><button className="dropdown-item" onClick={() => setSortBy('date')}>📅 Newest</button></li>
+                                </ul>
+                            </div>
+
+                            <button onClick={handleRunAnalysis} disabled={analyzing} className="btn btn-white bg-white border shadow-sm d-flex align-items-center gap-2 text-primary hover-lift px-3">
+                                {analyzing ? <Loader2 size={18} className="animate-spin"/> : <Sparkles size={18}/>}
+                                <span className="d-none d-md-inline fw-medium">{analyzing ? 'Scanning...' : 'Scan'}</span>
+                            </button>
                         </div>
                     </div>
+                </div>
+            </div>
+
+            {/* --- SECTION 3: GRID --- */}
+            <div className="row g-4">
+                {loading ? (
+                    <div className="text-center py-5 w-100"><div className="spinner-border text-primary" role="status"/></div>
+                ) : displayJobs.length === 0 ? (
+                    <div className="col-12 text-center py-5 bg-white rounded-3 border border-dashed shadow-sm">
+                        <div className="mb-3 bg-light rounded-circle p-4 d-inline-block"><Briefcase size={48} className="text-muted opacity-50" /></div>
+                        <h5 className="fw-bold text-dark mb-1">No jobs found</h5>
+                        <p className="text-muted small mb-3">Try adjusting your search or add a new job.</p>
+                        {searchQuery ? (
+                             <button className="btn btn-outline-secondary btn-sm" onClick={() => setSearchQuery('')}>Clear Search</button>
+                        ) : (
+                             <button className="btn btn-primary btn-sm" onClick={handleOpenAddModal}>Add Job</button>
+                        )}
+                    </div>
                 ) : (
-                    processedJobs.map(job => {
+                    displayJobs.map(job => {
                         const application = applicationMap.get(job.id);
+                        const displayScore = application ? application.match_score : job.match_score;
+                        const displayBadges = application ? application.cached_badges : job.cached_badges;
+
                         return (
                             <div key={job.id} className="col-12 col-md-6 col-xl-4 d-flex align-items-stretch">
                                 <div className="w-100 h-100 hover-lift transition-all">
@@ -318,12 +275,16 @@ const JobLibrary = () => {
                                         job={job}
                                         cvs={cvs}
                                         defaultCvId={defaultCvId}
-                                        application={application} 
+                                        application={application}
+                                        matchScore={displayScore}
+                                        badges={displayBadges}
                                         onStartApplication={handleStartApplication}
-                                        onViewApplication={handleViewApplication}
+                                        onViewApplication={(appId) => navigate(`/application/${appId}`)}
                                         onEdit={() => handleOpenEditModal(job.id)} 
                                         onDelete={() => handleOpenDeleteModal(job)}
-                                        onViewDescription={handleViewDescription}
+                                        
+                                        // Connected to the new Handler
+                                        onViewDescription={handleViewDescription} 
                                     />
                                 </div>
                             </div>
@@ -334,12 +295,20 @@ const JobLibrary = () => {
 
             {/* --- MODALS --- */}
             
+            {/* The existing Edit/Add Modal */}
             <JobModal
                 key={modalJobId || 'new'} 
                 initialJobId={modalJobId}
                 isOpen={isModalOpen}
                 onClose={handleCloseModal}
                 onJobUpdated={handleJobUpdated}
+            />
+
+            {/* [4] RENDER THE NEW PREVIEW MODAL */}
+            <JobPreviewModal 
+                job={previewJob} 
+                isOpen={!!previewJob} 
+                onClose={() => setPreviewJob(null)} 
             />
 
             {itemToDelete && (
@@ -350,43 +319,6 @@ const JobLibrary = () => {
                     itemName={itemToDelete.title}
                     itemType="job"
                 />
-            )}
-
-            {viewingDescJob && (
-                <div className="modal show d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}} tabIndex="-1" onClick={handleCloseDescModal}>
-                    <div className="modal-dialog modal-lg modal-dialog-scrollable modal-dialog-centered" onClick={e => e.stopPropagation()}>
-                        <div className="modal-content border-0 shadow-lg">
-                            <div className="modal-header border-bottom-0 bg-light bg-opacity-50">
-                                <div className="d-flex align-items-center gap-3">
-                                    <div className="bg-white p-2 rounded border shadow-sm text-primary">
-                                        <FileText size={20} />
-                                    </div>
-                                    <div>
-                                        <h5 className="modal-title fw-bold text-dark">{viewingDescJob.title}</h5>
-                                        <div className="text-muted small">{viewingDescJob.company}</div>
-                                    </div>
-                                </div>
-                                <button type="button" className="btn-close" onClick={handleCloseDescModal}></button>
-                            </div>
-                            <div className="modal-body p-4 bg-white">
-                                {viewingDescJob.displayed_description ? (
-                                    <div 
-                                        className="job-desc-content text-secondary"
-                                        style={{ fontSize: '0.95rem', lineHeight: '1.6' }}
-                                        dangerouslySetInnerHTML={{ __html: viewingDescJob.displayed_description }} 
-                                    />
-                                ) : (
-                                    <div className="text-secondary" style={{ whiteSpace: 'pre-wrap', fontSize: '0.95rem', lineHeight: '1.6' }}>
-                                        {viewingDescJob.description || "No description available."}
-                                    </div>
-                                )}
-                            </div>
-                            <div className="modal-footer border-top-0 bg-light bg-opacity-50">
-                                <button type="button" className="btn btn-secondary" onClick={handleCloseDescModal}>Close</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
             )}
         </div>
     );
