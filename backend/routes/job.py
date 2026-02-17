@@ -341,3 +341,21 @@ def preview_job_match(
         "score": stats.overall_match_score,
         "badges": badges
     }
+
+class JobFeatureUpdate(BaseModel):
+    description: str
+    type: str
+    
+# Add this endpoint to your router
+@router.patch("/{job_id}/feature/{feature_id}")
+def update_feature(
+    job_id: str, 
+    feature_id: str, 
+    payload: JobFeatureUpdate, 
+    request: Request,
+    user: User = Depends(get_current_user)
+):
+    """Updates a specific job feature's text or type."""
+    registry: Registry = request.app.state.registry
+    # You will need to ensure your Registry class has this method!
+    return registry.update_job_feature(user.id, job_id, feature_id, payload.description, payload.type)
