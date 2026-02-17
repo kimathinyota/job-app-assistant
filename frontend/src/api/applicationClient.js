@@ -15,7 +15,19 @@ const apiClient = axios.create({
 });
 
 // --- JobDescription Endpoints (routes/job.py) ---
-export const fetchAllJobs = () => apiClient.get('/job/');
+// 1. UPDATE: Accept params for Search & Sort
+export const fetchAllJobs = (params = {}) => {
+    // params example: { q: 'python', sort: 'recommended' }
+    const query = new URLSearchParams(params).toString();
+    return apiClient.get(`/job/?${query}`);
+};
+
+export const scoreAllJobs = (cvId) => {
+    // If cvId is null, backend uses user.primary_cv_id
+    const params = cvId ? `?cv_id=${cvId}` : '';
+    return apiClient.post(`/job/score-all${params}`);
+};
+
 export const fetchJobDetails = (jobId) => apiClient.get(`/job/${jobId}`);
 export const createJob = (title, company) => {
     const params = new URLSearchParams({ title, company });
@@ -293,4 +305,12 @@ export const promoteMatch = (appId, featureId, alternativeId) => {
 export const approveMatch = (appId, featureId) => {
     // FIX: Added /forensics prefix
     return apiClient.post(`/forensics/applications/${appId}/mappings/${featureId}/approve`);
+};
+
+export const fetchMatchPreview = async (jobId, cvId) => {
+    // This calls the new lightweight endpoint
+    const response = await apiClient.get(`/job/${jobId}/match-preview`, {
+        params: { cv_id: cvId }
+    });
+    return response.data; // Expects { score: 90.0, badges: [...] }
 };
