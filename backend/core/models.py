@@ -819,7 +819,7 @@ class JobDescriptionUpdate(BaseModel):
     
     description: Optional[str] = None
     displayed_description: Optional[str] = None
-    
+
 class ApplicationStatus(BaseModel):
     """A minimal model used specifically for the PUT /application/{id}/status route."""
     status: Literal["draft", "applied", "interview", "offer", "rejected"]
@@ -1119,6 +1119,8 @@ class ForensicAnalysis(BaseModel):
     stats: JobFitStats
     # Grouped for UI columns (Key = Importance Label: "Critical", "High", etc.)
     groups: Dict[str, List[ForensicItem]]
+    suggested_grade: str = "D"
+    suggested_badges: List[str] = []
 
 
 # ---------------------------------------------------------------------

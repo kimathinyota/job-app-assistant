@@ -187,10 +187,16 @@ class ForensicCalculator:
             evidence_ids_by_source=dict(evidence_ids_by_source)
         )
 
+        # --- CENTRALIZED GRADE & BADGE LOGIC ---
+        grade = self._calculate_grade(stats.overall_match_score)
+        badges = self._generate_badges(stats, job)
+
         return ForensicAnalysis(
             application_id=None,
             stats=stats,
-            groups=groups
+            groups=groups,
+            suggested_grade=grade,
+            suggested_badges=badges
         )
 
     # --- HELPERS ---
@@ -211,9 +217,9 @@ class ForensicCalculator:
         root = pair.context_item_type.lower()
         if "experience" in root: return "Professional"
         if "education" in root: return "Academic"
-        if "hobby" in root: return "Other" # Changed from Personal to Other to match test output
-        if "project" in root: return "Professional" # Projects are usually professional evidence
-        if "skill" in root: return "Other" # Direct skill list is less authoritative than experience
+        if "hobby" in root: return "Other"
+        if "project" in root: return "Professional"
+        if "skill" in root: return "Other"
         
         return "Other"
 
@@ -228,3 +234,48 @@ class ForensicCalculator:
             return f"{base} {confidence}"
         else:
             return f"{base} {confidence} - Weak Match"
+
+    # --- UNIFIED GRADING LOGIC (Moved from ScoringService) ---
+
+    def _calculate_grade(self, score: float) -> str:
+        if score >= 85: return "A"
+        if score >= 65: return "B"
+        if score >= 40: return "C"
+        return "D"
+
+    def _generate_badges(self, stats: JobFitStats, job: JobDescription) -> List[str]:
+        """
+        Generates rich, descriptive tags for the card.
+        Now lives in Forensics so it matches the deep-dive analysis.
+        """
+        badges = []
+        
+        # 1. Critical Flags (The Dealbreakers)
+        if stats.critical_gaps_count > 0:
+            badges.append("Missing Critical Skills")
+        
+        # 2. Score Highlights
+        if stats.overall_match_score >= 90:
+            badges.append("Top Match 🚀")
+        elif stats.overall_match_score >= 75:
+            badges.append("Strong Fit")
+        elif stats.overall_match_score < 30:
+            badges.append("Poor Fit")
+
+        # 3. Shape of Skills (The "Why")
+        if stats.coverage_pct > 80 and stats.overall_match_score < 60:
+            badges.append("Broad but Weak") # Lots of keywords, low proof
+        
+        if stats.coverage_pct < 50 and stats.overall_match_score > 70:
+            badges.append("Niche Specialist") # Few matches, but very strong evidence
+
+        # 4. Job Metadata Tags (Easy wins for visuals)
+        if job.location and "remote" in job.location.lower():
+            badges.append("Remote")
+            
+        if job.salary_range:
+            clean_sal = job.salary_range.lower()
+            if "k" in clean_sal or "£" in clean_sal or "$" in clean_sal: 
+                badges.append("Salary Listed")
+
+        return badges

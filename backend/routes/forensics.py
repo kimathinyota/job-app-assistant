@@ -147,6 +147,10 @@ def approve_match(
 # -----------------------------------------------------------------------------
 # 1. GENERATE ROLE CASE (Inference + Forensics Pipeline)
 # -----------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------
+# 1. GENERATE ROLE CASE (Inference + Forensics Pipeline)
+# -----------------------------------------------------------------------------
 @router.post("/generate", response_model=ForensicAnalysis)
 def generate_role_case(
     payload: GenerateRoleCaseRequest, 
@@ -184,6 +188,8 @@ def generate_role_case(
     
     # 3. RUN INFERENCE (The "Brain")
     try:
+        # TUNING_MODES should be imported from backend.core.tuning or similar
+        from backend.core.tuning import TUNING_MODES
         mode_settings = TUNING_MODES.get(payload.mode, TUNING_MODES["balanced_default"])
         config_params = mode_settings.get("config", {})
         
@@ -203,12 +209,10 @@ def generate_role_case(
     analysis = calculator.calculate(job, mapping)
     
     # Inject context
-    analysis.application_id = None # Optional, or you could look up related application ID
+    analysis.application_id = None 
 
     return analysis
 
-
-# backend/routes/forensics.py
 
 @router.get("/applications/{app_id}/forensic-analysis", response_model=ForensicAnalysis)
 def get_forensic_analysis(
@@ -251,10 +255,7 @@ def get_forensic_analysis(
             inferer = request.app.state.inferer
             cv = registry.get_cv(app.base_cv_id, user.id)
             
-            # Use default balanced settings or config
             mode_settings = "balanced_default" 
-            # (Assuming you have access to TUNING_MODES or defaults)
-
 
             print(f"[Forensics] Running inference for Job {job.id} with CV {cv.id} using mode: {mode_settings}")
             
@@ -270,46 +271,33 @@ def get_forensic_analysis(
             print(f"[Forensics] Inference complete. Found {len(suggestions)} matches.")
             
         except Exception as e:
-            # Log error but don't crash if AI fails (return empty analysis)
             print(f"[Forensics] Lazy Inference Failed: {str(e)}")
 
     # 3. Calculate Analysis
     print(f"[Forensics] Calculating forensic analysis for Job {job.id} with Mapping {mapping.id}..."   )
     calculator = ForensicCalculator()
-    analysis = calculator.calculate(job, mapping)
+    analysis = calculator.calculate(job, mapping) # Returns Analysis WITH grades/badges
     print(f"[Forensics] Analysis complete. Stats: {analysis.stats}")
 
-    # --- CACHE WRITE-BACK (THE NEW FIX) ---
-    # If the deep analysis disagrees with the cached dashboard score, sync them.
-    current_score = analysis.stats.overall_match_score
+    # --- CACHE WRITE-BACK (Refactored) ---
+    # Sync the deep analysis score/badges to the Application Cache using ScoringService
+    print(f"[Forensics] Syncing Application Cache for {app.id}...")
     
-    if (app.match_score != current_score) or (not app.cached_badges):
-        print(f"[Forensics] Syncing Application Cache for {app.id} (New Score: {current_score})...")
+    try:
+        # Instantiate service with existing inferer (lightweight)
+        inferer = getattr(request.app.state, "inferer", None)
+        service = ScoringService(registry, inferer)
         
-        try:
-            # Instantiate service with existing inferer (lightweight) to access badge logic
-            inferer = getattr(request.app.state, "inferer", None)
-            service = ScoringService(registry, inferer)
-            
-            # Update fields
-            app.match_score = current_score
-            app.cached_badges = service._generate_badges(analysis.stats, job)
-            
-            # Update Grade (Simple logic mirroring ScoringService)
-            if current_score >= 85: app.match_grade = "A"
-            elif current_score >= 65: app.match_grade = "B"
-            elif current_score >= 40: app.match_grade = "C"
-            else: app.match_grade = "D"
-            
-            # Save to DB
-            registry.update_application(user.id, app.id, app)
-            
-        except Exception as e:
-            print(f"[Forensics] Warning: Failed to update cache: {e}")
+        # Use the unified update method
+        service.update_application_from_analysis(user.id, app, analysis)
+        
+    except Exception as e:
+        print(f"[Forensics] Warning: Failed to update cache: {e}")
     # --------------------------------------
 
     analysis.application_id = app_id
     return analysis
+
 
 
 # -----------------------------------------------------------------------------

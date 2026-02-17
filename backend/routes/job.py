@@ -323,7 +323,6 @@ def preview_job_match(
     cv = registry.get_cv(cv_id, user.id)
 
     print(f" [Preview] Fetching Job and CV for User ID: {user.id}...", "\n\n")
-    print(f" [Preview] Job ID: {job_id}, CV ID: {cv_id}",  "\n\n")
     if not job or not cv:
         raise HTTPException(404, "Job or CV not found")
         
@@ -331,19 +330,20 @@ def preview_job_match(
     # We use _get_or_create_smart_mapping to ensure we leverage existing AI work
     mapping = service._get_or_create_smart_mapping(user.id, job, cv)
 
-    print(f" [Preview] Mapping Mapping ID: {mapping.id if mapping else 'N/A'}, Pairs Count: {len(mapping.pairs) if mapping else 'N/A'}"  )
+    print(f" [Preview] Mapping ID: {mapping.id}, Pairs Count: {len(mapping.pairs)}")
 
     # 3. Calculate Score
+    # The calculator now does ALL the work (Score + Grade + Badges)
     analysis = service.forensics.calculate(job, mapping)
-    print(f" [Preview] Analysis for Job ID: {job_id} with CV ID: {cv_id}: Stats:", analysis.stats, "\n\n")
-    stats = analysis.stats
     
-    # 4. Generate Badges
-    badges = service._generate_badges(stats, job)
+    print(f" [Preview] Stats: {analysis.stats}")
     
+    # 4. Return Results
+    # We read the unified badges directly from the analysis object
     return {
-        "score": stats.overall_match_score,
-        "badges": badges
+        "score": analysis.stats.overall_match_score,
+        "badges": analysis.suggested_badges, # <--- UPDATED HERE
+        "grade": analysis.suggested_grade    # Optional: You can return the grade too
     }
 
 class JobFeatureUpdate(BaseModel):

@@ -1,7 +1,7 @@
 # backend/core/services/scoring.py
 
 from typing import List, Optional
-from backend.core.models import JobDescription, CV, JobFitStats, Application, Mapping
+from backend.core.models import JobDescription, CV, JobFitStats, Application, Mapping, ForensicAnalysis
 from backend.core.registry import Registry
 from backend.core.inferer import MappingInferer
 from backend.core.forensics import ForensicCalculator
@@ -32,7 +32,12 @@ class ScoringService:
         analysis = self.forensics.calculate(job, mapping)
         
         # 3. Update Job Cache (The "Spotlight" data)
-        self._update_job_cache(user_id, job, analysis.stats)
+        # We now pull the grade and badges directly from the authoritative calculation
+        job.match_score = analysis.stats.overall_match_score
+        job.match_grade = analysis.suggested_grade
+        job.cached_badges = analysis.suggested_badges
+        
+        self.registry.update_job(user_id, job.id, job)
         
         return job
 
@@ -58,15 +63,24 @@ class ScoringService:
         analysis = self.forensics.calculate(job, mapping)
         
         # 3. Update APPLICATION Cache
-        # This ensures the "Applied" card shows the score for the CV used to apply,
-        # which might be different from the default CV.
-        app.match_score = analysis.stats.overall_match_score
-        app.match_grade = self._calculate_grade(analysis.stats.overall_match_score)
-        app.cached_badges = self._generate_badges(analysis.stats, job)
-        
-        self.registry.update_application(user_id, app.id, app)
+        self.update_application_from_analysis(user_id, app, analysis)
         
         return app
+
+    # --- HELPER: CENTRALIZED CACHE UPDATE ---
+    
+    def update_application_from_analysis(self, user_id: str, app: Application, analysis: ForensicAnalysis):
+        """
+        Updates the Application record with the authoritative scores, grades, and badges
+        returned by the Forensic Analysis.
+        """
+        # Only update if something changed or badges are missing
+        if (app.match_score != analysis.stats.overall_match_score) or (not app.cached_badges):
+            app.match_score = analysis.stats.overall_match_score
+            app.match_grade = analysis.suggested_grade
+            app.cached_badges = analysis.suggested_badges
+            
+            self.registry.update_application(user_id, app.id, app)
 
     # --- CORE LOGIC ---
 
@@ -91,75 +105,27 @@ class ScoringService:
 
         print(f"[ScoringService] Existing mapping fetched: {existing_mapping.id if existing_mapping else 'None'} for Job {job.id} and CV {cv.id}. Number of existing pairs: {len(existing_mapping.pairs) if existing_mapping else 'N/A'}")
 
-
-
         # C. The Smart Merge
         if existing_mapping:
             # Merge Fresh + User History
             final_pairs = SmartMapper.merge_inference(existing_mapping, fresh_pairs)
             print(f"[ScoringService] Merged pairs count: {len(final_pairs)} for Mapping {existing_mapping.id}." )
+            
+            # SORT FIX: Ensure strongest matches are first
             final_pairs.sort(key=lambda x: x.strength or 0, reverse=True)
+            
             existing_mapping.pairs = final_pairs
             self.registry.save_mapping(user_id, existing_mapping)
             return existing_mapping
         else:
             # Create New
-
             new_mapping = self.registry.create_mapping(user_id, job.id, cv.id)
             print(f"[ScoringService] No existing mapping. Created new Mapping {new_mapping.id} for Job {job.id} and CV {cv.id}.")
+            
+            # SORT FIX
             fresh_pairs.sort(key=lambda x: (x.strength or 0), reverse=True)
+            
             new_mapping.pairs = fresh_pairs
             print(f"[ScoringService] Assigned {len(fresh_pairs)} fresh pairs to new Mapping {new_mapping.id}.")
             self.registry.save_mapping(user_id, new_mapping)
             return new_mapping
-
-    def _update_job_cache(self, user_id: str, job: JobDescription, stats: JobFitStats):
-        """Writes score and badges to the Job record."""
-        job.match_score = stats.overall_match_score
-        job.match_grade = self._calculate_grade(stats.overall_match_score)
-        job.cached_badges = self._generate_badges(stats, job)
-        self.registry.update_job(user_id, job.id, job)
-
-    def _calculate_grade(self, score: float) -> str:
-        if score >= 85: return "A"
-        if score >= 65: return "B"
-        if score >= 40: return "C"
-        return "D"
-
-    def _generate_badges(self, stats: JobFitStats, job: JobDescription) -> List[str]:
-        """
-        Generates rich, descriptive tags for the card.
-        This provides the "Better Tags" for the frontend.
-        """
-        badges = []
-        
-        # 1. Critical Flags (The Dealbreakers)
-        if stats.critical_gaps_count > 0:
-            badges.append("Missing Critical Skills")
-        
-        # 2. Score Highlights
-        if stats.overall_match_score >= 90:
-            badges.append("Top Match 🚀")
-        elif stats.overall_match_score >= 75:
-            badges.append("Strong Fit")
-        elif stats.overall_match_score < 30:
-            badges.append("Poor Fit")
-
-        # 3. Shape of Skills (The "Why")
-        if stats.coverage_pct > 80 and stats.overall_match_score < 60:
-            badges.append("Broad but Weak") # Lots of keywords, low proof
-        
-        if stats.coverage_pct < 50 and stats.overall_match_score > 70:
-            badges.append("Niche Specialist") # Few matches, but very strong evidence
-
-        # 4. Job Metadata Tags (Easy wins for visuals)
-        if job.location and "remote" in job.location.lower():
-            badges.append("Remote")
-            
-        if job.salary_range:
-            # Simple heuristic to flag salary presence
-            clean_sal = job.salary_range.lower()
-            if "k" in clean_sal or "£" in clean_sal or "$" in clean_sal: 
-                badges.append("Salary Listed")
-
-        return badges
