@@ -9,6 +9,7 @@ from backend.core.forensics import ForensicCalculator
 from backend.core.models import ForensicAnalysis, Mapping, LineageItem, MatchCandidate, MatchingMeta, User
 from backend.core.registry import Registry
 from backend.routes.auth import get_current_user
+from backend.core.services.scoring import ScoringService # Import ScoringService
 
 # You might need to import your TUNING_MODES constant if it's shared, 
 # otherwise I have defined it below for self-containment.
@@ -38,6 +39,39 @@ TUNING_MODES = {
         "config": {"min_score": 0.45, "top_k": None}
     }
 }
+
+
+def _update_job_cache_from_mapping(user_id: str, job_id: str, mapping: Mapping, registry: Registry):
+    """
+    Recalculates the score based on the current mapping and updates the Job Cache.
+    """
+    # 1. Fetch Job
+    job = registry.get_job(job_id, user_id)
+    if not job: return
+
+    # 2. Recalculate Forensics (Uses the NEW Approved/Rejected state)
+    calculator = ForensicCalculator()
+    analysis = calculator.calculate(job, mapping)
+    stats = analysis.stats
+
+    # 3. Update the Job Cache (Score, Grade, Badges)
+    job.match_score = stats.overall_match_score
+    
+    # Grade Logic
+    if stats.overall_match_score >= 85: job.match_grade = "A"
+    elif stats.overall_match_score >= 65: job.match_grade = "B"
+    elif stats.overall_match_score >= 40: job.match_grade = "C"
+    else: job.match_grade = "D"
+
+    # Badge Logic
+    badges = []
+    if stats.critical_gaps_count > 0: badges.append("Missing Critical Skills")
+    if stats.overall_match_score > 90: badges.append("Top Match")
+    # Add other badges as needed...
+    job.cached_badges = badges
+
+    # 4. Save
+    registry.update_job(user_id, job.id, job)
 
 # --- Request Model ---
 class GenerateRoleCaseRequest(BaseModel):
@@ -85,27 +119,30 @@ def promote_match(
 def approve_match(
     app_id: str, 
     feature_id: str, 
-    request: Request,
+    request: Request, 
     user: User = Depends(get_current_user)
 ):
     registry: Registry = request.app.state.registry
+    
+    # 1. Fetch Data
     app = registry.get_application(app_id, user.id)
-    if not app: raise HTTPException(404, "Application not found")
+    if not app: raise HTTPException(404, "App not found")
     
     mapping = registry.get_mapping(app.mapping_id, user.id)
-    
+    if not mapping: raise HTTPException(404, "Mapping not found")
+
+    # 2. Find and Update the Pair (Your existing logic)
     pair = next((p for p in mapping.pairs if p.feature_id == feature_id), None)
     if not pair: raise HTTPException(404, "Pair not found")
     
-    MappingOptimizer.approve_current_match(pair)
-    registry.save_mapping(user.id, mapping)
-    
-    job = registry.get_job(app.job_id, user.id)
-    calculator = ForensicCalculator()
-    new_analysis = calculator.calculate(job, mapping)
-    new_analysis.application_id = app_id
-    return new_analysis
+    pair.status = "user_approved"  # <--- The User Action
+    registry.save_mapping(user.id, mapping) # <--- Saved to DB
 
+    # 3. NEW: Trigger Background Score Update
+    # This ensures the Job Board immediately reflects the higher score
+    _update_job_cache_from_mapping(user.id, app.job_id, mapping, registry)
+
+    return {"status": "success", "new_status": pair.status}
 
 # -----------------------------------------------------------------------------
 # 1. GENERATE ROLE CASE (Inference + Forensics Pipeline)
@@ -171,9 +208,8 @@ def generate_role_case(
     return analysis
 
 
-# -----------------------------------------------------------------------------
-# 2. GET EXISTING ANALYSIS (Read-Only)
-# -----------------------------------------------------------------------------
+# backend/routes/forensics.py
+
 @router.get("/applications/{app_id}/forensic-analysis", response_model=ForensicAnalysis)
 def get_forensic_analysis(
     app_id: str, 
@@ -207,12 +243,12 @@ def get_forensic_analysis(
             inferer = request.app.state.inferer
             cv = registry.get_cv(app.base_cv_id, user.id)
             
-            # Use default balanced settings
-            mode_settings = TUNING_MODES["balanced_default"]
-            config_params = mode_settings.get("config", {})
+            # Use default balanced settings or config
+            mode_settings = "balanced_default" 
+            # (Assuming you have access to TUNING_MODES or defaults)
             
             # Run AI
-            suggestions = inferer.infer_mappings(job, cv, **config_params)
+            suggestions = inferer.infer_mappings(job, cv, min_score=0.20)
             
             # Save results
             mapping.pairs = suggestions
@@ -223,12 +259,43 @@ def get_forensic_analysis(
             # Log error but don't crash if AI fails (return empty analysis)
             print(f"[Forensics] Lazy Inference Failed: {str(e)}")
 
-    # 3. Calculate & Return
+    # 3. Calculate Analysis
     calculator = ForensicCalculator()
     analysis = calculator.calculate(job, mapping)
     
+    # --- CACHE WRITE-BACK (THE NEW FIX) ---
+    # If the deep analysis disagrees with the cached dashboard score, sync them.
+    current_score = analysis.stats.overall_match_score
+    
+    if (app.match_score != current_score) or (not app.cached_badges):
+        print(f"[Forensics] Syncing Application Cache for {app.id} (New Score: {current_score})...")
+        
+        try:
+            # Instantiate service with existing inferer (lightweight) to access badge logic
+            inferer = getattr(request.app.state, "inferer", None)
+            service = ScoringService(registry, inferer)
+            
+            # Update fields
+            app.match_score = current_score
+            app.cached_badges = service._generate_badges(analysis.stats, job)
+            
+            # Update Grade (Simple logic mirroring ScoringService)
+            if current_score >= 85: app.match_grade = "A"
+            elif current_score >= 65: app.match_grade = "B"
+            elif current_score >= 40: app.match_grade = "C"
+            else: app.match_grade = "D"
+            
+            # Save to DB
+            registry.update_application(user.id, app.id, app)
+            
+        except Exception as e:
+            print(f"[Forensics] Warning: Failed to update cache: {e}")
+    # --------------------------------------
+
     analysis.application_id = app_id
     return analysis
+
+
 # -----------------------------------------------------------------------------
 # 3. REJECT MATCH (Interactive Triage)
 # -----------------------------------------------------------------------------
@@ -254,16 +321,40 @@ def reject_match(
         raise HTTPException(404, "Mapping pair not found")
 
     # C. OPTIMIZE (Modify in Memory)
+    # This sets status='rejected' and clears the score/annotation so it doesn't count
     MappingOptimizer.reject_current_match(pair)
 
-    # D. SAVE (Persist changes)
+    # D. SAVE (Persist changes to Mapping)
     registry.save_mapping(user.id, mapping)
 
-    # E. RE-CALCULATE (Instant Feedback)
+    # E. RE-CALCULATE (Get new Forensic Analysis)
+    # We calculate this immediately so we can update the Job Cache
     job = registry.get_job(app.job_id, user.id)
     calculator = ForensicCalculator()
     new_analysis = calculator.calculate(job, mapping)
     
+    # F. UPDATE JOB CACHE (Spotlight Persistence)
+    # This logic matches your _update_job_cache_from_mapping helper
+    stats = new_analysis.stats
+    job.match_score = stats.overall_match_score
+    
+    # Update Grade
+    if stats.overall_match_score >= 85: job.match_grade = "A"
+    elif stats.overall_match_score >= 65: job.match_grade = "B"
+    elif stats.overall_match_score >= 40: job.match_grade = "C"
+    else: job.match_grade = "D"
+
+    # Update Badges
+    badges = []
+    if stats.critical_gaps_count > 0: badges.append("Missing Critical Skills")
+    if stats.overall_match_score > 90: badges.append("Top Match")
+    if stats.coverage_pct > 80 and stats.overall_match_score < 60: badges.append("Broad but Weak")
+    
+    job.cached_badges = badges
+
+    # Save Job Updates (So the dashboard updates instantly)
+    registry.update_job(user.id, job.id, job)
+
     new_analysis.application_id = app_id
 
     return {
@@ -271,6 +362,7 @@ def reject_match(
         "updated_pair": pair,
         "new_forensics": new_analysis 
     }
+
 
 class ManualMatchRequest(BaseModel):
     # The user provides the text evidence or links to a CV item
