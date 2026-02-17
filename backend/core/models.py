@@ -337,12 +337,24 @@ class JobDescription(UserOwnedEntity):
 
     # --- NEW FIELDS ---
     job_url: Optional[str] = None
-    application_end_date: Optional[str] = None # Using str for YYYY-MM-DD from form
+    
     location: Optional[str] = None
     salary_range: Optional[str] = None
     notes: Optional[str] = None
     # --- END NEW FIELDS ---
 
+    # --- INTELLIGENCE CACHE (For Spotlight & Sorting) ---
+    match_score: float = 0.0 
+    
+    # "Green", "Yellow", "Red" status based on the score
+    match_grade: Literal["A", "B", "C", "D"] = "D" 
+    
+    # Badges for the UI card (e.g. "Missing Degree", "High Salary")
+    cached_badges: List[str] = Field(default_factory=list)
+    # ----------------------------------------------------
+
+
+    application_end_date: Optional[str] = None # deprecated but identical to date_closing
     date_closing: Optional[str] = None 
     date_posted: Optional[str] = None      # <--- ADDED
     date_extracted: Optional[str] = None   # <--- ADDED
@@ -454,6 +466,17 @@ class MappingPair(BaseEntity):
     annotation: Optional[str] = None
 
     meta: Optional[MatchingMeta] = None
+
+    # --- NEW FIELDS FOR SMART MAPPING ---
+    # 'ai_proposed': Standard AI guess. Overwritable.
+    # 'user_approved': User clicked "Yes". Locked against weak AI updates.
+    # 'user_manual': User manually linked it. Strictly Locked.
+    status: Literal["ai_proposed", "user_approved", "user_manual"] = "ai_proposed"
+    
+    # Store hashes of rejected content to prevent "Zombie Matches"
+    # (Matches returning from the dead after re-inference)
+    rejected_match_hashes: List[str] = Field(default_factory=list)
+    # ------------------------------------
 
 
 
@@ -567,6 +590,12 @@ class Application(UserOwnedEntity):
     # NEW: Snapshot metadata
     is_locked: bool = False 
     applied_at: Optional[datetime] = None
+
+    # --- NEW CACHE FIELDS ---
+    # Stores the score specific to THIS application's CV
+    match_score: float = 0.0 
+    match_grade: Literal["A", "B", "C", "D"] = "D"
+    cached_badges: List[str] = Field(default_factory=list)
 
 
 # You already have BaseEntity and gen_id in your core
@@ -1086,6 +1115,8 @@ class User(BaseEntity):
     id: str
     provider_id: str
     full_name: str
+
+    primary_cv_id: Optional[str] = None
     avatar_url: Optional[str] = None
     
     # Freemium Logic
