@@ -1,6 +1,6 @@
 # backend/routes/cv.py
 
-from fastapi import APIRouter, HTTPException, Query, Request, Depends
+from fastapi import APIRouter, HTTPException, Query, Request, Depends, BackgroundTasks, Body
 from backend.core.registry import Registry
 from backend.core.models import (
     CVUpdate, ExperienceUpdate, ExperienceComplexPayload, 
@@ -19,12 +19,67 @@ from fastapi.responses import Response
 from redis import Redis
 from rq import Queue
 from backend.tasks import task_import_cv
+from backend.core.services.scoring import ScoringService
 
 from backend.core.services.cv_generator import PDFGenerator, WordGenerator
+
 router = APIRouter()
 # Connect to Redis (ensure port matches your docker container)
 redis_conn = Redis(host='localhost', port=6379)
 q = Queue(connection=redis_conn)
+
+
+# --- BACKGROUND TASK HELPER ---
+def task_rescore_jobs_for_cv(user_id: str, cv_id: str, request_app):
+    """
+    Background Task: 
+    When a specific CV is updated, propagate changes to:
+    1. Applications using this CV.
+    2. The Job Board (only if this is the Primary CV).
+    """
+    registry = request_app.state.registry
+    inferer = getattr(request_app.state, "inferer", None)
+    service = ScoringService(registry, inferer)
+
+    print(f"🔄 [Background] Processing updates for CV {cv_id}...")
+
+    # --- STEP 1: UPDATE LINKED APPLICATIONS (High Priority) ---
+    # Find all applications where base_cv_id == this CV
+    all_apps = registry.all_applications(user_id)
+    affected_apps = [app for app in all_apps if app.base_cv_id == cv_id]
+    
+    print(f"   ↳ Found {len(affected_apps)} active applications linked to this CV.")
+    
+    for app in affected_apps:
+        try:
+            # Uses the new score_application logic we wrote
+            service.score_application(user_id, app.id)
+        except Exception as e:
+            print(f"   ⚠️ Error updating Application {app.id}: {e}")
+
+
+    # --- STEP 2: UPDATE JOB BOARD (Conditional) ---
+    # We only re-score the "Browsing View" if this is the user's Primary CV.
+    # Otherwise, the browsing scores should stay reflecting the actual Primary CV.
+    
+    user = registry.get_user(user_id)
+    is_primary = (user and user.primary_cv_id == cv_id)
+    
+    if is_primary:
+        # It's the default! We must update the entire board so the "Spotlight" is accurate.
+        jobs = registry.all_jobs(user_id)
+        print(f"   ↳ CV is Primary. Rescoring {len(jobs)} browsing jobs...")
+        
+        for job in jobs:
+            try:
+                # Uses score_job (updates Job cache)
+                service.score_job(user_id, job.id, cv_id)
+            except Exception as e:
+                print(f"   ⚠️ Error scoring Job {job.id}: {e}")
+    else:
+        print(f"   ↳ CV is NOT Primary. Skipping job board rescore.")
+
+    print(f"✅ [Background] Update complete for CV {cv_id}.")
 
 @router.post("/import")
 async def import_cv_background(
@@ -98,39 +153,6 @@ def get_cv_task_status(task_id: str, user: User = Depends(get_current_user)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# @router.post("/import")
-# async def import_cv_text(
-#     request: Request, 
-#     payload: CVImportRequest,
-#     user: User = Depends(get_current_user)
-# ):
-#     """
-#     Imports a CV from raw text using the Fast Parse engine.
-#     """
-#     parser = getattr(request.app.state, "cv_parser", None)
-#     if not parser:
-#         raise HTTPException(status_code=503, detail="LLM Model is not loaded.")
-
-#     try:
-#         # 1. Parse into a full Pydantic CV object
-     
-#         import logging
-#         logging.getLogger(__name__).info(f"CV Import {user.id} or {user.provider_id}")
-#         structured_cv = await parser.parse_cv(payload.text, user.id, cv_name=payload.name)
-
-#         # 2. Persist to TinyDB using the Registry
-#         # Enforce User Ownership on the new object
-#         structured_cv.user_id = user.id
-        
-#         registry: Registry = request.app.state.registry
-#         registry._insert("cvs", structured_cv)
-        
-#         return structured_cv
-        
-#     except Exception as e:
-#         import logging
-#         logging.getLogger(__name__).error(f"CV Import Error: {str(e)}", exc_info=True)
-#         raise HTTPException(status_code=500, detail=f"Failed to parse CV: {str(e)}")
 
 @router.post("/")
 def create_cv(
@@ -154,7 +176,17 @@ def list_cvs(
     """List all base CVs belonging to the user."""
     registry: Registry = request.app.state.registry
     print(f"Listing CVs for user_id: {user.id}")
-    return registry.all_cvs(user.id)
+    cvs = registry.all_cvs(user.id)
+    # --- AUTO-HEAL: Set Default if Missing ---
+    if cvs and not user.primary_cv_id:
+        # Logic: Pick the most recently created/updated one
+        # Assuming cvs is a list, pick the first one
+        new_primary = cvs[0] 
+        
+        user.primary_cv_id = new_primary.id
+        registry.update_user(user)
+        # -----------------------------------------
+    return cvs
 
 @router.get("/{cv_id}")
 def get_cv(
@@ -181,12 +213,18 @@ def update_cv(
     cv_id: str, 
     data: CVUpdate, 
     request: Request,
+    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user)
 ):
     """Update general CV metadata (name, summary, contact_info)."""
     try:
         registry: Registry = request.app.state.registry
-        return registry.update_cv(user.id, cv_id, data)
+        updated_cv = registry.update_cv(user.id, cv_id, data)
+
+        # Trigger Rescore
+        background_tasks.add_task(task_rescore_jobs_for_cv, user.id, cv_id, request.app)
+        
+        return updated_cv
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -213,11 +251,16 @@ def add_experience_complex(
     cv_id: str, 
     payload: ExperienceComplexPayload, 
     request: Request,
+    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user)
 ):
     try:
         registry: Registry = request.app.state.registry
-        return registry.create_experience_from_payload(user.id, cv_id, payload)
+        result = registry.create_experience_from_payload(user.id, cv_id, payload)
+        
+        # Trigger Rescore
+        background_tasks.add_task(task_rescore_jobs_for_cv, user.id, cv_id, request.app)
+        return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -227,11 +270,16 @@ def update_experience_complex(
     exp_id: str, 
     payload: ExperienceComplexPayload, 
     request: Request,
+    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user)
 ):
     try:
         registry: Registry = request.app.state.registry
-        return registry.update_experience_from_payload(user.id, cv_id, exp_id, payload)
+        result = registry.update_experience_from_payload(user.id, cv_id, exp_id, payload)
+        
+        # Trigger Rescore
+        background_tasks.add_task(task_rescore_jobs_for_cv, user.id, cv_id, request.app)
+        return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -240,11 +288,16 @@ def add_education_complex(
     cv_id: str, 
     payload: EducationComplexPayload, 
     request: Request,
+    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user)
 ):
     try:
         registry: Registry = request.app.state.registry
-        return registry.create_education_from_payload(user.id, cv_id, payload)
+        result = registry.create_education_from_payload(user.id, cv_id, payload)
+        
+        # Trigger Rescore
+        background_tasks.add_task(task_rescore_jobs_for_cv, user.id, cv_id, request.app)
+        return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -254,11 +307,16 @@ def update_education_complex(
     edu_id: str, 
     payload: EducationComplexPayload, 
     request: Request,
+    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user)
 ):
     try:
         registry: Registry = request.app.state.registry
-        return registry.update_education_from_payload(user.id, cv_id, edu_id, payload)
+        result = registry.update_education_from_payload(user.id, cv_id, edu_id, payload)
+        
+        # Trigger Rescore
+        background_tasks.add_task(task_rescore_jobs_for_cv, user.id, cv_id, request.app)
+        return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -267,11 +325,16 @@ def add_hobby_complex(
     cv_id: str, 
     payload: HobbyComplexPayload, 
     request: Request,
+    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user)
 ):
     try:
         registry: Registry = request.app.state.registry
-        return registry.create_hobby_from_payload(user.id, cv_id, payload)
+        result = registry.create_hobby_from_payload(user.id, cv_id, payload)
+        
+        # Trigger Rescore
+        background_tasks.add_task(task_rescore_jobs_for_cv, user.id, cv_id, request.app)
+        return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -281,11 +344,16 @@ def update_hobby_complex(
     hobby_id: str, 
     payload: HobbyComplexPayload, 
     request: Request,
+    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user)
 ):
     try:
         registry: Registry = request.app.state.registry
-        return registry.update_hobby_from_payload(user.id, cv_id, hobby_id, payload)
+        result = registry.update_hobby_from_payload(user.id, cv_id, hobby_id, payload)
+        
+        # Trigger Rescore
+        background_tasks.add_task(task_rescore_jobs_for_cv, user.id, cv_id, request.app)
+        return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -296,6 +364,7 @@ def add_education(
     degree: str, 
     field: str,
     request: Request,
+    background_tasks: BackgroundTasks,
     start_date: Optional[str] = None, 
     end_date: Optional[str] = None,
     skill_ids: Optional[List[str]] = Query(None),
@@ -303,7 +372,7 @@ def add_education(
 ):
     try:
         registry: Registry = request.app.state.registry
-        return registry.add_cv_education(
+        result = registry.add_cv_education(
             user.id,
             cv_id, 
             institution=institution, 
@@ -313,6 +382,9 @@ def add_education(
             end_date=end_date, 
             skill_ids=skill_ids
         )
+        # Trigger Rescore
+        background_tasks.add_task(task_rescore_jobs_for_cv, user.id, cv_id, request.app)
+        return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -321,6 +393,7 @@ def add_skill(
     cv_id: str, 
     name: str,
     request: Request,
+    background_tasks: BackgroundTasks,
     category: str = "technical",
     level: Optional[str] = None, 
     importance: Optional[int] = None, 
@@ -329,7 +402,11 @@ def add_skill(
 ):
     try:
         registry: Registry = request.app.state.registry
-        return registry.add_cv_skill(user.id, cv_id, name=name, category=category, level=level, importance=importance, description=description)
+        result = registry.add_cv_skill(user.id, cv_id, name=name, category=category, level=level, importance=importance, description=description)
+        
+        # Trigger Rescore
+        background_tasks.add_task(task_rescore_jobs_for_cv, user.id, cv_id, request.app)
+        return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -339,6 +416,7 @@ def add_project(
     title: str, 
     description: str,
     request: Request,
+    background_tasks: BackgroundTasks,
     related_experience_id: Optional[str] = None, 
     related_education_id: Optional[str] = None,
     skill_ids: Optional[List[str]] = Query(None),
@@ -346,7 +424,7 @@ def add_project(
 ):
     try:
         registry: Registry = request.app.state.registry
-        return registry.add_cv_project(
+        result = registry.add_cv_project(
             user.id,
             cv_id, 
             title=title, 
@@ -355,6 +433,9 @@ def add_project(
             related_education_id=related_education_id, 
             skill_ids=skill_ids
         )
+        # Trigger Rescore
+        background_tasks.add_task(task_rescore_jobs_for_cv, user.id, cv_id, request.app)
+        return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -363,6 +444,7 @@ def add_hobby(
     cv_id: str, 
     name: str, 
     request: Request,
+    background_tasks: BackgroundTasks,
     description: Optional[str] = None,
     skill_ids: Optional[List[str]] = Query(None), 
     achievement_ids: Optional[List[str]] = Query(None),
@@ -370,7 +452,7 @@ def add_hobby(
 ):
     try:
         registry: Registry = request.app.state.registry
-        return registry.add_cv_hobby(
+        result = registry.add_cv_hobby(
             user.id,
             cv_id, 
             name=name, 
@@ -378,6 +460,9 @@ def add_hobby(
             skill_ids=skill_ids,
             achievement_ids=achievement_ids
         )
+        # Trigger Rescore
+        background_tasks.add_task(task_rescore_jobs_for_cv, user.id, cv_id, request.app)
+        return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     
@@ -387,11 +472,16 @@ def add_project_complex(
     cv_id: str, 
     payload: ProjectComplexPayload, 
     request: Request,
+    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user)
 ):
     try:
         registry: Registry = request.app.state.registry
-        return registry.create_project_from_payload(user.id, cv_id, payload)
+        result = registry.create_project_from_payload(user.id, cv_id, payload)
+        
+        # Trigger Rescore
+        background_tasks.add_task(task_rescore_jobs_for_cv, user.id, cv_id, request.app)
+        return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -401,11 +491,16 @@ def update_project_complex(
     project_id: str, 
     payload: ProjectComplexPayload, 
     request: Request,
+    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user)
 ):
     try:
         registry: Registry = request.app.state.registry
-        return registry.update_project_from_payload(user.id, cv_id, project_id, payload)
+        result = registry.update_project_from_payload(user.id, cv_id, project_id, payload)
+        
+        # Trigger Rescore
+        background_tasks.add_task(task_rescore_jobs_for_cv, user.id, cv_id, request.app)
+        return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -414,19 +509,23 @@ def add_achievement(
     cv_id: str, 
     text: str,
     request: Request,
+    background_tasks: BackgroundTasks,
     context: Optional[str] = None,
     skill_ids: Optional[List[str]] = Query(None),
     user: User = Depends(get_current_user)
 ):
     try:
         registry: Registry = request.app.state.registry
-        return registry.add_cv_achievement(
+        result = registry.add_cv_achievement(
             user.id,
             cv_id,
             text=text, 
             context=context, 
             skill_ids=skill_ids
         )
+        # Trigger Rescore
+        background_tasks.add_task(task_rescore_jobs_for_cv, user.id, cv_id, request.app)
+        return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -440,11 +539,16 @@ def link_skill_to_experience(
     exp_id: str, 
     skill_id: str, 
     request: Request,
+    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user)
 ):
     try:
         registry: Registry = request.app.state.registry
-        return registry.link_skill_to_entity(user.id, cv_id, exp_id, skill_id, 'experiences')
+        result = registry.link_skill_to_entity(user.id, cv_id, exp_id, skill_id, 'experiences')
+        
+        # Trigger Rescore
+        background_tasks.add_task(task_rescore_jobs_for_cv, user.id, cv_id, request.app)
+        return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -454,11 +558,16 @@ def link_skill_to_project(
     proj_id: str, 
     skill_id: str, 
     request: Request,
+    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user)
 ):
     try:
         registry: Registry = request.app.state.registry
-        return registry.link_skill_to_entity(user.id, cv_id, proj_id, skill_id, 'projects')
+        result = registry.link_skill_to_entity(user.id, cv_id, proj_id, skill_id, 'projects')
+        
+        # Trigger Rescore
+        background_tasks.add_task(task_rescore_jobs_for_cv, user.id, cv_id, request.app)
+        return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -468,11 +577,16 @@ def link_skill_to_achievement(
     ach_id: str, 
     skill_id: str, 
     request: Request,
+    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user)
 ):
     try:
         registry: Registry = request.app.state.registry
-        return registry.link_skill_to_entity(user.id, cv_id, ach_id, skill_id, 'achievements')
+        result = registry.link_skill_to_entity(user.id, cv_id, ach_id, skill_id, 'achievements')
+        
+        # Trigger Rescore
+        background_tasks.add_task(task_rescore_jobs_for_cv, user.id, cv_id, request.app)
+        return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -483,11 +597,16 @@ def link_achievement_to_experience(
     exp_id: str, 
     ach_id: str, 
     request: Request,
+    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user)
 ):
     try:
         registry: Registry = request.app.state.registry
-        return registry.link_achievement_to_context(user.id, cv_id, exp_id, ach_id, 'experiences')
+        result = registry.link_achievement_to_context(user.id, cv_id, exp_id, ach_id, 'experiences')
+        
+        # Trigger Rescore
+        background_tasks.add_task(task_rescore_jobs_for_cv, user.id, cv_id, request.app)
+        return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -497,11 +616,16 @@ def link_achievement_to_project(
     proj_id: str, 
     ach_id: str, 
     request: Request,
+    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user)
 ):
     try:
         registry: Registry = request.app.state.registry
-        return registry.link_achievement_to_context(user.id, cv_id, proj_id, ach_id, 'projects')
+        result = registry.link_achievement_to_context(user.id, cv_id, proj_id, ach_id, 'projects')
+        
+        # Trigger Rescore
+        background_tasks.add_task(task_rescore_jobs_for_cv, user.id, cv_id, request.app)
+        return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -530,6 +654,7 @@ def delete_nested_item(
     list_name: str, 
     item_id: str, 
     request: Request,
+    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user)
 ):
     """
@@ -556,7 +681,11 @@ def delete_nested_item(
 
     try:
         # Pass user.id to the delete function
-        return func(user.id, cv_id, item_id)
+        result = func(user.id, cv_id, item_id)
+        
+        # Trigger Rescore
+        background_tasks.add_task(task_rescore_jobs_for_cv, user.id, cv_id, request.app)
+        return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -799,3 +928,43 @@ def export_cv(
         import logging
         logging.getLogger(__name__).error(f"Export Error: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Generation failed: {str(e)}")
+    
+
+@router.put("/primary")
+def set_primary_cv(
+    cv_id: str, # <--- Changed: Now a direct Query Parameter
+    request: Request,
+    background_tasks: BackgroundTasks,
+    user: User = Depends(get_current_user)
+):
+    """
+    Sets the default CV for the user. 
+    Usage: PUT /api/cvs/primary?cv_id=cv_12345
+    """
+    registry: Registry = request.app.state.registry
+    
+    # 1. Validation: Ensure the CV actually belongs to this user
+    print(f"Setting primary CV for user_id: {user.id} to cv_id: {cv_id}")
+    cv = registry.get_cv(cv_id, user.id)
+    print(f"CV fetched for validation: {cv}")   
+    if not cv:
+        raise HTTPException(404, "CV not found")
+        
+    # 2. Update User State
+    user.primary_cv_id = cv_id
+    
+    # 3. Persist Change
+    if hasattr(registry, 'update_user'):
+        registry.update_user(user)
+    else:
+        # Fallback if update_user isn't in registry yet
+        registry.db.data["users"][user.id] = user.model_dump()
+        registry.db.save()
+    
+    background_tasks.add_task(task_rescore_jobs_for_cv, user.id, cv_id, request.app)
+    
+    return {
+        "status": "success", 
+        "primary_cv_id": cv_id,
+        "message": f"Primary CV set to {cv.name}"
+    }
