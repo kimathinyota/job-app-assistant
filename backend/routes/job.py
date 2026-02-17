@@ -10,6 +10,9 @@ from backend.tasks import task_parse_job
 import logging as log
 from redis import Redis
 from rq import Queue
+from backend.core.services.scoring import ScoringService
+
+from datetime import datetime
 
 router = APIRouter()
 redis_conn = Redis(host='localhost', port=6379)
@@ -77,14 +80,93 @@ def create_job(
     registry: Registry = request.app.state.registry
     return registry.create_job(user.id, title, company, notes)
 
+# @router.get("/")
+# def list_jobs(
+#     request: Request,
+#     user: User = Depends(get_current_user)
+# ):
+#     """List all job descriptions belonging to the user."""
+#     registry: Registry = request.app.state.registry
+#     return registry.all_jobs(user.id)
+
+
 @router.get("/")
 def list_jobs(
     request: Request,
+    sort: str = "recommended", # 'recommended', 'date', 'deadline', 'score'
+    q: Optional[str] = None,   # Search Query
     user: User = Depends(get_current_user)
 ):
-    """List all job descriptions belonging to the user."""
+    """List jobs with Advanced Sorting, Search, and Date Intelligence."""
     registry: Registry = request.app.state.registry
-    return registry.all_jobs(user.id)
+    jobs = registry.all_jobs(user.id)
+    
+    # 1. SEARCH FILTER (Keyword & Semantic Lite)
+    if q:
+        query = q.lower()
+        filtered_jobs = []
+        for job in jobs:
+            # Basic text search
+            text_corpus = f"{job.title} {job.company} {job.notes or ''}".lower()
+            # Check features too
+            feature_text = " ".join([f.description.lower() for f in job.features])
+            
+            if query in text_corpus or query in feature_text:
+                filtered_jobs.append(job)
+        jobs = filtered_jobs
+
+    # 2. DATE PARSING & PRIORITY LOGIC
+    now = datetime.utcnow()
+    
+    def get_date_obj(date_str):
+        if not date_str: return None
+        try: return date_parser.parse(date_str)
+        except: return None
+
+    def calculate_priority(job):
+        # 1. Deadline Panic (< 7 days)
+        closing = get_date_obj(job.date_closing or job.application_end_date)
+        if closing:
+            days_left = (closing - now).days
+            if 0 <= days_left <= 7: return 1000 - days_left # Highest priority
+        
+        # 2. Freshness (< 2 days)
+        posted = get_date_obj(job.date_posted or job.date_extracted or job.created_at)
+        if posted:
+            hours_old = (now - posted).total_seconds() / 3600
+            if hours_old < 48: return 500
+            if hours_old > (30 * 24): return -100 # Stale
+            
+        return 0
+
+    # 3. SORTING LOGIC
+    if sort == "score":
+        # Sort by match_score DESC
+        jobs.sort(key=lambda x: getattr(x, 'match_score', 0), reverse=True)
+        
+    elif sort == "deadline":
+        # Sort by date_closing ASC (Future only)
+        # Push None to end
+        def deadline_key(j):
+            d = get_date_obj(j.date_closing or j.application_end_date)
+            return d if d and d > now else datetime.max
+        jobs.sort(key=deadline_key)
+        
+    elif sort == "recommended":
+        # Smart Sort: Match Score + Priority Boost
+        def smart_key(j):
+            base_score = getattr(j, 'match_score', 0)
+            priority_boost = calculate_priority(j)
+            return base_score + priority_boost
+        jobs.sort(key=smart_key, reverse=True)
+        
+    else: # Default: Newest Created/Posted
+        def date_key(j):
+            return get_date_obj(j.date_posted or j.created_at) or datetime.min
+        jobs.sort(key=date_key, reverse=True)
+
+    return jobs
+
 
 @router.get("/{job_id}")
 def get_job(
@@ -179,3 +261,83 @@ def upsert_job(
     except Exception as e:
         log.error(f"Unexpected error in upsert_job: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
+
+
+@router.post("/score-all")
+def score_all_jobs(
+    request: Request,
+    cv_id: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """Runs AI analysis on ALL jobs against a specific CV (or user default)."""
+    registry: Registry = request.app.state.registry
+    inferer = request.app.state.inferer # Re-use the loaded model
+    
+    # 1. Determine CV
+    target_cv_id = cv_id or user.primary_cv_id
+    if not target_cv_id:
+        # Fallback: Get first CV
+        all_cvs = registry.all_cvs(user.id)
+        if all_cvs: target_cv_id = all_cvs[0].id
+    
+    if not target_cv_id:
+        raise HTTPException(400, "No CV provided and no default CV found.")
+
+    service = ScoringService(registry, inferer)
+    jobs = registry.all_jobs(user.id)
+    scored_count = 0
+    
+    # In production, this should be a background task!
+    for job in jobs:
+        try:
+            service.score_job(user.id, job.id, target_cv_id)
+            scored_count += 1
+        except Exception as e:
+            log.error(f"Failed to score job {job.id}: {e}")
+            
+    return {"status": "success", "scored_count": scored_count, "cv_id": target_cv_id}
+
+
+
+from backend.core.services.scoring import ScoringService
+
+@router.get("/{job_id}/match-preview")
+def preview_job_match(
+    job_id: str,
+    cv_id: str,
+    request: Request,
+    user: User = Depends(get_current_user)
+):
+    """
+    Calculates a score on-the-fly for a Job + CV combo.
+    Does NOT update the Job's default cache.
+    """
+    registry: Registry = request.app.state.registry
+    
+    # Init service
+    inferer = getattr(request.app.state, "inferer", None)
+    service = ScoringService(registry, inferer)
+    
+    # 1. Fetch Entities
+    job = registry.get_job(job_id, user.id)
+    cv = registry.get_cv(cv_id, user.id)
+    print(f"Previewing match for Job ID: {job_id} with CV ID: {cv_id} for User ID: {user.id}"   )
+    print(f"Fetched Job: {job.title if job else 'Not Found'}, CV: {cv.name if cv else 'Not Found'}")
+    if not job or not cv:
+        raise HTTPException(404, "Job or CV not found")
+        
+    # 2. Run the Logic (Reusing internal helper)
+    # We use _get_or_create_smart_mapping to ensure we leverage existing AI work
+    mapping = service._get_or_create_smart_mapping(user.id, job, cv)
+    
+    # 3. Calculate Score
+    analysis = service.forensics.calculate(job, mapping)
+    stats = analysis.stats
+    
+    # 4. Generate Badges
+    badges = service._generate_badges(stats, job)
+    
+    return {
+        "score": stats.overall_match_score,
+        "badges": badges
+    }
