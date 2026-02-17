@@ -1,17 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+
+// 1. API Imports
 import { 
     fetchAllCVs, 
     createBaseCV, 
     deleteBaseCV, 
-    importCV
+    importCV,
+    setPrimaryCV 
 } from '../api/cvClient';
 
-// Child Components
-import CVSelector from './cv/CVList';
-import ImportCVModal from './cv/ImportCVModal';
+// Import the existing Auth method
+import { getCurrentUser } from '../api/authClient'; 
 
-// Icons
+// 2. Component Imports
+import CVSelector from './cv/CVList'; 
+import ImportCVModal from './cv/ImportCVModal';
 import { UploadCloud } from 'lucide-react';
 
 const CVLibraryPage = () => {
@@ -19,6 +23,7 @@ const CVLibraryPage = () => {
     
     // --- State ---
     const [cvs, setCvs] = useState([]);
+    const [user, setUser] = useState(null); 
     const [loading, setLoading] = useState(true);
     
     // Modals
@@ -27,53 +32,89 @@ const CVLibraryPage = () => {
     
     // Forms
     const [createFormData, setCreateFormData] = useState({ 
-        name: '', 
-        first_name: '', 
-        last_name: '', 
-        title: '', 
-        summary: '' 
+        name: '', first_name: '', last_name: '', title: '', summary: '' 
     });
 
-    // --- Data Loading (Silent Support) ---
-    // Added 'silent' param to prevent full-page spinner on auto-refresh
-    const loadCvs = async (silent = false) => {
+    // --- Data Loading ---
+    const loadData = async (silent = false) => {
         if (!silent) setLoading(true);
         try {
-            const data = await fetchAllCVs();
-            setCvs(data || []);
+            // 1. Parallel Fetching
+            // We catch user error silently so CVs still load even if auth checks are weird
+            const [cvData, userRes] = await Promise.all([
+                fetchAllCVs(),
+                getCurrentUser().catch(err => null)
+            ]);
+
+            // 2. Handle Data
+            const cvList = cvData || [];
+            setCvs(cvList);
+
+            console.log("Fetched CVs:", cvList);
+
+            // IMPORTANT: Axios returns the payload in .data
+            // If userRes is null (failed), userData is null.
+            const userData = userRes ? userRes.data : null;
+
+            if (userData) {
+                // --- Auto-Set Default Logic ---
+                // If user has NO primary CV, but DOES have CVs...
+                if (!userData.primary_cv_id && cvList.length > 0) {
+                    const fallbackId = cvList[0].id;
+                    
+                    // Update Local State immediately
+                    userData.primary_cv_id = fallbackId; 
+                    
+                    // Update Backend quietly
+                    setPrimaryCV(fallbackId).catch(err => console.warn("Auto-set failed", err));
+                }
+                // -----------------------------
+                setUser(userData);
+            }
+            
         } catch (error) {
-            console.error("Failed to fetch CVs", error);
+            console.error("Failed to fetch library data", error);
         } finally {
             if (!silent) setLoading(false);
         }
     };
 
-    // 1. Initial Load
+    // Initial Load
     useEffect(() => { 
-        loadCvs(false); 
+        loadData(false); 
     }, []);
 
-    // 2. Regular Auto-Refresh (Every 5 seconds)
-    // This ensures the list stays in sync with background tasks
+    // Auto-Refresh
     useEffect(() => {
         const interval = setInterval(() => {
-            loadCvs(true); // Silent refresh
+            loadData(true); 
         }, 5000); 
         return () => clearInterval(interval);
     }, []);
 
     // --- Handlers ---
 
+    const handleSetPrimary = async (cvId) => {
+        const previousPrimary = user?.primary_cv_id;
+        
+        // Optimistic Update
+        setUser(prev => ({ ...prev, primary_cv_id: cvId }));
+
+        try {
+            await setPrimaryCV(cvId);
+        } catch (error) {
+            console.error("Failed to set primary CV", error);
+            // Revert
+            setUser(prev => ({ ...prev, primary_cv_id: previousPrimary }));
+            alert("Failed to update default CV.");
+        }
+    };
+
     const handleStartImport = async (name, textData) => {
         try {
             setShowImportModal(false); 
-            
-            // Start backend task (creates DB placeholder)
             await importCV(name, textData);
-            
-            // Immediate refresh to show the new "Importing..." card
-            await loadCvs(true); 
-            
+            await loadData(true); 
         } catch (error) { 
             console.error("Import start failed", error);
             alert("Could not start import task."); 
@@ -98,10 +139,10 @@ const CVLibraryPage = () => {
     };
 
     const handleDeleteCV = async (cvId) => {
-        if (window.confirm("Are you sure you want to delete this master CV?")) {
+        if (window.confirm("Are you sure you want to delete this CV?")) {
             try {
                 await deleteBaseCV(cvId);
-                await loadCvs(true); 
+                await loadData(true); 
             } catch (error) {
                 alert("Failed to delete CV.");
             }
@@ -113,16 +154,17 @@ const CVLibraryPage = () => {
     return (
         <div className="text-start pb-5">
             <div className="mb-4">
-                <h2 className="fw-bold text-dark mb-3">CV Library</h2>
+                <div className="d-flex justify-content-between align-items-center mb-4">
+                    <h2 className="fw-bold text-dark mb-0">CV Library</h2>
+                    <button 
+                        onClick={() => setShowImportModal(true)} 
+                        className="btn btn-outline-primary d-flex align-items-center gap-2"
+                    >
+                        <UploadCloud size={18} /> Import CV
+                    </button>
+                </div>
                 
-                <button 
-                    onClick={() => setShowImportModal(true)} 
-                    className="btn btn-outline-primary d-flex align-items-center gap-2 mb-3"
-                >
-                    <UploadCloud size={18} /> Import CV
-                </button>
-                
-                {loading ? (
+                {loading && !cvs.length ? (
                     <div className="d-flex justify-content-center py-5">
                         <div className="spinner-border text-primary" role="status">
                             <span className="visually-hidden">Loading...</span>
@@ -131,13 +173,16 @@ const CVLibraryPage = () => {
                 ) : (
                     <CVSelector 
                         cvs={cvs} 
+                        primaryCvId={user?.primary_cv_id} 
                         onSelect={(id) => navigate(`/cv/${id}`)} 
                         onCreate={() => setShowCreateModal(true)} 
                         onDelete={handleDeleteCV}
+                        onSetPrimary={handleSetPrimary}
                     />
                 )}
             </div>
 
+            {/* Modals */}
             {showImportModal && (
                 <ImportCVModal 
                     onClose={() => setShowImportModal(false)}
@@ -167,7 +212,46 @@ const CVLibraryPage = () => {
                                             required
                                         />
                                     </div>
-                                    {/* Additional fields hidden for brevity */}
+                                    <div className="row g-2">
+                                        <div className="col-md-6 mb-3">
+                                            <label className="form-label">First Name</label>
+                                            <input 
+                                                type="text" 
+                                                className="form-control" 
+                                                value={createFormData.first_name} 
+                                                onChange={e => setCreateFormData({...createFormData, first_name: e.target.value})} 
+                                            />
+                                        </div>
+                                        <div className="col-md-6 mb-3">
+                                            <label className="form-label">Last Name</label>
+                                            <input 
+                                                type="text" 
+                                                className="form-control" 
+                                                value={createFormData.last_name} 
+                                                onChange={e => setCreateFormData({...createFormData, last_name: e.target.value})} 
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="mb-3">
+                                        <label className="form-label">Job Title</label>
+                                        <input 
+                                            type="text" 
+                                            className="form-control" 
+                                            placeholder="e.g. Senior Product Designer"
+                                            value={createFormData.title} 
+                                            onChange={e => setCreateFormData({...createFormData, title: e.target.value})} 
+                                        />
+                                    </div>
+                                    <div className="mb-3">
+                                        <label className="form-label">Summary</label>
+                                        <textarea 
+                                            className="form-control" 
+                                            rows="3"
+                                            placeholder="Brief professional summary..."
+                                            value={createFormData.summary} 
+                                            onChange={e => setCreateFormData({...createFormData, summary: e.target.value})} 
+                                        ></textarea>
+                                    </div>
                                 </div>
                                 <div className="modal-footer">
                                     <button type="button" className="btn btn-light" onClick={() => setShowCreateModal(false)}>Cancel</button>

@@ -243,5 +243,9 @@ export const fetchItemDetails = async (id, type) => {
 };
 
 
+export const setPrimaryCV = async (cvId) => {
+    const response = await apiClient.put(`/cv/primary?cv_id=${cvId}`);
+    return response.data; // Should return { item, skills, achievements, experiences, education, hobbies }
+};
 
 export default apiClient; // Ensure apiClient is exported if needed elsewhere, though usually named exports are preferred.
