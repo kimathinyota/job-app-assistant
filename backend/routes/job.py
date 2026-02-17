@@ -321,17 +321,21 @@ def preview_job_match(
     # 1. Fetch Entities
     job = registry.get_job(job_id, user.id)
     cv = registry.get_cv(cv_id, user.id)
-    print(f"Previewing match for Job ID: {job_id} with CV ID: {cv_id} for User ID: {user.id}"   )
-    print(f"Fetched Job: {job.title if job else 'Not Found'}, CV: {cv.name if cv else 'Not Found'}")
+
+    print(f" [Preview] Fetching Job and CV for User ID: {user.id}...", "\n\n")
+    print(f" [Preview] Job ID: {job_id}, CV ID: {cv_id}",  "\n\n")
     if not job or not cv:
         raise HTTPException(404, "Job or CV not found")
         
     # 2. Run the Logic (Reusing internal helper)
     # We use _get_or_create_smart_mapping to ensure we leverage existing AI work
     mapping = service._get_or_create_smart_mapping(user.id, job, cv)
-    
+
+    print(f" [Preview] Mapping Mapping ID: {mapping.id if mapping else 'N/A'}, Pairs Count: {len(mapping.pairs) if mapping else 'N/A'}"  )
+
     # 3. Calculate Score
     analysis = service.forensics.calculate(job, mapping)
+    print(f" [Preview] Analysis for Job ID: {job_id} with CV ID: {cv_id}: Stats:", analysis.stats, "\n\n")
     stats = analysis.stats
     
     # 4. Generate Badges
@@ -345,7 +349,7 @@ def preview_job_match(
 class JobFeatureUpdate(BaseModel):
     description: str
     type: str
-    
+
 # Add this endpoint to your router
 @router.patch("/{job_id}/feature/{feature_id}")
 def update_feature(

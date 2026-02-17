@@ -140,56 +140,76 @@ class SmartMapper:
     ) -> List[MappingPair]:
         """
         Merges fresh AI results with user history.
-        CRITICAL FIX: Now preserves 'Manual' matches even if AI misses them.
+        Reconciles "AI Suggestions" (Ephemeral) with "User Decisions" (Durable).
         """
+        merged_pairs: List[MappingPair] = []
         
-        # 1. Index both sets by Feature ID
-        fresh_map = {p.feature_id: p for p in fresh_pairs}
-        old_map = {p.feature_id: p for p in existing_mapping.pairs}
+        # --- 1. GROUPING (Handle 1-to-Many Relationships) ---
         
-        # 2. Get the Union of all features involved
-        all_feature_ids = set(fresh_map.keys()) | set(old_map.keys())
+        # Group Fresh Pairs by Feature ID
+        fresh_groups: Dict[str, List[MappingPair]] = {}
+        for p in fresh_pairs:
+            if p.feature_id not in fresh_groups:
+                fresh_groups[p.feature_id] = []
+            fresh_groups[p.feature_id].append(p)
+
+        # Group Old Pairs by Feature ID
+        # (Must be a list, because the DB now contains multiple candidates per feature)
+        old_groups: Dict[str, List[MappingPair]] = {}
+        for p in existing_mapping.pairs:
+            if p.feature_id not in old_groups:
+                old_groups[p.feature_id] = []
+            old_groups[p.feature_id].append(p)
         
-        merged_pairs = []
+        # Identify the universe of features
+        all_feature_ids = set(fresh_groups.keys()) | set(old_groups.keys())
+
+        # --- 2. MERGE LOGIC ---
         
         for fid in all_feature_ids:
-            fresh = fresh_map.get(fid)
-            old = old_map.get(fid)
+            old_candidates = old_groups.get(fid, [])
+            fresh_candidates = fresh_groups.get(fid, [])
+
+            # A. CHECK FOR USER LOCKS (The "Truth")
+            # If the user has EVER manually approved/linked a pair for this feature,
+            # we consider the issue "Settled". We keep ONLY the user's choices.
+            user_locked_pairs = [p for p in old_candidates if p.status in ["user_manual", "user_approved"]]
             
-            # --- PRIORITY 1: THE USER LOCK (Preserve User Truth) ---
-            # If the user manually set or approved this match, KEEP IT.
-            # Even if the AI (fresh) currently finds nothing (e.g. CV text changed).
-            if old and old.status in ["user_manual", "user_approved"]:
-                merged_pairs.append(old)
-                continue
+            if user_locked_pairs:
+                merged_pairs.extend(user_locked_pairs)
+                continue # Skip fresh AI suggestions (User > AI)
+
+            # B. HARVEST HISTORY (Rejections)
+            # Even if we discard the old pairs, we must remember what the user HATED.
+            # Collect rejection hashes from ALL old candidates for this feature.
+            combined_rejection_history = []
+            for p in old_candidates:
+                if p.rejected_match_hashes:
+                    combined_rejection_history.extend(p.rejected_match_hashes)
             
-            # --- PRIORITY 2: FRESH AI EVIDENCE ---
-            # If not locked, we prefer the new scan based on the new CV.
-            if fresh:
-                # But first, check for Zombies (previously rejected matches)
-                if old:
-                    fresh.rejected_match_hashes = old.rejected_match_hashes
-                    
-                    # Create hash of the NEW evidence the AI found
-                    evidence_hash = SmartMapper.generate_content_hash(
-                        (fresh.context_item_text or "") + (fresh.annotation or "")
-                    )
-                    
-                    if evidence_hash in fresh.rejected_match_hashes:
-                        # AI found the exact thing the user previously hated.
-                        # Demote or Nullify.
-                        # (Ideally, look for backups here, simplified to null for brevity)
-                        fresh.strength = 0.0
-                        fresh.annotation = None
-                        fresh.context_item_id = None
+            # Deduplicate history
+            combined_rejection_history = list(set(combined_rejection_history))
+
+            # C. PROCESS FRESH CANDIDATES
+            # Since there is no lock, we replace the old AI suggestions with the new ones.
+            # (This prevents bloat: Old AI pairs are dropped here).
+            
+            valid_fresh_candidates = []
+            for fresh_p in fresh_candidates:
+                # 1. Inject the history we just harvested so it isn't lost
+                fresh_p.rejected_match_hashes = combined_rejection_history
                 
-                merged_pairs.append(fresh)
-                continue
+                # 2. Check if this specific candidate was previously rejected
+                content_hash = SmartMapper.generate_content_hash(
+                    (fresh_p.context_item_text or "") + (fresh_p.annotation or "")
+                )
                 
-            # --- PRIORITY 3: GHOSTS (Cleanup) ---
-            # If 'fresh' is None but 'old' exists (and was NOT locked),
-            # it means the AI used to find a match, but with the new CV text, it doesn't.
-            # We explicitly DROP it. (Correct behavior: The skill was removed from CV).
-            pass 
+                if content_hash in combined_rejection_history:
+                    # User previously rejected this exact text. Don't add it.
+                    continue
+                
+                valid_fresh_candidates.append(fresh_p)
+
+            merged_pairs.extend(valid_fresh_candidates)
 
         return merged_pairs

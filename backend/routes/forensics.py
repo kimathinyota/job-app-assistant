@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from backend.core.services.mapping_service import MappingOptimizer
 from backend.core.forensics import ForensicCalculator
-from backend.core.models import ForensicAnalysis, Mapping, LineageItem, MatchCandidate, MatchingMeta, User
+from backend.core.models import ForensicAnalysis, Mapping, LineageItem, MatchCandidate, MatchingMeta, User, ApplicationUpdate
 from backend.core.registry import Registry
 from backend.routes.auth import get_current_user
 from backend.core.services.scoring import ScoringService # Import ScoringService
@@ -217,20 +217,28 @@ def get_forensic_analysis(
     user: User = Depends(get_current_user)
 ):
     registry: Registry = request.app.state.registry
+
+    print(f"[Forensics] Fetching forensic analysis for Application {app_id}..." )
     
     # 1. Fetch Context
     app = registry.get_application(app_id, user.id)
     if not app: raise HTTPException(404, "Application not found")
     
     job = registry.get_job(app.job_id, user.id)
+
+    print(f"[Forensics] Found Application for Job {job.id}: {job.title if job else 'N/A'}"  )
     
     # Handle missing mapping gracefully (Auto-create if missing)
     if not app.mapping_id:
+        print(f"[Forensics] No mapping found for Application {app.id}. Creating new mapping...")
         mapping = registry.create_mapping(user.id, app.job_id, app.base_cv_id)
+        print(f"[Forensics] Created Mapping {mapping.id} for Job {app.job_id} and CV {app.base_cv_id}")
         app.mapping_id = mapping.id
         registry.update_application(user.id, app.id, ApplicationUpdate(mapping_id=mapping.id))
     else:
         mapping = registry.get_mapping(app.mapping_id, user.id)
+    
+    print(f"[Forensics] Mapping ID: {mapping.id if mapping else 'N/A'}, Pairs Count: {len(mapping.pairs) if mapping else 'N/A'}"  )
 
     if not job or not mapping:
         raise HTTPException(404, "Job or Mapping data missing")
@@ -246,6 +254,9 @@ def get_forensic_analysis(
             # Use default balanced settings or config
             mode_settings = "balanced_default" 
             # (Assuming you have access to TUNING_MODES or defaults)
+
+
+            print(f"[Forensics] Running inference for Job {job.id} with CV {cv.id} using mode: {mode_settings}")
             
             # Run AI
             suggestions = inferer.infer_mappings(job, cv, min_score=0.20)
@@ -253,6 +264,9 @@ def get_forensic_analysis(
             # Save results
             mapping.pairs = suggestions
             registry.save_mapping(user.id, mapping)
+            print(f"[Forensics] Mapping after inference: Mapping ID: {mapping.id if mapping else 'N/A'}, Pairs Count: {len(mapping.pairs) if mapping else 'N/A'}"  )
+
+            print(f"[Forensics] Lazy Inference complete. {len(suggestions)} suggestions saved to Mapping {mapping.id}.")
             print(f"[Forensics] Inference complete. Found {len(suggestions)} matches.")
             
         except Exception as e:
@@ -260,9 +274,11 @@ def get_forensic_analysis(
             print(f"[Forensics] Lazy Inference Failed: {str(e)}")
 
     # 3. Calculate Analysis
+    print(f"[Forensics] Calculating forensic analysis for Job {job.id} with Mapping {mapping.id}..."   )
     calculator = ForensicCalculator()
     analysis = calculator.calculate(job, mapping)
-    
+    print(f"[Forensics] Analysis complete. Stats: {analysis.stats}")
+
     # --- CACHE WRITE-BACK (THE NEW FIX) ---
     # If the deep analysis disagrees with the cached dashboard score, sync them.
     current_score = analysis.stats.overall_match_score

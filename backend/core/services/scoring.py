@@ -77,6 +77,8 @@ class ScoringService:
         # A. Active Inference (Fresh AI Opinion)
         fresh_pairs = self.inferer.infer_mappings(job, cv, min_score=0.20)
 
+        print(f"[ScoringService] Fresh inference generated {len(fresh_pairs)} pairs for Job {job.id} and CV {cv.id}.")
+
         # B. Fetch Existing State
         existing_mapping = None
         
@@ -87,17 +89,27 @@ class ScoringService:
             all_maps = self.registry.all_mappings(user_id)
             existing_mapping = next((m for m in all_maps if m.job_id == job.id and m.base_cv_id == cv.id), None)
 
+        print(f"[ScoringService] Existing mapping fetched: {existing_mapping.id if existing_mapping else 'None'} for Job {job.id} and CV {cv.id}. Number of existing pairs: {len(existing_mapping.pairs) if existing_mapping else 'N/A'}")
+
+
+
         # C. The Smart Merge
         if existing_mapping:
             # Merge Fresh + User History
             final_pairs = SmartMapper.merge_inference(existing_mapping, fresh_pairs)
+            print(f"[ScoringService] Merged pairs count: {len(final_pairs)} for Mapping {existing_mapping.id}." )
+            final_pairs.sort(key=lambda x: x.strength or 0, reverse=True)
             existing_mapping.pairs = final_pairs
             self.registry.save_mapping(user_id, existing_mapping)
             return existing_mapping
         else:
             # Create New
+
             new_mapping = self.registry.create_mapping(user_id, job.id, cv.id)
+            print(f"[ScoringService] No existing mapping. Created new Mapping {new_mapping.id} for Job {job.id} and CV {cv.id}.")
+            fresh_pairs.sort(key=lambda x: (x.strength or 0), reverse=True)
             new_mapping.pairs = fresh_pairs
+            print(f"[ScoringService] Assigned {len(fresh_pairs)} fresh pairs to new Mapping {new_mapping.id}.")
             self.registry.save_mapping(user_id, new_mapping)
             return new_mapping
 
