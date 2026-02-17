@@ -1,6 +1,7 @@
 from backend.core.models import MappingPair
 from backend.core.utils.inference import MatchScoring, SmartNoteBuilder
 import hashlib
+from typing import List, Dict, Optional # Ensure List/Dict/Optional are imported
 
 class MappingOptimizer:
     
@@ -120,3 +121,75 @@ class MappingOptimizer:
             score=champion.score,
             paths=[champion.lineage]
         )
+
+
+import hashlib
+from typing import List, Dict, Optional
+from backend.core.models import Mapping, MappingPair
+
+class SmartMapper:
+    @staticmethod
+    def generate_content_hash(text: str) -> str:
+        if not text: return ""
+        return hashlib.md5(text.strip().lower().encode()).hexdigest()
+
+    @staticmethod
+    def merge_inference(
+        existing_mapping: Mapping, 
+        fresh_pairs: List[MappingPair]
+    ) -> List[MappingPair]:
+        """
+        Merges fresh AI results with user history.
+        CRITICAL FIX: Now preserves 'Manual' matches even if AI misses them.
+        """
+        
+        # 1. Index both sets by Feature ID
+        fresh_map = {p.feature_id: p for p in fresh_pairs}
+        old_map = {p.feature_id: p for p in existing_mapping.pairs}
+        
+        # 2. Get the Union of all features involved
+        all_feature_ids = set(fresh_map.keys()) | set(old_map.keys())
+        
+        merged_pairs = []
+        
+        for fid in all_feature_ids:
+            fresh = fresh_map.get(fid)
+            old = old_map.get(fid)
+            
+            # --- PRIORITY 1: THE USER LOCK (Preserve User Truth) ---
+            # If the user manually set or approved this match, KEEP IT.
+            # Even if the AI (fresh) currently finds nothing (e.g. CV text changed).
+            if old and old.status in ["user_manual", "user_approved"]:
+                merged_pairs.append(old)
+                continue
+            
+            # --- PRIORITY 2: FRESH AI EVIDENCE ---
+            # If not locked, we prefer the new scan based on the new CV.
+            if fresh:
+                # But first, check for Zombies (previously rejected matches)
+                if old:
+                    fresh.rejected_match_hashes = old.rejected_match_hashes
+                    
+                    # Create hash of the NEW evidence the AI found
+                    evidence_hash = SmartMapper.generate_content_hash(
+                        (fresh.context_item_text or "") + (fresh.annotation or "")
+                    )
+                    
+                    if evidence_hash in fresh.rejected_match_hashes:
+                        # AI found the exact thing the user previously hated.
+                        # Demote or Nullify.
+                        # (Ideally, look for backups here, simplified to null for brevity)
+                        fresh.strength = 0.0
+                        fresh.annotation = None
+                        fresh.context_item_id = None
+                
+                merged_pairs.append(fresh)
+                continue
+                
+            # --- PRIORITY 3: GHOSTS (Cleanup) ---
+            # If 'fresh' is None but 'old' exists (and was NOT locked),
+            # it means the AI used to find a match, but with the new CV text, it doesn't.
+            # We explicitly DROP it. (Correct behavior: The skill was removed from CV).
+            pass 
+
+        return merged_pairs
