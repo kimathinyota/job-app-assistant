@@ -271,6 +271,9 @@ class CV(UserOwnedEntity):
         self.touch()
         return ach
 
+# backend/core/models.py
+
+# ... (keep all your existing imports and other classes) ...
 
 class DerivedCV(CV):
     """Job-specific tailored CV derived from a base CV."""
@@ -278,34 +281,170 @@ class DerivedCV(CV):
     job_id: str
     mapping_id: str
     application_id: Optional[str] = None
+    
     selected_experience_ids: List[str] = Field(default_factory=list)
     selected_skill_ids: List[str] = Field(default_factory=list)
     selected_project_ids: List[str] = Field(default_factory=list)
-    is_locked: bool = False  # Snapshot state
+    selected_education_ids: List[str] = Field(default_factory=list)
+    selected_hobby_ids: List[str] = Field(default_factory=list)
+    
+    is_locked: bool = False
 
     @classmethod
-    def from_mapping(cls, base_cv: CV, job_id: str, mapping: Mapping) -> DerivedCV:
-        exp_ids = {p.experience_id for p in mapping.pairs if p.experience_id}
-        skill_ids = set()
-        for exp in base_cv.experiences:
-            if exp.id in exp_ids:
-                skill_ids.update(exp.skill_ids)
+    def from_mapping(cls, base_cv: CV, job_id: str, mapping: Mapping) -> 'DerivedCV':
+        """
+        Creates a DEEP COPY of the Base CV with intelligent selection logic.
+        Reflects hierarchical dependencies:
+        1. Direct AI Matches.
+        2. Child -> Parent (e.g. Active Project -> Activates related Experience).
+        3. Parent -> Skills (e.g. Active Hobby -> Activates its Skills).
+        4. Parent -> Achievements (Active Job -> Activates its bullet points).
+        """
+        
+        # --- 1. DEEP COPY EVERYTHING ---
+        # We must create independent copies so editing the Derived CV doesn't touch the Base CV.
+        # However, IDs remain the same to preserve internal relationships.
+        def clone_list(items):
+            return [item.model_copy(deep=True) for item in items]
+
+        cloned_experiences = clone_list(base_cv.experiences)
+        cloned_education = clone_list(base_cv.education)
+        cloned_projects = clone_list(base_cv.projects)
+        cloned_hobbies = clone_list(base_cv.hobbies)
+        cloned_skills = clone_list(base_cv.skills)
+        cloned_achievements = clone_list(base_cv.achievements)
+
+        # --- 2. BUILD LOOKUP MAPS ---
+        exp_map = {e.id: e for e in cloned_experiences}
+        edu_map = {e.id: e for e in cloned_education}
+        proj_map = {p.id: p for p in cloned_projects}
+        hobby_map = {h.id: h for h in cloned_hobbies}
+        ach_map = {a.id: a for a in cloned_achievements}
+        skill_map = {s.id: s for s in cloned_skills}
+
+        # Reverse Map for Achievements: AchID -> List[ParentItems]
+        # (Since Achievement doesn't store its parent ID, we must map it for upward propagation)
+        ach_parents = {}
+        def register_ach_parent(parent_item):
+            for ach_id in parent_item.achievement_ids:
+                if ach_id not in ach_parents: ach_parents[ach_id] = []
+                ach_parents[ach_id].append(parent_item)
+
+        for item in cloned_experiences: register_ach_parent(item)
+        for item in cloned_education: register_ach_parent(item)
+        for item in cloned_projects: register_ach_parent(item)
+        for item in cloned_hobbies: register_ach_parent(item)
+
+        # --- 3. SEED INITIAL SELECTION ---
+        # Get all IDs the AI explicitly matched
+        mapped_ids = {p.context_item_id for p in mapping.pairs if p.context_item_id}
+
+        # Initialize Selection Sets
+        sel_exp = {mid for mid in mapped_ids if mid in exp_map}
+        sel_edu = {mid for mid in mapped_ids if mid in edu_map}
+        sel_proj = {mid for mid in mapped_ids if mid in proj_map}
+        sel_hobby = {mid for mid in mapped_ids if mid in hobby_map}
+        sel_ach = {mid for mid in mapped_ids if mid in ach_map}
+        sel_skill = {mid for mid in mapped_ids if mid in skill_map}
+
+        # --- 4. PROPAGATION LOOP ---
+        # We loop until no new items are added to ensure complex chains 
+        # (e.g., Skill -> Achievement -> Project -> Experience) are fully resolved.
+        changes = True
+        while changes:
+            changes = False
+            
+            # Snapshot current counts to detect changes
+            current_counts = (len(sel_exp), len(sel_edu), len(sel_proj), len(sel_hobby), len(sel_ach), len(sel_skill))
+
+            # --- A. UPWARD PROPAGATION (Child -> Parent) ---
+            
+            # 1. If Achievement is active -> Activate its Parent(s)
+            for ach_id in list(sel_ach):
+                parents = ach_parents.get(ach_id, [])
+                for p in parents:
+                    if isinstance(p, Experience) and p.id not in sel_exp:
+                        sel_exp.add(p.id)
+                    elif isinstance(p, Education) and p.id not in sel_edu:
+                        sel_edu.add(p.id)
+                    elif isinstance(p, Project) and p.id not in sel_proj:
+                        sel_proj.add(p.id)
+                    elif isinstance(p, Hobby) and p.id not in sel_hobby:
+                        sel_hobby.add(p.id)
+
+            # 2. If Project is active -> Activate its Context (Parents)
+            for proj_id in list(sel_proj):
+                proj = proj_map[proj_id]
+                # Related Experiences
+                for pid in proj.related_experience_ids:
+                    if pid in exp_map and pid not in sel_exp:
+                        sel_exp.add(pid)
+                # Related Education
+                for eid in proj.related_education_ids:
+                    if eid in edu_map and eid not in sel_edu:
+                        sel_edu.add(eid)
+                # Related Hobbies
+                for hid in proj.related_hobby_ids:
+                    if hid in hobby_map and hid not in sel_hobby:
+                        sel_hobby.add(hid)
+
+            # --- B. DOWNWARD PROPAGATION (Parent -> Content) ---
+            
+            # Collect all currently active parent entities
+            active_entities = []
+            active_entities.extend([exp_map[i] for i in sel_exp])
+            active_entities.extend([edu_map[i] for i in sel_edu])
+            active_entities.extend([proj_map[i] for i in sel_proj])
+            active_entities.extend([hobby_map[i] for i in sel_hobby])
+            # Also include achievements because they contain skills
+            active_entities.extend([ach_map[i] for i in sel_ach])
+
+            for entity in active_entities:
+                # 3. If Entity is active -> Activate its Skills
+                if hasattr(entity, 'skill_ids'):
+                    for sid in entity.skill_ids:
+                        if sid in skill_map and sid not in sel_skill:
+                            sel_skill.add(sid)
+
+                # 4. If Entity is active -> Activate its Achievements
+                # (Standard CV logic: If I include a Job, I generally want its bullet points)
+                if hasattr(entity, 'achievement_ids'):
+                    for aid in entity.achievement_ids:
+                        if aid in ach_map and aid not in sel_ach:
+                            sel_ach.add(aid)
+
+            # Check if anything changed
+            new_counts = (len(sel_exp), len(sel_edu), len(sel_proj), len(sel_hobby), len(sel_ach), len(sel_skill))
+            if new_counts != current_counts:
+                changes = True
 
         return cls.create(
-            name=f"{base_cv.name} — tailored for {job_id}",
-            first_name=base_cv.first_name, # Pass explicit name
-            last_name=base_cv.last_name, # Pass explicit name
-            title=base_cv.title, # Pass explicit title
+            user_id=base_cv.user_id, # <--- Fix: Pass User ID
+            name=f"Tailored for {job_id[:8]}",
             base_cv_id=base_cv.id,
             job_id=job_id,
             mapping_id=mapping.id,
-            experiences=[e for e in base_cv.experiences if e.id in exp_ids],
-            skills=[s for s in base_cv.skills if s.id in skill_ids],
-            selected_experience_ids=list(exp_ids),
-            selected_skill_ids=list(skill_ids),
-        )
-
-
+            
+            # Content (Full Clones)
+            first_name=base_cv.first_name, 
+            last_name=base_cv.last_name, 
+            title=base_cv.title, 
+            summary=base_cv.summary,
+            contact_info=base_cv.contact_info.copy() if base_cv.contact_info else {},
+            experiences=cloned_experiences,
+            education=cloned_education,
+            projects=cloned_projects,
+            hobbies=cloned_hobbies,
+            skills=cloned_skills,
+            achievements=cloned_achievements,
+            
+            # Metadata (The Filter)
+            selected_experience_ids=list(sel_exp),
+            selected_education_ids=list(sel_edu),
+            selected_project_ids=list(sel_proj),
+            selected_hobby_ids=list(sel_hobby),
+            selected_skill_ids=list(sel_skill),
+        )   
 # ---------------------------------------------------------------------
 # Job description & matching
 # ---------------------------------------------------------------------
@@ -788,16 +927,36 @@ class ProjectComplexPayload(BaseModel):
 # ---------------------------------------------------------------------
 
 class CVUpdate(BaseModel):
+    """
+    Model for updating a CV (Base or Derived).
+    All fields are optional to allow partial updates (PATCH) 
+    or full replacements (PUT).
+    """
     name: Optional[str] = None
-    summary: Optional[str] = None
-    # --- NEW FIELDS ---
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     title: Optional[str] = None
-    # --- END NEW FIELDS ---
+    summary: Optional[str] = None
     contact_info: Optional[Dict[str, str]] = None
-    # Nested lists like experiences or skills require dedicated sub-routes/registry methods to manage properly, 
-    # so we don't include List[T] here for partial updates.
+    
+    # Nested Lists - Replacing the list entirely is usually safer for reordering
+    experiences: Optional[List[Experience]] = None
+    education: Optional[List[Education]] = None
+    skills: Optional[List[Skill]] = None
+    projects: Optional[List[Project]] = None
+    hobbies: Optional[List[Hobby]] = None
+    achievements: Optional[List[Achievement]] = None
+
+    # Derived CV specific fields
+    selected_experience_ids: Optional[List[str]] = None
+    selected_skill_ids: Optional[List[str]] = None
+    selected_project_ids: Optional[List[str]] = None
+    selected_education_ids: Optional[List[str]] = None
+    selected_hobby_ids: Optional[List[str]] = None
+
+    # Helper to filter out None values for patching
+    def items_set(self):
+        return self.dict(exclude_unset=True)
 
 class JobDescriptionUpdate(BaseModel):
     """
@@ -828,9 +987,18 @@ class ApplicationUpdate(BaseModel):
     status: Optional[Literal["draft", "applied", "interview", "offer", "rejected"]] = None
     notes: Optional[str] = None
     supporting_document_ids: List[str] = Field(default_factory=list)
-    is_locked: bool = False 
+    is_locked: bool = False
     applied_at: Optional[datetime] = None
     cover_letter_id: Optional[str] = None # <-- ADD THIS LINE
+    # --- ADD THIS IF MISSING ---
+    derived_cv_id: Optional[str] = None 
+    # ---------------------------
+    
+    supporting_document_ids: Optional[List[str]] = None
+    match_score: Optional[float] = None
+    match_grade: Optional[str] = None
+    cached_badges: Optional[List[str]] = None
+    is_locked: Optional[bool] = None
 
 class MappingUpdate(BaseModel):
     # This model is primarily a placeholder for consistency; core changes are via mapping pairs.

@@ -323,6 +323,42 @@ class Registry:
         """Save changes to a user (e.g. upgrading tier)."""
         # Users can only update themselves, checked at route level
         self.db.insert("users", user)
+    
+    def save_cv(self, user_id: str, cv: CV) -> CV:
+        """
+        Persists a CV object (Base or Derived).
+        Performs an UPSERT to handle both creation and updates safely.
+        """
+        cv.touch()
+        
+        # Check if it already exists
+        existing = self.get_cv(cv.id, user_id)
+        
+        if existing:
+            self._update("cvs", cv, user_id=user_id)
+        else:
+            # It's a new Derived CV, insert it
+            self._insert("cvs", cv)
+            
+        return cv
+
+    def save_derived_cv(self, user_id: str, cv: DerivedCV) -> DerivedCV:
+        """
+        Persists a CV object (Base or Derived).
+        Performs an UPSERT to handle both creation and updates safely.
+        """
+        cv.touch()
+        
+        # Check if it already exists
+        existing = self.get_cv(cv.id, user_id)
+        
+        if existing:
+            self._update("cvs", cv, user_id=user_id)
+        else:
+            # It's a new Derived CV, insert it
+            self._insert("cvs", cv)
+            
+        return cv
 
 
     # ---- Jobs ----
@@ -476,8 +512,43 @@ class Registry:
     def delete_cv(self, user_id: str, cv_id: str):
         return self._delete("cvs", cv_id, user_id=user_id)
 
+    # def get_cv(self, cv_id: str, user_id: str):
+    #     return self._get("cvs", CV, cv_id, user_id=user_id)
+    
+
+    # def get_cv(self, cv_id: str, user_id: str):
+    #     from backend.core.models import DerivedCV 
+    #     try:
+    #         data = self._get("cvs", DerivedCV, cv_id, user_id=user_id)
+    #     except ValueError:
+    #         data = None
+    #     if not data:
+    #         data = self._get("cvs", CV, cv_id, user_id=user_id)
+    #         if not data:
+    #             return None           
+    #     return data
+
     def get_cv(self, cv_id: str, user_id: str):
-        return self._get("cvs", CV, cv_id, user_id=user_id)
+        from backend.core.models import DerivedCV, CV
+        
+        # 1. Fetch raw data as a dictionary first (Avoiding validation overhead)
+        # passing 'dict' works because dict(**data) creates a dictionary copy
+        data = self._get("cvs", dict, cv_id, user_id=user_id)
+        
+        if not data:
+            return None
+
+        # 2. Smart Casting (Polymorphism)
+        # Check for a unique field that only exists in DerivedCV
+        if "base_cv_id" in data or "job_id" in data:
+            return DerivedCV(**data)
+            
+        # 3. Fallback to standard CV
+        return CV(**data)
+    
+
+    
+    
 
     def all_cvs(self, user_id: str):
         log.info(f"[Registry] Listing all CVs for user_id: {user_id}")
