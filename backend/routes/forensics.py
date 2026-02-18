@@ -3,77 +3,63 @@
 from fastapi import APIRouter, HTTPException, Request, Depends
 from typing import Literal, Optional, List
 from pydantic import BaseModel
+from redis import Redis
+from rq import Queue
 
 from backend.core.services.mapping_service import MappingOptimizer
 from backend.core.forensics import ForensicCalculator
 from backend.core.models import ForensicAnalysis, Mapping, LineageItem, MatchCandidate, MatchingMeta, User, ApplicationUpdate
 from backend.core.registry import Registry
 from backend.routes.auth import get_current_user
-from backend.core.services.scoring import ScoringService # Import ScoringService
+from backend.core.services.scoring import ScoringService 
 
-# You might need to import your TUNING_MODES constant if it's shared, 
-# otherwise I have defined it below for self-containment.
-import hashlib
+# IMPORT TASKS
+from backend.tasks import task_generate_role_case, task_score_application
+
 router = APIRouter()
 
-# --- Tuning Configuration (Same as your inference route) ---
-TUNING_MODES = {
-    "super_eager": {
-        "description": "Matches almost anything remotely related. High recall, low precision.",
-        "config": {"min_score": 0.15, "top_k": 50}
-    },
-    "eager_mode": {
-        "description": "Generous matching. Good for brainstorming.",
-        "config": {"min_score": 0.22, "top_k": 30}
-    },
-    "balanced_default": {
-        "description": "The standard balance of relevance and coverage.",
-        "config": {"min_score": 0.4, "top_k": None} # None = Allow all valid matches
-    },
-    "picky_mode": {
-        "description": "Only shows solid matches.",
-        "config": {"min_score": 0.35, "top_k": None}
-    },
-    "super_picky": {
-        "description": "Strict. Only high-confidence matches.",
-        "config": {"min_score": 0.45, "top_k": None}
-    }
-}
+# --- REDIS QUEUE SETUP ---
+redis_conn = Redis(host='localhost', port=6379)
+q_inference = Queue('q_inference', connection=redis_conn)
 
 
-def _update_job_cache_from_mapping(user_id: str, job_id: str, mapping: Mapping, registry: Registry):
+# --- [NEW] TRIGGER ANALYSIS ENDPOINT ---
+@router.post("/applications/{app_id}/generate-analysis")
+def trigger_application_analysis(
+    app_id: str,
+    request: Request,
+    user: User = Depends(get_current_user)
+):
     """
-    Recalculates the score based on the current mapping and updates the Job Cache.
-    """
-    # 1. Fetch Job
-    job = registry.get_job(job_id, user_id)
-    if not job: return
-
-    # 2. Recalculate Forensics (Uses the NEW Approved/Rejected state)
-    calculator = ForensicCalculator()
-    analysis = calculator.calculate(job, mapping)
-    stats = analysis.stats
-
-    # 3. Update the Job Cache (Score, Grade, Badges)
-    job.match_score = stats.overall_match_score
+    Triggers the background worker to run inference for a specific Application.
     
-    # Grade Logic
-    if stats.overall_match_score >= 85: job.match_grade = "A"
-    elif stats.overall_match_score >= 65: job.match_grade = "B"
-    elif stats.overall_match_score >= 40: job.match_grade = "C"
-    else: job.match_grade = "D"
+    frontend usage: client.post(`/forensics/applications/${appId}/generate-analysis`)
+    """
+    registry: Registry = request.app.state.registry
+    
+    # 1. Validation: Ensure App exists and belongs to User
+    app = registry.get_application(app_id, user.id)
+    if not app:
+        raise HTTPException(status_code=404, detail="Application not found")
 
-    # Badge Logic
-    badges = []
-    if stats.critical_gaps_count > 0: badges.append("Missing Critical Skills")
-    if stats.overall_match_score > 90: badges.append("Top Match")
-    # Add other badges as needed...
-    job.cached_badges = badges
+    # 2. Enqueue Task to 'q_inference' (The Fast Lane)
+    # This task will:
+    #   a. Run inference (if needed)
+    #   b. Calculate Score/Grade
+    #   c. Save to DB
+    #   d. Send 'APP_SCORED' WebSocket event
+    q_inference.enqueue(
+        task_score_application,
+        args=(user.id, app.id),
+        job_timeout='3m'
+    )
 
-    # 4. Save
-    registry.update_job(user_id, job.id, job)
+    return {
+        "status": "queued",
+        "message": "Analysis started. Waiting for results..."
+    }
 
-# --- Request Model ---
+# --- REQUEST MODELS ---
 class GenerateRoleCaseRequest(BaseModel):
     job_id: str
     cv_id: str
@@ -85,9 +71,41 @@ class GenerateRoleCaseRequest(BaseModel):
         "super_picky"
     ] = "balanced_default"
 
-
 class PromoteRequest(BaseModel):
     alternative_id: str
+
+class ManualMatchRequest(BaseModel):
+    evidence_text: str 
+    cv_item_id: Optional[str] = None
+    cv_item_type: Optional[str] = None 
+    cv_item_name: Optional[str] = None 
+
+
+def _update_job_cache_from_mapping(user_id: str, job_id: str, mapping: Mapping, registry: Registry):
+    """
+    Recalculates the score based on the current mapping and updates the Job Cache.
+    """
+    job = registry.get_job(job_id, user_id)
+    if not job: return
+
+    calculator = ForensicCalculator()
+    analysis = calculator.calculate(job, mapping)
+    stats = analysis.stats
+
+    job.match_score = stats.overall_match_score
+    
+    if stats.overall_match_score >= 85: job.match_grade = "A"
+    elif stats.overall_match_score >= 65: job.match_grade = "B"
+    elif stats.overall_match_score >= 40: job.match_grade = "C"
+    else: job.match_grade = "D"
+
+    badges = []
+    if stats.critical_gaps_count > 0: badges.append("Missing Critical Skills")
+    if stats.overall_match_score > 90: badges.append("Top Match")
+    job.cached_badges = badges
+
+    registry.update_job(user_id, job.id, job)
+
 
 @router.post("/applications/{app_id}/mappings/{feature_id}/promote")
 def promote_match(
@@ -115,6 +133,7 @@ def promote_match(
     new_analysis.application_id = app_id
     return new_analysis
 
+
 @router.post("/applications/{app_id}/mappings/{feature_id}/approve")
 def approve_match(
     app_id: str, 
@@ -124,34 +143,27 @@ def approve_match(
 ):
     registry: Registry = request.app.state.registry
     
-    # 1. Fetch Data
     app = registry.get_application(app_id, user.id)
     if not app: raise HTTPException(404, "App not found")
     
     mapping = registry.get_mapping(app.mapping_id, user.id)
     if not mapping: raise HTTPException(404, "Mapping not found")
 
-    # 2. Find and Update the Pair (Your existing logic)
     pair = next((p for p in mapping.pairs if p.feature_id == feature_id), None)
     if not pair: raise HTTPException(404, "Pair not found")
     
-    pair.status = "user_approved"  # <--- The User Action
-    registry.save_mapping(user.id, mapping) # <--- Saved to DB
+    pair.status = "user_approved"
+    registry.save_mapping(user.id, mapping)
 
-    # 3. NEW: Trigger Background Score Update
-    # This ensures the Job Board immediately reflects the higher score
     _update_job_cache_from_mapping(user.id, app.job_id, mapping, registry)
 
     return {"status": "success", "new_status": pair.status}
 
-# -----------------------------------------------------------------------------
-# 1. GENERATE ROLE CASE (Inference + Forensics Pipeline)
-# -----------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------
-# 1. GENERATE ROLE CASE (Inference + Forensics Pipeline)
+# 1. GENERATE ROLE CASE (Async / WebSocket)
 # -----------------------------------------------------------------------------
-@router.post("/generate", response_model=ForensicAnalysis)
+@router.post("/generate")
 def generate_role_case(
     payload: GenerateRoleCaseRequest, 
     request: Request,
@@ -159,13 +171,10 @@ def generate_role_case(
 ):
     """
     The 'One-Click' Endpoint:
-    1. Finds or Creates a Mapping for the Job/CV pair.
-    2. Runs the NLP Inference (fresh).
-    3. Saves the results to DB.
-    4. Calculates and returns the Forensic Analysis (RoleCase).
+    Enqueues the inference task to the background worker.
+    The frontend should wait for WebSocket event: ROLE_CASE_GENERATED
     """
     registry: Registry = request.app.state.registry
-    inferer = request.app.state.inferer
     
     # 1. Validate Inputs (Secured)
     job = registry.get_job(payload.job_id, user.id)
@@ -174,44 +183,18 @@ def generate_role_case(
     if not job or not cv:
         raise HTTPException(404, "Job or CV not found")
 
-    # 2. Find or Create Mapping
-    # We check if a mapping already exists for this pair
-    existing_mappings = registry.all_mappings(user.id)
-    mapping = next(
-        (m for m in existing_mappings if m.job_id == payload.job_id and m.base_cv_id == payload.cv_id), 
-        None
+    # 2. Enqueue Task
+    # The task handles finding/creating the mapping internally
+    q_inference.enqueue(
+        task_generate_role_case,
+        args=(user.id, payload.job_id, payload.cv_id, payload.mode),
+        job_timeout='2m'
     )
 
-    if not mapping:
-        # Create a new blank mapping container
-        mapping = registry.create_mapping(user.id, job_id=payload.job_id, base_cv_id=payload.cv_id)
-    
-    # 3. RUN INFERENCE (The "Brain")
-    try:
-        # TUNING_MODES should be imported from backend.core.tuning or similar
-        from backend.core.tuning import TUNING_MODES
-        mode_settings = TUNING_MODES.get(payload.mode, TUNING_MODES["balanced_default"])
-        config_params = mode_settings.get("config", {})
-        
-        # This returns a list of MappingPair objects (in memory)
-        suggestions = inferer.infer_mappings(job, cv, **config_params)
-        
-    except Exception as e:
-        raise HTTPException(500, f"Inference Engine Failed: {str(e)}")
-
-    # 4. SAVE RESULTS
-    # We overwrite the existing pairs with the fresh AI suggestions
-    mapping.pairs = suggestions
-    registry.save_mapping(user.id, mapping)
-
-    # 5. RUN FORENSICS (The "Verdict")
-    calculator = ForensicCalculator()
-    analysis = calculator.calculate(job, mapping)
-    
-    # Inject context
-    analysis.application_id = None 
-
-    return analysis
+    return {
+        "status": "queued", 
+        "message": "Generating RoleCase... Please wait for results."
+    }
 
 
 @router.get("/applications/{app_id}/forensic-analysis", response_model=ForensicAnalysis)
@@ -220,89 +203,38 @@ def get_forensic_analysis(
     request: Request,
     user: User = Depends(get_current_user)
 ):
+    """
+    READ-ONLY Endpoint.
+    Fetches the existing analysis. Does NOT run heavy inference synchronously.
+    If no analysis exists, it returns a 404 or empty state, prompting user to click 'Generate'.
+    """
     registry: Registry = request.app.state.registry
-
-    print(f"[Forensics] Fetching forensic analysis for Application {app_id}..." )
     
-    # 1. Fetch Context
     app = registry.get_application(app_id, user.id)
     if not app: raise HTTPException(404, "Application not found")
     
     job = registry.get_job(app.job_id, user.id)
-
-    print(f"[Forensics] Found Application for Job {job.id}: {job.title if job else 'N/A'}"  )
     
-    # Handle missing mapping gracefully (Auto-create if missing)
+    # Handle missing mapping gracefully
     if not app.mapping_id:
-        print(f"[Forensics] No mapping found for Application {app.id}. Creating new mapping...")
+        # Create empty mapping just so we can return empty analysis
         mapping = registry.create_mapping(user.id, app.job_id, app.base_cv_id)
-        print(f"[Forensics] Created Mapping {mapping.id} for Job {app.job_id} and CV {app.base_cv_id}")
         app.mapping_id = mapping.id
         registry.update_application(user.id, app.id, ApplicationUpdate(mapping_id=mapping.id))
     else:
         mapping = registry.get_mapping(app.mapping_id, user.id)
     
-    print(f"[Forensics] Mapping ID: {mapping.id if mapping else 'N/A'}, Pairs Count: {len(mapping.pairs) if mapping else 'N/A'}"  )
-
     if not job or not mapping:
         raise HTTPException(404, "Job or Mapping data missing")
 
-    # --- LAZY INFERENCE FIX ---
-    # 2. Check if mapping is empty. If so, run the AI "Just in Time".
-    if not mapping.pairs:
-        print(f"[Forensics] Mapping {mapping.id} is empty. Running Lazy Inference...")
-        try:
-            inferer = request.app.state.inferer
-            cv = registry.get_cv(app.base_cv_id, user.id)
-            
-            mode_settings = "balanced_default" 
-
-            print(f"[Forensics] Running inference for Job {job.id} with CV {cv.id} using mode: {mode_settings}")
-            
-            # Run AI
-            suggestions = inferer.infer_mappings(job, cv, min_score=0.20)
-            
-            # Save results
-            mapping.pairs = suggestions
-            registry.save_mapping(user.id, mapping)
-            print(f"[Forensics] Mapping after inference: Mapping ID: {mapping.id if mapping else 'N/A'}, Pairs Count: {len(mapping.pairs) if mapping else 'N/A'}"  )
-
-            print(f"[Forensics] Lazy Inference complete. {len(suggestions)} suggestions saved to Mapping {mapping.id}.")
-            print(f"[Forensics] Inference complete. Found {len(suggestions)} matches.")
-            
-        except Exception as e:
-            print(f"[Forensics] Lazy Inference Failed: {str(e)}")
-
-    # 3. Calculate Analysis
-    print(f"[Forensics] Calculating forensic analysis for Job {job.id} with Mapping {mapping.id}..."   )
+    # Calculate Analysis (Fast - just math, no AI)
     calculator = ForensicCalculator()
-    analysis = calculator.calculate(job, mapping) # Returns Analysis WITH grades/badges
-    print(f"[Forensics] Analysis complete. Stats: {analysis.stats}")
-
-    # --- CACHE WRITE-BACK (Refactored) ---
-    # Sync the deep analysis score/badges to the Application Cache using ScoringService
-    print(f"[Forensics] Syncing Application Cache for {app.id}...")
-    
-    try:
-        # Instantiate service with existing inferer (lightweight)
-        inferer = getattr(request.app.state, "inferer", None)
-        service = ScoringService(registry, inferer)
-        
-        # Use the unified update method
-        service.update_application_from_analysis(user.id, app, analysis)
-        
-    except Exception as e:
-        print(f"[Forensics] Warning: Failed to update cache: {e}")
-    # --------------------------------------
+    analysis = calculator.calculate(job, mapping) 
 
     analysis.application_id = app_id
     return analysis
 
 
-
-# -----------------------------------------------------------------------------
-# 3. REJECT MATCH (Interactive Triage)
-# -----------------------------------------------------------------------------
 @router.post("/applications/{app_id}/mappings/{feature_id}/reject")
 def reject_match(
     app_id: str, 
@@ -312,51 +244,39 @@ def reject_match(
 ):
     registry: Registry = request.app.state.registry
     
-    # A. Fetch Context
     app = registry.get_application(app_id, user.id)
     if not app: raise HTTPException(404, "Application not found")
     
     mapping = registry.get_mapping(app.mapping_id, user.id)
     if not mapping: raise HTTPException(404, "Mapping not found")
 
-    # B. Find Pair
     pair = next((p for p in mapping.pairs if p.feature_id == feature_id), None)
     if not pair:
         raise HTTPException(404, "Mapping pair not found")
 
-    # C. OPTIMIZE (Modify in Memory)
-    # This sets status='rejected' and clears the score/annotation so it doesn't count
+    # Optimize & Save
     MappingOptimizer.reject_current_match(pair)
-
-    # D. SAVE (Persist changes to Mapping)
     registry.save_mapping(user.id, mapping)
 
-    # E. RE-CALCULATE (Get new Forensic Analysis)
-    # We calculate this immediately so we can update the Job Cache
+    # Recalculate & Cache Update
     job = registry.get_job(app.job_id, user.id)
     calculator = ForensicCalculator()
     new_analysis = calculator.calculate(job, mapping)
     
-    # F. UPDATE JOB CACHE (Spotlight Persistence)
-    # This logic matches your _update_job_cache_from_mapping helper
+    # Sync to Job Cache
     stats = new_analysis.stats
     job.match_score = stats.overall_match_score
     
-    # Update Grade
     if stats.overall_match_score >= 85: job.match_grade = "A"
     elif stats.overall_match_score >= 65: job.match_grade = "B"
     elif stats.overall_match_score >= 40: job.match_grade = "C"
     else: job.match_grade = "D"
 
-    # Update Badges
     badges = []
     if stats.critical_gaps_count > 0: badges.append("Missing Critical Skills")
     if stats.overall_match_score > 90: badges.append("Top Match")
-    if stats.coverage_pct > 80 and stats.overall_match_score < 60: badges.append("Broad but Weak")
     
     job.cached_badges = badges
-
-    # Save Job Updates (So the dashboard updates instantly)
     registry.update_job(user.id, job.id, job)
 
     new_analysis.application_id = app_id
@@ -368,13 +288,6 @@ def reject_match(
     }
 
 
-class ManualMatchRequest(BaseModel):
-    # The user provides the text evidence or links to a CV item
-    evidence_text: str 
-    cv_item_id: Optional[str] = None
-    cv_item_type: Optional[str] = None # e.g. "experiences", "projects"
-    cv_item_name: Optional[str] = None # e.g. "Senior Dev at Google"
-
 @router.post("/applications/{app_id}/mappings/{feature_id}/manual", response_model=ForensicAnalysis)
 def create_manual_match(
     app_id: str, 
@@ -384,24 +297,20 @@ def create_manual_match(
     user: User = Depends(get_current_user)
 ):
     """
-    User forces a match for a specific requirement.
-    This OVERRIDES any existing AI match or rejection.
+    User forces a match. Overrides existing AI match.
     """
     registry: Registry = request.app.state.registry
     
-    # 1. Setup Context
     app = registry.get_application(app_id, user.id)
     if not app: raise HTTPException(404, "Application not found")
     
     mapping = registry.get_mapping(app.mapping_id, user.id)
     job = registry.get_job(app.job_id, user.id)
     
-    # 2. Get or Create the Pair
     pair = next((p for p in mapping.pairs if p.feature_id == feature_id), None)
     if not pair:
         raise HTTPException(404, "Mapping pair container not found")
 
-    # 3. Construct the "Manual" Candidate
     manual_lineage = []
     if payload.cv_item_id:
         manual_lineage.append(LineageItem(
@@ -417,7 +326,6 @@ def create_manual_match(
         lineage=manual_lineage
     )
 
-    # 4. Update the Pair State
     if not pair.meta:
         pair.meta = MatchingMeta(best_match=manual_candidate, summary_note="")
     
@@ -429,7 +337,6 @@ def create_manual_match(
     
     pair.meta.summary_note = f"Manual Match: \"{payload.evidence_text[:50]}...\""
     
-    # 5. Save & Recalculate
     registry.save_mapping(user.id, mapping)
     
     calculator = ForensicCalculator()

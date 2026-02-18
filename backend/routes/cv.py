@@ -1,16 +1,15 @@
 # backend/routes/cv.py
 
-from fastapi import APIRouter, HTTPException, Query, Request, Depends, BackgroundTasks, Body
+from fastapi import APIRouter, HTTPException, Query, Request, Depends, Body
 from backend.core.registry import Registry
 from backend.core.models import (
     CVUpdate, ExperienceUpdate, ExperienceComplexPayload, 
     EducationComplexPayload, HobbyComplexPayload, ProjectComplexPayload, 
-    CVImportRequest, CV, Experience, Project, Education, Skill, Hobby, User, CVExportRequest
+    CVImportRequest, CV, Experience, Project, Education, Skill, Hobby, User, CVExportRequest, DerivedCV
 )
 from typing import Optional, List
 import logging as log
-from backend.routes.auth import get_current_user # Adjust import path
-# Add these to your existing imports
+from backend.routes.auth import get_current_user 
 import os
 import zipfile
 import io
@@ -18,69 +17,55 @@ from pathlib import Path
 from fastapi.responses import Response
 from redis import Redis
 from rq import Queue
-from backend.tasks import task_import_cv
-from backend.core.services.scoring import ScoringService
 
+# --- IMPORTS FROM TASKS ---
+# We now import the dispatcher task instead of defining logic here
+from backend.tasks import task_import_cv, task_dispatch_cv_updates
+
+from backend.core.services.scoring import ScoringService
 from backend.core.services.cv_generator import PDFGenerator, WordGenerator
 
 router = APIRouter()
-# Connect to Redis (ensure port matches your docker container)
+
+# --- REDIS & QUEUE SETUP ---
 redis_conn = Redis(host='localhost', port=6379)
-q = Queue(connection=redis_conn)
+
+# High Priority / Slow Lane (Parsing)
+q_parsing = Queue('q_parsing', connection=redis_conn)
+
+# Low Priority Lane (Bulk Updates)
+# This queue is processed AFTER 'q_inference' is empty by the worker
+q_background = Queue('q_background', connection=redis_conn)
 
 
-# --- BACKGROUND TASK HELPER ---
-def task_rescore_jobs_for_cv(user_id: str, cv_id: str, request_app):
-    """
-    Background Task: 
-    When a specific CV is updated, propagate changes to:
-    1. Applications using this CV.
-    2. The Job Board (only if this is the Primary CV).
-    """
-    registry = request_app.state.registry
-    inferer = getattr(request_app.state, "inferer", None)
-    service = ScoringService(registry, inferer)
-
-    print(f"🔄 [Background] Processing updates for CV {cv_id}...")
-
-    # --- STEP 1: UPDATE LINKED APPLICATIONS (High Priority) ---
-    # Find all applications where base_cv_id == this CV
-    all_apps = registry.all_applications(user_id)
-    affected_apps = [app for app in all_apps if app.base_cv_id == cv_id]
+@router.put("/{cv_id}/tailored-content", response_model=DerivedCV)
+def update_tailored_cv_content(
+    cv_id: str,
+    payload: CVUpdate, 
+    request: Request,
+    user: User = Depends(get_current_user)
+):
+    registry: Registry = request.app.state.registry
     
-    print(f"   ↳ Found {len(affected_apps)} active applications linked to this CV.")
-    
-    for app in affected_apps:
-        try:
-            # Uses the new score_application logic we wrote
-            service.score_application(user_id, app.id)
-        except Exception as e:
-            print(f"   ⚠️ Error updating Application {app.id}: {e}")
-
-
-    # --- STEP 2: UPDATE JOB BOARD (Conditional) ---
-    # We only re-score the "Browsing View" if this is the user's Primary CV.
-    # Otherwise, the browsing scores should stay reflecting the actual Primary CV.
-    
-    user = registry.get_user(user_id)
-    is_primary = (user and user.primary_cv_id == cv_id)
-    
-    if is_primary:
-        # It's the default! We must update the entire board so the "Spotlight" is accurate.
-        jobs = registry.all_jobs(user_id)
-        print(f"   ↳ CV is Primary. Rescoring {len(jobs)} browsing jobs...")
+    # 1. Fetch
+    existing_cv = registry.get_cv(cv_id, user.id)
+    if not existing_cv:
+        raise HTTPException(404, "CV not found")
         
-        for job in jobs:
-            try:
-                # Uses score_job (updates Job cache)
-                service.score_job(user_id, job.id, cv_id)
-            except Exception as e:
-                print(f"   ⚠️ Error scoring Job {job.id}: {e}")
-    else:
-        print(f"   ↳ CV is NOT Primary. Skipping job board rescore.")
+    # 2. Guard Clause: Only Derived CVs
+    if not hasattr(existing_cv, 'base_cv_id') or not existing_cv.base_cv_id:
+         raise HTTPException(400, "This endpoint allows editing Tailored CVs only.")
 
-    print(f"✅ [Background] Update complete for CV {cv_id}.")
+    # 3. Apply Updates
+    update_data = payload.model_dump(exclude_unset=True)
+    updated_cv = existing_cv.model_copy(update=update_data)
+    
+    # 4. Save
+    registry.save_cv(user.id, updated_cv)
+    
+    return updated_cv
 
+# --- IMPORT ENDPOINT ---
 @router.post("/import")
 async def import_cv_background(
     request: Request,
@@ -88,8 +73,7 @@ async def import_cv_background(
     user: User = Depends(get_current_user)
 ):
     """
-    Starts the CV Import background task.
-    Creates a placeholder CV immediately so it survives page refreshes.
+    Starts the CV Import background task via the 'q_parsing' queue.
     """
     registry: Registry = request.app.state.registry
 
@@ -101,32 +85,28 @@ async def import_cv_background(
             is_importing=True,
             summary="Importing from document..."
         )
-        # Save explicitly using the registry's internal insert
         registry._insert("cvs", placeholder_cv)
 
-        # 2. Enqueue the task with the placeholder ID
-        job = q.enqueue(
+        # 2. Enqueue the task to 'q_parsing' (The Heavy Worker)
+        job = q_parsing.enqueue(
             task_import_cv, 
-            user.id, 
-            placeholder_cv.id,  # <--- Pass the ID
-            payload.text,
-            payload.name,
+            args=(user.id, placeholder_cv.id, payload.text, payload.name),
             job_timeout='10m'
         )
         
-        # 3. Update task ID (Optional, helps with debugging)
+        # 3. Update task ID on the placeholder
         placeholder_cv.import_task_id = job.get_id()
         registry.update_cv(user.id, placeholder_cv.id, CVUpdate(summary="Queued for processing..."))
 
         return {
             "task_id": job.get_id(),
-            "cv_id": placeholder_cv.id, # Return the ID so frontend can highlight it if needed
+            "cv_id": placeholder_cv.id, 
             "status": "queued",
             "message": f"Importing '{payload.name}' in background..."
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Queue failed: {str(e)}")
-    
+
 
 @router.get("/tasks/{task_id}")
 def get_cv_task_status(task_id: str, user: User = Depends(get_current_user)):
@@ -134,26 +114,22 @@ def get_cv_task_status(task_id: str, user: User = Depends(get_current_user)):
     Frontend polls this to check progress.
     """
     try:
-        job = q.fetch_job(task_id)
+        job = q_parsing.fetch_job(task_id)
         
         if not job:
             return {"status": "not_found"}
         
-        if job.is_finished:
-            # The task returns {"id": "cv_123...", "status": "success"}
+        if job.get_status() == "finished": 
             return {"status": "finished", "result": job.result}
-        
-        elif job.is_failed:
+        elif job.get_status() == "failed": 
             return {"status": "failed", "error": str(job.exc_info)}
-        
         else:
-            # You can add custom meta progress here if you implement it in the worker
             return {"status": "processing"}
             
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
+    
+    
 @router.post("/")
 def create_cv(
     name: str, 
@@ -175,17 +151,12 @@ def list_cvs(
 ):
     """List all base CVs belonging to the user."""
     registry: Registry = request.app.state.registry
-    print(f"Listing CVs for user_id: {user.id}")
     cvs = registry.all_cvs(user.id)
     # --- AUTO-HEAL: Set Default if Missing ---
     if cvs and not user.primary_cv_id:
-        # Logic: Pick the most recently created/updated one
-        # Assuming cvs is a list, pick the first one
         new_primary = cvs[0] 
-        
         user.primary_cv_id = new_primary.id
         registry.update_user(user)
-        # -----------------------------------------
     return cvs
 
 @router.get("/{cv_id}")
@@ -196,7 +167,6 @@ def get_cv(
 ):
     """Fetch a specific CV by ID."""
     registry: Registry = request.app.state.registry
-    # Pass user.id to enforce ownership
     cv = registry.get_cv(cv_id, user.id)
     if not cv:
         raise HTTPException(status_code=404, detail="CV not found")
@@ -213,7 +183,6 @@ def update_cv(
     cv_id: str, 
     data: CVUpdate, 
     request: Request,
-    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user)
 ):
     """Update general CV metadata (name, summary, contact_info)."""
@@ -221,8 +190,11 @@ def update_cv(
         registry: Registry = request.app.state.registry
         updated_cv = registry.update_cv(user.id, cv_id, data)
 
-        # Trigger Rescore
-        background_tasks.add_task(task_rescore_jobs_for_cv, user.id, cv_id, request.app)
+        # Fire-and-forget the dispatcher task to the LOW PRIORITY queue.
+        q_background.enqueue(
+            task_dispatch_cv_updates,
+            args=(user.id, cv_id)
+        )
         
         return updated_cv
     except ValueError as e:
@@ -251,15 +223,14 @@ def add_experience_complex(
     cv_id: str, 
     payload: ExperienceComplexPayload, 
     request: Request,
-    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user)
 ):
     try:
         registry: Registry = request.app.state.registry
         result = registry.create_experience_from_payload(user.id, cv_id, payload)
         
-        # Trigger Rescore
-        background_tasks.add_task(task_rescore_jobs_for_cv, user.id, cv_id, request.app)
+        # Trigger Bulk Update (Low Priority)
+        q_background.enqueue(task_dispatch_cv_updates, args=(user.id, cv_id))
         return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -270,15 +241,14 @@ def update_experience_complex(
     exp_id: str, 
     payload: ExperienceComplexPayload, 
     request: Request,
-    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user)
 ):
     try:
         registry: Registry = request.app.state.registry
         result = registry.update_experience_from_payload(user.id, cv_id, exp_id, payload)
         
-        # Trigger Rescore
-        background_tasks.add_task(task_rescore_jobs_for_cv, user.id, cv_id, request.app)
+        # Trigger Bulk Update (Low Priority)
+        q_background.enqueue(task_dispatch_cv_updates, args=(user.id, cv_id))
         return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -288,15 +258,14 @@ def add_education_complex(
     cv_id: str, 
     payload: EducationComplexPayload, 
     request: Request,
-    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user)
 ):
     try:
         registry: Registry = request.app.state.registry
         result = registry.create_education_from_payload(user.id, cv_id, payload)
         
-        # Trigger Rescore
-        background_tasks.add_task(task_rescore_jobs_for_cv, user.id, cv_id, request.app)
+        # Trigger Bulk Update (Low Priority)
+        q_background.enqueue(task_dispatch_cv_updates, args=(user.id, cv_id))
         return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -307,15 +276,14 @@ def update_education_complex(
     edu_id: str, 
     payload: EducationComplexPayload, 
     request: Request,
-    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user)
 ):
     try:
         registry: Registry = request.app.state.registry
         result = registry.update_education_from_payload(user.id, cv_id, edu_id, payload)
         
-        # Trigger Rescore
-        background_tasks.add_task(task_rescore_jobs_for_cv, user.id, cv_id, request.app)
+        # Trigger Bulk Update (Low Priority)
+        q_background.enqueue(task_dispatch_cv_updates, args=(user.id, cv_id))
         return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -325,15 +293,14 @@ def add_hobby_complex(
     cv_id: str, 
     payload: HobbyComplexPayload, 
     request: Request,
-    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user)
 ):
     try:
         registry: Registry = request.app.state.registry
         result = registry.create_hobby_from_payload(user.id, cv_id, payload)
         
-        # Trigger Rescore
-        background_tasks.add_task(task_rescore_jobs_for_cv, user.id, cv_id, request.app)
+        # Trigger Bulk Update (Low Priority)
+        q_background.enqueue(task_dispatch_cv_updates, args=(user.id, cv_id))
         return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -344,15 +311,14 @@ def update_hobby_complex(
     hobby_id: str, 
     payload: HobbyComplexPayload, 
     request: Request,
-    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user)
 ):
     try:
         registry: Registry = request.app.state.registry
         result = registry.update_hobby_from_payload(user.id, cv_id, hobby_id, payload)
         
-        # Trigger Rescore
-        background_tasks.add_task(task_rescore_jobs_for_cv, user.id, cv_id, request.app)
+        # Trigger Bulk Update (Low Priority)
+        q_background.enqueue(task_dispatch_cv_updates, args=(user.id, cv_id))
         return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -364,7 +330,6 @@ def add_education(
     degree: str, 
     field: str,
     request: Request,
-    background_tasks: BackgroundTasks,
     start_date: Optional[str] = None, 
     end_date: Optional[str] = None,
     skill_ids: Optional[List[str]] = Query(None),
@@ -382,8 +347,8 @@ def add_education(
             end_date=end_date, 
             skill_ids=skill_ids
         )
-        # Trigger Rescore
-        background_tasks.add_task(task_rescore_jobs_for_cv, user.id, cv_id, request.app)
+        # Trigger Bulk Update (Low Priority)
+        q_background.enqueue(task_dispatch_cv_updates, args=(user.id, cv_id))
         return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -393,7 +358,6 @@ def add_skill(
     cv_id: str, 
     name: str,
     request: Request,
-    background_tasks: BackgroundTasks,
     category: str = "technical",
     level: Optional[str] = None, 
     importance: Optional[int] = None, 
@@ -404,8 +368,8 @@ def add_skill(
         registry: Registry = request.app.state.registry
         result = registry.add_cv_skill(user.id, cv_id, name=name, category=category, level=level, importance=importance, description=description)
         
-        # Trigger Rescore
-        background_tasks.add_task(task_rescore_jobs_for_cv, user.id, cv_id, request.app)
+        # Trigger Bulk Update (Low Priority)
+        q_background.enqueue(task_dispatch_cv_updates, args=(user.id, cv_id))
         return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -416,7 +380,6 @@ def add_project(
     title: str, 
     description: str,
     request: Request,
-    background_tasks: BackgroundTasks,
     related_experience_id: Optional[str] = None, 
     related_education_id: Optional[str] = None,
     skill_ids: Optional[List[str]] = Query(None),
@@ -433,8 +396,8 @@ def add_project(
             related_education_id=related_education_id, 
             skill_ids=skill_ids
         )
-        # Trigger Rescore
-        background_tasks.add_task(task_rescore_jobs_for_cv, user.id, cv_id, request.app)
+        # Trigger Bulk Update (Low Priority)
+        q_background.enqueue(task_dispatch_cv_updates, args=(user.id, cv_id))
         return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -444,7 +407,6 @@ def add_hobby(
     cv_id: str, 
     name: str, 
     request: Request,
-    background_tasks: BackgroundTasks,
     description: Optional[str] = None,
     skill_ids: Optional[List[str]] = Query(None), 
     achievement_ids: Optional[List[str]] = Query(None),
@@ -460,8 +422,8 @@ def add_hobby(
             skill_ids=skill_ids,
             achievement_ids=achievement_ids
         )
-        # Trigger Rescore
-        background_tasks.add_task(task_rescore_jobs_for_cv, user.id, cv_id, request.app)
+        # Trigger Bulk Update (Low Priority)
+        q_background.enqueue(task_dispatch_cv_updates, args=(user.id, cv_id))
         return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -472,15 +434,14 @@ def add_project_complex(
     cv_id: str, 
     payload: ProjectComplexPayload, 
     request: Request,
-    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user)
 ):
     try:
         registry: Registry = request.app.state.registry
         result = registry.create_project_from_payload(user.id, cv_id, payload)
         
-        # Trigger Rescore
-        background_tasks.add_task(task_rescore_jobs_for_cv, user.id, cv_id, request.app)
+        # Trigger Bulk Update (Low Priority)
+        q_background.enqueue(task_dispatch_cv_updates, args=(user.id, cv_id))
         return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -491,15 +452,14 @@ def update_project_complex(
     project_id: str, 
     payload: ProjectComplexPayload, 
     request: Request,
-    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user)
 ):
     try:
         registry: Registry = request.app.state.registry
         result = registry.update_project_from_payload(user.id, cv_id, project_id, payload)
         
-        # Trigger Rescore
-        background_tasks.add_task(task_rescore_jobs_for_cv, user.id, cv_id, request.app)
+        # Trigger Bulk Update (Low Priority)
+        q_background.enqueue(task_dispatch_cv_updates, args=(user.id, cv_id))
         return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -509,7 +469,6 @@ def add_achievement(
     cv_id: str, 
     text: str,
     request: Request,
-    background_tasks: BackgroundTasks,
     context: Optional[str] = None,
     skill_ids: Optional[List[str]] = Query(None),
     user: User = Depends(get_current_user)
@@ -523,8 +482,8 @@ def add_achievement(
             context=context, 
             skill_ids=skill_ids
         )
-        # Trigger Rescore
-        background_tasks.add_task(task_rescore_jobs_for_cv, user.id, cv_id, request.app)
+        # Trigger Bulk Update (Low Priority)
+        q_background.enqueue(task_dispatch_cv_updates, args=(user.id, cv_id))
         return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -539,15 +498,14 @@ def link_skill_to_experience(
     exp_id: str, 
     skill_id: str, 
     request: Request,
-    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user)
 ):
     try:
         registry: Registry = request.app.state.registry
         result = registry.link_skill_to_entity(user.id, cv_id, exp_id, skill_id, 'experiences')
         
-        # Trigger Rescore
-        background_tasks.add_task(task_rescore_jobs_for_cv, user.id, cv_id, request.app)
+        # Trigger Bulk Update (Low Priority)
+        q_background.enqueue(task_dispatch_cv_updates, args=(user.id, cv_id))
         return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -558,15 +516,14 @@ def link_skill_to_project(
     proj_id: str, 
     skill_id: str, 
     request: Request,
-    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user)
 ):
     try:
         registry: Registry = request.app.state.registry
         result = registry.link_skill_to_entity(user.id, cv_id, proj_id, skill_id, 'projects')
         
-        # Trigger Rescore
-        background_tasks.add_task(task_rescore_jobs_for_cv, user.id, cv_id, request.app)
+        # Trigger Bulk Update (Low Priority)
+        q_background.enqueue(task_dispatch_cv_updates, args=(user.id, cv_id))
         return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -577,15 +534,14 @@ def link_skill_to_achievement(
     ach_id: str, 
     skill_id: str, 
     request: Request,
-    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user)
 ):
     try:
         registry: Registry = request.app.state.registry
         result = registry.link_skill_to_entity(user.id, cv_id, ach_id, skill_id, 'achievements')
         
-        # Trigger Rescore
-        background_tasks.add_task(task_rescore_jobs_for_cv, user.id, cv_id, request.app)
+        # Trigger Bulk Update (Low Priority)
+        q_background.enqueue(task_dispatch_cv_updates, args=(user.id, cv_id))
         return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -597,15 +553,14 @@ def link_achievement_to_experience(
     exp_id: str, 
     ach_id: str, 
     request: Request,
-    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user)
 ):
     try:
         registry: Registry = request.app.state.registry
         result = registry.link_achievement_to_context(user.id, cv_id, exp_id, ach_id, 'experiences')
         
-        # Trigger Rescore
-        background_tasks.add_task(task_rescore_jobs_for_cv, user.id, cv_id, request.app)
+        # Trigger Bulk Update (Low Priority)
+        q_background.enqueue(task_dispatch_cv_updates, args=(user.id, cv_id))
         return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -616,15 +571,14 @@ def link_achievement_to_project(
     proj_id: str, 
     ach_id: str, 
     request: Request,
-    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user)
 ):
     try:
         registry: Registry = request.app.state.registry
         result = registry.link_achievement_to_context(user.id, cv_id, proj_id, ach_id, 'projects')
         
-        # Trigger Rescore
-        background_tasks.add_task(task_rescore_jobs_for_cv, user.id, cv_id, request.app)
+        # Trigger Bulk Update (Low Priority)
+        q_background.enqueue(task_dispatch_cv_updates, args=(user.id, cv_id))
         return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -654,7 +608,6 @@ def delete_nested_item(
     list_name: str, 
     item_id: str, 
     request: Request,
-    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user)
 ):
     """
@@ -683,8 +636,8 @@ def delete_nested_item(
         # Pass user.id to the delete function
         result = func(user.id, cv_id, item_id)
         
-        # Trigger Rescore
-        background_tasks.add_task(task_rescore_jobs_for_cv, user.id, cv_id, request.app)
+        # Trigger Bulk Update (Low Priority)
+        q_background.enqueue(task_dispatch_cv_updates, args=(user.id, cv_id))
         return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -932,21 +885,17 @@ def export_cv(
 
 @router.put("/primary")
 def set_primary_cv(
-    cv_id: str, # <--- Changed: Now a direct Query Parameter
+    cv_id: str, 
     request: Request,
-    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user)
 ):
     """
     Sets the default CV for the user. 
-    Usage: PUT /api/cvs/primary?cv_id=cv_12345
     """
     registry: Registry = request.app.state.registry
     
-    # 1. Validation: Ensure the CV actually belongs to this user
-    print(f"Setting primary CV for user_id: {user.id} to cv_id: {cv_id}")
+    # 1. Validation
     cv = registry.get_cv(cv_id, user.id)
-    print(f"CV fetched for validation: {cv}")   
     if not cv:
         raise HTTPException(404, "CV not found")
         
@@ -957,11 +906,11 @@ def set_primary_cv(
     if hasattr(registry, 'update_user'):
         registry.update_user(user)
     else:
-        # Fallback if update_user isn't in registry yet
         registry.db.data["users"][user.id] = user.model_dump()
         registry.db.save()
     
-    background_tasks.add_task(task_rescore_jobs_for_cv, user.id, cv_id, request.app)
+    # Trigger Bulk Update (Low Priority)
+    q_background.enqueue(task_dispatch_cv_updates, args=(user.id, cv_id))
     
     return {
         "status": "success", 

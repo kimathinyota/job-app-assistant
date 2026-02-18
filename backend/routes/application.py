@@ -3,7 +3,7 @@
 from fastapi import APIRouter, HTTPException, Request, Depends
 from typing import Optional
 from backend.core.registry import Registry
-from backend.core.models import ApplicationUpdate, ApplicationStatus, AppSuiteData, User
+from backend.core.models import ApplicationUpdate, ApplicationStatus, AppSuiteData, User, DerivedCV
 from backend.routes.auth import get_current_user # Adjust import path if you put the dependency in backend.core.security
 
 router = APIRouter()
@@ -104,3 +104,43 @@ def delete_application(
         return registry.delete_application(user.id, app_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+from backend.core.models import ApplicationUpdate # Ensure this is imported
+
+@router.post("/{app_id}/tailored-cv", response_model=DerivedCV)
+def get_or_create_tailored_cv(
+    app_id: str,
+    force_refresh: bool = False,
+    request: Request = None,
+    user: User = Depends(get_current_user)
+):
+    registry: Registry = request.app.state.registry
+    app = registry.get_application(app_id, user.id)
+    if not app:
+        raise HTTPException(404, "Application not found")
+
+    # 1. Return existing if valid
+    if app.derived_cv_id and not force_refresh:
+        existing_cv = registry.get_cv(app.derived_cv_id, user.id)
+        if existing_cv:
+            return existing_cv
+
+    # 2. Generate New
+    base_cv = registry.get_cv(app.base_cv_id, user.id)
+    mapping = registry.get_mapping(app.mapping_id, user.id)
+    
+    if not base_cv or not mapping:
+        raise HTTPException(400, "Missing Base CV or Mapping")
+
+    new_derived_cv = DerivedCV.from_mapping(base_cv, app.job_id, mapping)
+    
+    # 3. Save CV
+    registry.save_derived_cv(user.id, new_derived_cv)
+    
+    # 4. Link to Application (Using specific Update model)
+    # This ensures we don't accidentally wipe other fields or fail validation
+    update_payload = ApplicationUpdate(derived_cv_id=new_derived_cv.id)
+    registry.update_application(user.id, app.id, update_payload)
+    
+    return new_derived_cv

@@ -6,7 +6,7 @@ from backend.core.models import JobDescriptionUpdate, JobUpsertPayload, User
 from backend.routes.auth import get_current_user # Adjust import path if needed
 from typing import Optional
 from pydantic import BaseModel, ValidationError
-from backend.tasks import task_parse_job
+from backend.tasks import task_parse_job, task_preview_job_match, task_score_job
 import logging as log
 from redis import Redis
 from rq import Queue
@@ -16,7 +16,61 @@ from datetime import datetime
 
 router = APIRouter()
 redis_conn = Redis(host='localhost', port=6379)
-q = Queue(connection=redis_conn)
+# q = Queue(connection=redis_conn)
+
+q_parsing = Queue('q_parsing', connection=redis_conn)
+
+q_inference = Queue('q_inference', connection=redis_conn)
+
+q_background = Queue('q_background', connection=redis_conn)
+
+
+@router.post("/score-empty")
+def score_empty_jobs(
+    request: Request,
+    cv_id: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """
+    Finds all jobs with no score (or score=0) and queues them for scoring 
+    against the specified (or primary) CV.
+    """
+    registry: Registry = request.app.state.registry
+    
+    # 1. Determine Target CV
+    target_cv_id = cv_id or user.primary_cv_id
+    if not target_cv_id:
+        raise HTTPException(400, "No CV specified and no primary CV found.")
+
+    # 2. Find Empty Jobs
+    all_jobs = registry.all_jobs(user.id)
+    
+    # Filter for jobs that need scoring
+    # You might want to check match_score is None/0 OR cached_badges is empty
+    jobs_to_score = [
+        j for j in all_jobs 
+        if (j.match_score is None or j.match_score == 0)
+    ]
+    
+    # 3. Enqueue Tasks (Bulk)
+    # We use q_background (Low Priority) so we don't block user interactions
+    # If you don't have q_background defined here, use q_inference
+    count = 0
+    for job in jobs_to_score:
+        q_background.enqueue(
+            task_score_job,
+            args=(user.id, job.id, target_cv_id),
+            job_timeout='60s'
+        )
+        count += 1
+        
+    return {
+        "status": "queued",
+        "count": count,
+        "message": f"Queued {count} jobs for background scoring."
+    }
+
+
 
 class JobTextRequest(BaseModel):
     text: str
@@ -49,24 +103,44 @@ async def parse_job_description(
 
 
 @router.post("/parse_external")
-async def parse_external_job(payload: JobTextRequest):
-    # 1. Send text to Redis
-    job = q.enqueue(task_parse_job, payload.text)
+async def parse_external_job(
+    payload: JobTextRequest,
+    user: User = Depends(get_current_user)
+):
+    """
+    Submits a job to the SLOW queue. 
+    Frontend should poll /status/{job_id} for the result.
+    """
+    # Enqueue to the 'q_parsing' queue specifically
+    job = q_parsing.enqueue(
+        task_parse_job, 
+        args=(payload.text,), # Pass arguments simply
+        job_timeout='3m'
+    )
     
-    # 2. Return the Ticket ID
-    return {"job_id": job.get_id(), "status": "processing"}
+    # Return Ticket ID
+    return {"job_id": job.get_id(), "status": "queued"}
+
 
 @router.get("/status/{job_id}")
 def check_status(job_id: str):
-    job = q.fetch_job(job_id)
+    """
+    Standard Polling Endpoint.
+    Checks the 'q_parsing' queue for results.
+    """
+    job = q_parsing.fetch_job(job_id)
     
+    if not job:
+        return {"status": "not_found"}
+        
     if job.is_finished:
-        # RETURN THE PARSED JSON
+        # RETURN THE PARSED JSON (from task return value)
         return {"status": "finished", "data": job.result} 
     elif job.is_failed:
         return {"status": "failed", "error": str(job.exc_info)}
     else:
         return {"status": "processing"}
+
 
 @router.post("/")
 def create_job(
@@ -298,53 +372,38 @@ def score_all_jobs(
     return {"status": "success", "scored_count": scored_count, "cv_id": target_cv_id}
 
 
-
-from backend.core.services.scoring import ScoringService
-
-@router.get("/{job_id}/match-preview")
+@router.post("/{job_id}/match-preview")
 def preview_job_match(
     job_id: str,
-    cv_id: str,
+    cv_id: str, # Ensure this is passed as query param or body
     request: Request,
     user: User = Depends(get_current_user)
 ):
     """
-    Calculates a score on-the-fly for a Job + CV combo.
-    Does NOT update the Job's default cache.
+    Async Match Preview.
+    Triggers 'task_preview_job_match' in the background.
+    Frontend should wait for WebSocket event: 'MATCH_PREVIEW_GENERATED'
     """
     registry: Registry = request.app.state.registry
     
-    # Init service
-    inferer = getattr(request.app.state, "inferer", None)
-    service = ScoringService(registry, inferer)
-    
-    # 1. Fetch Entities
+    # Validation
     job = registry.get_job(job_id, user.id)
     cv = registry.get_cv(cv_id, user.id)
-
-    print(f" [Preview] Fetching Job and CV for User ID: {user.id}...", "\n\n")
     if not job or not cv:
         raise HTTPException(404, "Job or CV not found")
-        
-    # 2. Run the Logic (Reusing internal helper)
-    # We use _get_or_create_smart_mapping to ensure we leverage existing AI work
-    mapping = service._get_or_create_smart_mapping(user.id, job, cv)
 
-    print(f" [Preview] Mapping ID: {mapping.id}, Pairs Count: {len(mapping.pairs)}")
-
-    # 3. Calculate Score
-    # The calculator now does ALL the work (Score + Grade + Badges)
-    analysis = service.forensics.calculate(job, mapping)
+    # Enqueue to Fast Lane
+    q_inference.enqueue(
+        task_preview_job_match,
+        args=(user.id, job_id, cv_id),
+        job_timeout='30s'
+    )
     
-    print(f" [Preview] Stats: {analysis.stats}")
-    
-    # 4. Return Results
-    # We read the unified badges directly from the analysis object
     return {
-        "score": analysis.stats.overall_match_score,
-        "badges": analysis.suggested_badges, # <--- UPDATED HERE
-        "grade": analysis.suggested_grade    # Optional: You can return the grade too
+        "status": "queued",
+        "message": "Calculating preview..."
     }
+
 
 class JobFeatureUpdate(BaseModel):
     description: str

@@ -7,8 +7,18 @@ from typing import Optional, List, Literal
 from backend.core.tuning import TUNING_MODES
 from backend.routes.auth import get_current_user
 import logging as log
+from redis import Redis
+from rq import Queue
+
+# IMPORT THE TASK
+from backend.tasks import task_infer_mapping_suggestions
 
 router = APIRouter()
+
+# --- REDIS QUEUE SETUP ---
+redis_conn = Redis(host='localhost', port=6379)
+q_inference = Queue('q_inference', connection=redis_conn)
+
 
 @router.post("/")
 def create_mapping(
@@ -50,7 +60,7 @@ def update_mapping(
     request: Request,
     user: User = Depends(get_current_user)
 ):
-    """Update mapping metadata (mostly handled via touch/update_at)."""
+    """Update mapping metadata."""
     try:
         registry: Registry = request.app.state.registry
         return registry.update_mapping(user.id, mapping_id, data)
@@ -85,7 +95,6 @@ def add_mapping_pair(
     registry: Registry = request.app.state.registry
     
     # 1. Find the Job and Feature (Secured)
-    # We must scan only THIS user's jobs to find the feature
     user_jobs = registry.all_jobs(user.id)
     job = next((j for j in user_jobs if any(f.id == feature_id for f in j.features)), None)
     
@@ -107,7 +116,6 @@ def add_mapping_pair(
         raise HTTPException(status_code=404, detail="Base CV not found for this mapping")
 
     # 4. Get the generic CV item
-    # This uses the in-memory object helper, so it is safe because 'cv' is already secured
     try:
         context_item = registry._get_nested_entity(cv, context_item_type, context_item_id)
     except ValueError as e:
@@ -145,7 +153,9 @@ def delete_mapping_pair(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-@router.post("/{mapping_id}/infer", response_model=List[MappingPair])
+
+# --- MODIFIED INFERENCE ENDPOINT ---
+@router.post("/{mapping_id}/infer")
 def infer_mapping_pairs(
     mapping_id: str, 
     request: Request,
@@ -159,32 +169,25 @@ def infer_mapping_pairs(
     user: User = Depends(get_current_user)
 ):
     """
-    Runs the NLP inference engine to suggest new mapping pairs.
+    Submits an inference request to the background worker.
+    The worker will update the mapping with suggestions and notify via WebSocket.
     """
     registry: Registry = request.app.state.registry
     
-    # 1. Fetch Secured Data
+    # 1. Validation (Fast)
     mapping = registry.get_mapping(mapping_id, user.id)
     if not mapping:
         raise HTTPException(status_code=404, detail="Mapping not found")
     
-    job = registry.get_job(mapping.job_id, user.id)
-    cv = registry.get_cv(mapping.base_cv_id, user.id)
+    # 2. Enqueue Task
+    # We pass 'mode' so the worker can look up tuning params
+    q_inference.enqueue(
+        task_infer_mapping_suggestions,
+        args=(user.id, mapping_id, mode),
+        job_timeout='2m' # Inference is fast, usually <10s
+    )
     
-    if not job or not cv:
-        raise HTTPException(status_code=404, detail="Job or CV not found")
-    
-    try:
-        inferer = request.app.state.inferer
-        mode_settings = TUNING_MODES.get(mode, TUNING_MODES["balanced_default"])
-        config_params = mode_settings.get("config", {})
-        
-        log.info(f"Running inference for mapping {mapping_id} with mode: {mode}")
-        
-        suggestions = inferer.infer_mappings(job, cv, **config_params)
-        
-        return suggestions
-        
-    except Exception as e:
-        log.error(f"Error during inference for mapping {mapping_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Inference error: {e}")
+    return {
+        "status": "queued", 
+        "message": f"Inference started in '{mode}' mode. Please wait for results."
+    }
