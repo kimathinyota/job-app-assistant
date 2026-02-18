@@ -16,6 +16,8 @@ const apiClient = axios.create({
 
 export default apiClient;
 
+export { API_BASE_URL };
+
 
 /**
  * Fetches a list of all existing CVs.

@@ -6,44 +6,93 @@ import {
   rejectMatch, 
   createManualMatch,
   promoteMatch,   
-  approveMatch    
+  approveMatch,
+  triggerApplicationAnalysis // Ensure this is imported
 } from '../../api/applicationClient';
+import { getCurrentUser } from '../../api/authClient'; // Need user for socket
+import { useJobSocket } from '../../hooks/useJobSocket'; // Socket Hook
+
 import { FitScoreHeader } from './FitScoreHeader';
 import { RequirementList } from './RequirementList';
 import { EvidenceLinkerModal } from './EvidenceLinkerModal';
-import CVItemPreviewModal from '../applications/CVItemPreviewModal'; // <--- Import existing modal
+import CVItemPreviewModal from '../applications/CVItemPreviewModal'; 
 
 export const RoleCaseView = ({ applicationId, jobId, cvId, onSaveDraft }) => {
+  const [user, setUser] = useState(null);
   const [analysis, setAnalysis] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadingStage, setLoadingStage] = useState("Checking your fit...");
   
   // State for Modals
-  const [activeFeature, setActiveFeature] = useState(null); // For "Add Evidence"
-  const [previewItem, setPreviewItem] = useState(null);     // For "View Full Text"
+  const [activeFeature, setActiveFeature] = useState(null); 
+  const [previewItem, setPreviewItem] = useState(null);     
 
+  // --- 1. Load User ---
   useEffect(() => {
-    loadData();
-  }, [applicationId, jobId, cvId]);
+      getCurrentUser().then(res => setUser(res.data || res)).catch(console.error);
+  }, []);
 
-  const loadData = async () => {
-    setLoading(true);
-    try {
-      if (applicationId) {
-        setLoadingStage("Loading analysis...");
-        const response = await fetchForensicAnalysis(applicationId);
-        setAnalysis(response.data);
-      } else if (jobId && cvId) {
-        setLoadingStage("Reading Job Description...");
-        const response = await generateRoleCase(jobId, cvId);
-        setAnalysis(response.data);
+  // --- 2. Socket Listener ---
+  useJobSocket(user?.id, (event) => {
+      // CASE A: Application Mode (Result of triggerApplicationAnalysis)
+      if (applicationId && event.type === 'APP_SCORED' && event.payload.app_id === applicationId) {
+          console.log("App Analysis Ready!");
+          // Reload full object to get charts/gaps
+          fetchForensicAnalysis(applicationId)
+              .then(res => setAnalysis(res.data))
+              .catch(err => console.error(err))
+              .finally(() => setLoading(false));
       }
-    } catch (err) {
-      console.error("Error:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
+      
+      // CASE B: Standalone Mode (Result of generateRoleCase)
+      // The payload IS the full object here because it's not saved to an App record
+      if (!applicationId && event.type === 'ROLE_CASE_GENERATED' && event.payload.job_id === jobId) {
+          console.log("Standalone Analysis Ready!");
+          setAnalysis(event.payload);
+          setLoading(false);
+      }
+  });
+
+  // --- 3. Initial Data Load ---
+  useEffect(() => {
+    if (!user) return; // Wait for user to enable socket logic if needed
+
+    const loadData = async () => {
+      setLoading(true);
+      try {
+        if (applicationId) {
+          // --- MODE 1: EXISTING APPLICATION ---
+          setLoadingStage("Loading analysis...");
+          const response = await fetchForensicAnalysis(applicationId);
+          const data = response.data;
+
+          // If analysis exists but is "empty" (score 0), it means inference hasn't run.
+          // Trigger it now.
+          if (!data || !data.stats || data.stats.overall_match_score === 0) {
+             setLoadingStage("Running AI Analysis...");
+             // Fire & Forget - We wait for socket event above
+             await triggerApplicationAnalysis(applicationId); 
+             // We stay in loading state until socket event fires
+          } else {
+             setAnalysis(data);
+             setLoading(false);
+          }
+
+        } else if (jobId && cvId) {
+          // --- MODE 2: STANDALONE DRAFT ---
+          setLoadingStage("Generating Report...");
+          // Fire & Forget - We wait for socket event 'ROLE_CASE_GENERATED'
+          await generateRoleCase(jobId, cvId);
+          // We stay in loading state until socket event fires
+        }
+      } catch (err) {
+        console.error("Error loading RoleCase:", err);
+        setLoading(false); 
+      }
+    };
+
+    loadData();
+  }, [applicationId, jobId, cvId, user]);
 
   // --- ACTIONS ---
 
@@ -93,8 +142,6 @@ export const RoleCaseView = ({ applicationId, jobId, cvId, onSaveDraft }) => {
 
   // --- VIEW HANDLER ---
   const handleViewEvidence = (item, specificMatchText = null) => {
-    // Construct the object the Modal expects
-    // We try to find the Root ID from the lineage to open the right item
     const rootItem = item.lineage && item.lineage.length > 0 ? item.lineage[0] : null;
     
     if (rootItem) {
@@ -102,7 +149,6 @@ export const RoleCaseView = ({ applicationId, jobId, cvId, onSaveDraft }) => {
         id: rootItem.id,
         type: rootItem.type,
         title: rootItem.name,
-        // Pass the snippet to highlight
         highlight: specificMatchText || item.best_match_excerpt || item.match_summary 
       });
     } else {
@@ -134,7 +180,7 @@ export const RoleCaseView = ({ applicationId, jobId, cvId, onSaveDraft }) => {
               onLinkEvidence={(feature) => setActiveFeature(feature)}
               onPromote={handlePromote} 
               onApprove={handleApprove}
-              onViewEvidence={handleViewEvidence} // <--- Pass this down
+              onViewEvidence={handleViewEvidence} 
             />
           </div>
         </div>
@@ -154,7 +200,7 @@ export const RoleCaseView = ({ applicationId, jobId, cvId, onSaveDraft }) => {
         </div>
       )}
 
-      {/* 4. MODALS */}
+      {/* MODALS */}
       {activeFeature && (
         <EvidenceLinkerModal 
           isOpen={!!activeFeature}
@@ -164,14 +210,13 @@ export const RoleCaseView = ({ applicationId, jobId, cvId, onSaveDraft }) => {
         />
       )}
 
-      {/* 5. PREVIEW MODAL */}
       {previewItem && (
         <CVItemPreviewModal
           isOpen={!!previewItem}
           onClose={() => setPreviewItem(null)}
           itemId={previewItem.id}
           itemType={previewItem.type}
-          highlightText={previewItem.highlight} // <--- Requires update in Modal component
+          highlightText={previewItem.highlight} 
         />
       )}
     </div>

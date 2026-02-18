@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom'; // [1] Import Navigation Hook
+// frontend/src/components/applications/JobCard.jsx
+import React, { useState, useEffect, useRef, memo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
     MapPin, Banknote, Calendar, MoreVertical, Building2, 
     CheckCircle2, Trash2, Edit, TrendingUp, Sparkles, 
@@ -7,9 +8,33 @@ import {
     Loader2, RefreshCw, ExternalLink
 } from 'lucide-react';
 
-import { fetchMatchPreview } from '../../api/applicationClient';
+import { getMatchPreview } from '../../api/applicationClient';
+import { useJobSocket } from '../../hooks/useJobSocket'; 
 
-const JobCard = ({ 
+// --- 1. HELPER FUNCTIONS (Defined outside to optimize performance) ---
+
+const getGradeTheme = (score, isPreviewMode) => {
+    if (isPreviewMode) return { border: 'border-info', text: 'text-info', bg: 'bg-info-subtle', icon: RefreshCw, label: 'Simulated' };
+    if (!score) return { border: 'border-secondary', text: 'text-secondary', bg: 'bg-light', icon: Briefcase, label: 'Unscored' };
+    if (score >= 85) return { border: 'border-success', text: 'text-success', bg: 'bg-success-subtle', icon: Sparkles, label: 'Excellent' };
+    if (score >= 60) return { border: 'border-primary', text: 'text-primary', bg: 'bg-primary-subtle', icon: TrendingUp, label: 'Good' };
+    if (score >= 40) return { border: 'border-warning', text: 'text-warning', bg: 'bg-warning-subtle', icon: AlertTriangle, label: 'Weak' };
+    return { border: 'border-danger', text: 'text-danger', bg: 'bg-danger-subtle', icon: XCircle, label: 'Poor' };
+};
+
+const getFeatureStyle = (type) => {
+    const t = type ? type.toLowerCase() : '';
+    if (t.includes('responsibility')) return { label: 'Task', badgeClass: 'bg-primary-subtle text-primary border-primary-subtle' };
+    if (t.includes('require') || t.includes('must')) return { label: 'Must Have', badgeClass: 'bg-danger-subtle text-danger border-danger-subtle' };
+    if (t.includes('hard_skill') || t.includes('tech')) return { label: 'Skill', badgeClass: 'bg-dark-subtle text-dark border-dark-subtle' };
+    if (t.includes('soft_skill')) return { label: 'Soft Skill', badgeClass: 'bg-info-subtle text-info border-info-subtle' };
+    if (t.includes('nice') || t.includes('bonus')) return { label: 'Bonus', badgeClass: 'bg-success-subtle text-success border-success-subtle' };
+    return { label: t.replace('_', ' '), badgeClass: 'bg-secondary-subtle text-secondary border-secondary-subtle text-capitalize' };
+};
+
+// --- 2. COMPONENT ---
+
+const JobCard = memo(({ 
     job, 
     cvs = [], 
     defaultCvId, 
@@ -18,17 +43,22 @@ const JobCard = ({
     onViewApplication,
     onEdit,
     onDelete,
-    onViewDescription, // This opens the Modal
+    onViewDescription, 
     matchScore = 0,
-    badges = [] 
+    badges = [],
+    userId 
 }) => {
-    const navigate = useNavigate(); // [2] Init Hook
+    const navigate = useNavigate();
     const hasApplication = Boolean(application);
+    
+    // --- STATE ---
     const [selectedCvId, setSelectedCvId] = useState(
         hasApplication ? application.base_cv_id : (defaultCvId || '')
     );
+    
+    // [CRITICAL FIX] Ref to track the current target CV without closure staleness
+    const targetCvIdRef = useRef(selectedCvId);
 
-    // --- PREVIEW STATE ---
     const [previewData, setPreviewData] = useState(null); 
     const [isLoadingPreview, setIsLoadingPreview] = useState(false);
 
@@ -36,32 +66,44 @@ const JobCard = ({
     const activeBadges = previewData ? previewData.badges : badges;
     const isPreviewMode = !!previewData; 
 
-    // --- EFFECT: LIVE PREVIEW ---
-    useEffect(() => {
-        if (hasApplication || !selectedCvId) return;
-        if (selectedCvId === defaultCvId) { setPreviewData(null); return; }
-
-        let isMounted = true;
-        setIsLoadingPreview(true);
-
-        fetchMatchPreview(job.id, selectedCvId)
-            .then(data => { if (isMounted) setPreviewData(data); })
-            .catch(err => console.error(err))
-            .finally(() => { if (isMounted) setIsLoadingPreview(false); });
-
-        return () => { isMounted = false; };
-    }, [selectedCvId, defaultCvId, hasApplication, job.id]);
+    // --- SOCKET LISTENER ---
+    useJobSocket(userId, (event) => {
+        if (event.type === 'MATCH_PREVIEW_GENERATED') {
+            // Check against the Ref to ensure we match the LATEST selected CV
+            if (event.payload.job_id === job.id && event.payload.cv_id === targetCvIdRef.current) {
+                setPreviewData(event.payload);
+                setIsLoadingPreview(false);
+            }
+        } else if (event.type === 'PREVIEW_FAILED') {
+             if (event.payload.job_id === job.id) {
+                 setIsLoadingPreview(false);
+             }
+        }
+    });
 
     // --- HANDLERS ---
-    
-    // [3] The Main Card Click -> Goes to Full Page
-    const handleCardClick = (e) => {
-        // We do NOT stop propagation here; this is the default action
-        navigate(`/job/${job.id}`);
+    const handleCvChange = (newCvId) => {
+        if (newCvId === defaultCvId) {
+            setSelectedCvId(newCvId);
+            targetCvIdRef.current = newCvId;
+            setPreviewData(null);
+            return;
+        }
+
+        setSelectedCvId(newCvId);
+        targetCvIdRef.current = newCvId; // Update ref immediately
+        
+        setIsLoadingPreview(true);
+        setPreviewData(null); 
+
+        getMatchPreview(job.id, newCvId).catch(err => {
+            console.error("Failed to trigger preview:", err);
+            setIsLoadingPreview(false);
+        });
     };
 
     const handleStartClick = (e) => { 
-        e.stopPropagation(); // Stop card click
+        e.stopPropagation(); 
         if (selectedCvId) onStartApplication(job.id, selectedCvId); 
     };
     
@@ -71,28 +113,8 @@ const JobCard = ({
         return foundCv ? foundCv.name : "Unknown CV"; 
     };
 
-    // --- 1. GRADE / THEME SYSTEM ---
-    const getGradeTheme = (score) => {
-        if (isPreviewMode) return { border: 'border-info', text: 'text-info', bg: 'bg-info-subtle', icon: RefreshCw, label: 'Simulated' };
-        if (!score) return { border: 'border-secondary', text: 'text-secondary', bg: 'bg-light', icon: Briefcase, label: 'Unscored' };
-        if (score >= 85) return { border: 'border-success', text: 'text-success', bg: 'bg-success-subtle', icon: Sparkles, label: 'Excellent' };
-        if (score >= 60) return { border: 'border-primary', text: 'text-primary', bg: 'bg-primary-subtle', icon: TrendingUp, label: 'Good' };
-        if (score >= 40) return { border: 'border-warning', text: 'text-warning', bg: 'bg-warning-subtle', icon: AlertTriangle, label: 'Weak' };
-        return { border: 'border-danger', text: 'text-danger', bg: 'bg-danger-subtle', icon: XCircle, label: 'Poor' };
-    };
-
-    // --- 2. HIGHLIGHT PILL STYLES ---
-    const getFeatureStyle = (type) => {
-        const t = type ? type.toLowerCase() : '';
-        if (t.includes('responsibility')) return { label: 'Task', badgeClass: 'bg-primary-subtle text-primary border-primary-subtle' };
-        if (t.includes('require') || t.includes('must')) return { label: 'Must Have', badgeClass: 'bg-danger-subtle text-danger border-danger-subtle' };
-        if (t.includes('hard_skill') || t.includes('tech')) return { label: 'Skill', badgeClass: 'bg-dark-subtle text-dark border-dark-subtle' };
-        if (t.includes('soft_skill')) return { label: 'Soft Skill', badgeClass: 'bg-info-subtle text-info border-info-subtle' };
-        if (t.includes('nice') || t.includes('bonus')) return { label: 'Bonus', badgeClass: 'bg-success-subtle text-success border-success-subtle' };
-        return { label: t.replace('_', ' '), badgeClass: 'bg-secondary-subtle text-secondary border-secondary-subtle text-capitalize' };
-    };
-
-    const theme = getGradeTheme(activeScore);
+    // --- RENDER PREPARATION ---
+    const theme = getGradeTheme(activeScore, isPreviewMode);
     const ScoreIcon = theme.icon;
     const closingDate = job.date_closing || job.application_end_date;
 
@@ -100,6 +122,7 @@ const JobCard = ({
         ? activeBadges 
         : (activeScore > 0 ? [theme.label] : []);
 
+    // Limit features to top 4 for performance
     const sortedFeatures = job.features ? [...job.features].sort((a, b) => {
         const priority = { 'responsibility': 1, 'requirement': 2, 'hard_skill': 3, 'soft_skill': 4, 'nice_to_have': 5, 'bonus': 5 };
         const getP = (type) => {
@@ -108,13 +131,12 @@ const JobCard = ({
             return 99;
         };
         return getP(a.type) - getP(b.type);
-    }) : [];
+    }).slice(0, 4) : [];
 
     return (
-        // [4] Card is now a clickable container
         <div 
             className={`card h-100 transition-all hover-shadow-md border-2 cursor-pointer ${theme.border} ${hasApplication ? 'shadow-sm' : ''}`}
-            onClick={handleCardClick}
+            onClick={() => navigate(`/job/${job.id}`)}
         >
             <style>
                 {`
@@ -125,7 +147,6 @@ const JobCard = ({
                 .safe-pill { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
                 .spin-slow { animation: spin 2s linear infinite; }
                 @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-                /* Critical: Ensure Dropdown works on top of clickable card */
                 .dropdown-menu { z-index: 1050; } 
                 `}
             </style>
@@ -147,7 +168,6 @@ const JobCard = ({
 
                     <div className="flex-shrink-0 ms-2 d-flex align-items-center gap-1">
                         
-                        {/* External Link (Stop Propagation) */}
                         {job.job_url && (
                             <a 
                                 href={job.job_url} 
@@ -161,13 +181,11 @@ const JobCard = ({
                             </a>
                         )}
 
-                        {/* Dropdown Menu (Stop Propagation) */}
                         <div className="dropdown" onClick={(e) => e.stopPropagation()}>
                             <button className="btn btn-link text-muted p-0 opacity-50 hover-opacity-100" type="button" data-bs-toggle="dropdown">
                                 <MoreVertical size={20} />
                             </button>
                             <ul className="dropdown-menu dropdown-menu-end shadow-sm border-0">
-                                {/* NOTE: Edit opens the Modal (via parent handler), not the page */}
                                 <li>
                                     <button className="dropdown-item small" onClick={() => onEdit()}>
                                         <Edit size={14} className="me-2"/> Edit Details
@@ -237,7 +255,7 @@ const JobCard = ({
                             <button 
                                 type="button" 
                                 onClick={(e) => { 
-                                    e.stopPropagation(); // [5] Stop Prop: Open Modal, don't navigate
+                                    e.stopPropagation(); 
                                     onViewDescription(job); 
                                 }}
                                 className="btn btn-link p-0 text-primary text-xs text-decoration-none d-flex align-items-center gap-1 hover-underline"
@@ -284,7 +302,7 @@ const JobCard = ({
                             type="button"
                             className="btn btn-sm btn-white border border-success-subtle text-success shadow-sm fw-medium"
                             onClick={(e) => {
-                                e.stopPropagation(); // [6] Stop Prop: Go to Application Dashboard
+                                e.stopPropagation(); 
                                 onViewApplication(application.id); 
                             }}
                         >
@@ -300,8 +318,8 @@ const JobCard = ({
                             <select
                                 className={`form-select form-select-sm shadow-none ps-5 ${isPreviewMode ? 'border-primary text-primary fw-medium bg-primary-subtle' : 'border-0 bg-light'}`}
                                 value={selectedCvId || ''} 
-                                onChange={(e) => setSelectedCvId(e.target.value)}
-                                onClick={(e) => e.stopPropagation()} // [7] Stop Prop: Selecting Dropdown
+                                onChange={(e) => handleCvChange(e.target.value)} 
+                                onClick={(e) => e.stopPropagation()} 
                                 disabled={cvs.length === 0}
                                 style={{fontSize: '0.9rem', cursor: 'pointer'}}
                             >
@@ -311,7 +329,7 @@ const JobCard = ({
                         </div>
                         <button 
                             className="btn btn-sm btn-primary px-4 fw-medium shadow-sm d-flex align-items-center gap-1"
-                            onClick={handleStartClick} // Already has stopPropagation
+                            onClick={handleStartClick} 
                             disabled={!selectedCvId}
                         >
                             Start
@@ -321,6 +339,16 @@ const JobCard = ({
             </div>
         </div>
     );
-};
+}, (prevProps, nextProps) => {
+    // Custom Comparison for Memo
+    return (
+        prevProps.job.id === nextProps.job.id &&
+        prevProps.matchScore === nextProps.matchScore &&
+        prevProps.application === nextProps.application &&
+        prevProps.defaultCvId === nextProps.defaultCvId &&
+        prevProps.cvs === nextProps.cvs &&
+        prevProps.userId === nextProps.userId
+    );
+});
 
 export default JobCard;

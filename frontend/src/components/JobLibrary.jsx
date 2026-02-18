@@ -13,7 +13,7 @@ import {
     createMapping,
     createApplication,
     deleteJob,
-    scoreAllJobs 
+    scoreEmptyJobs // [1] CHANGED: Import the efficient endpoint
 } from '../api/applicationClient';
 import { fetchAllCVs } from '../api/cvClient';
 import { getCurrentUser } from '../api/authClient'; 
@@ -22,8 +22,10 @@ import { getCurrentUser } from '../api/authClient';
 import JobCard from './applications/JobCard';
 import JobModal from './applications/JobModal'; 
 import DeleteConfirmationModal from './common/DeleteConfirmationModal';
-// [1] IMPORT THE NEW MODAL
 import JobPreviewModal from './applications/JobPreviewModal'; 
+
+// [2] IMPORT SOCKET HOOK
+import { useJobSocket } from '../hooks/useJobSocket'; 
 
 const JobLibrary = () => {
     const navigate = useNavigate();
@@ -46,11 +48,27 @@ const JobLibrary = () => {
     const [modalJobId, setModalJobId] = useState(null); 
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
     const [itemToDelete, setItemToDelete] = useState(null);
-
-    // [2] ADD STATE FOR PREVIEW MODAL
     const [previewJob, setPreviewJob] = useState(null); 
 
-    // --- 1. Load Data ---
+    // --- 1. SOCKET LISTENER (Live Updates) ---
+    // Listen for background scoring results and update UI instantly
+    useJobSocket(user?.id, (event) => {
+        if (event.type === 'JOB_SCORED') {
+            setJobs(prevJobs => prevJobs.map(job => {
+                if (job.id === event.payload.job_id) {
+                    return {
+                        ...job,
+                        match_score: event.payload.score,
+                        match_grade: event.payload.grade,
+                        cached_badges: event.payload.badges
+                    };
+                }
+                return job;
+            }));
+        }
+    });
+
+    // --- 2. Load Data & Auto-Score ---
     const loadData = useCallback(async (query = '', sort = 'recommended') => {
         setLoading(true);
         try {
@@ -61,10 +79,18 @@ const JobLibrary = () => {
                 fetchAllJobs({ q: query, sort: sort }), 
             ]);
 
-            setUser(userRes.data || userRes); 
+            const userData = userRes.data || userRes;
+            setUser(userData); 
             setJobs(jobsRes.data || []);
             setApplications(appsRes.data || []);
             setCvs(cvsRes || []); 
+
+            // ** AUTO-SCORE TRIGGER **
+            // Once data is loaded, fire-and-forget the check for empty scores
+            const primaryCvId = userData.primary_cv_id || (cvsRes[0]?.id);
+            if (primaryCvId) {
+                scoreEmptyJobs(primaryCvId).catch(console.error);
+            }
 
         } catch (err) {
             console.error("Failed to load library", err);
@@ -80,7 +106,7 @@ const JobLibrary = () => {
     }, [searchQuery, sortBy, loadData]);
 
 
-    // --- 2. Computed Data ---
+    // --- 3. Computed Data ---
     const defaultCvId = useMemo(() => {
         if (user?.primary_cv_id) return user.primary_cv_id;
         return cvs?.[0]?.id || null;
@@ -111,13 +137,14 @@ const JobLibrary = () => {
         return filtered;
     }, [jobs, statusFilter, applicationMap]);
 
-    // --- 3. Handlers ---
+    // --- 4. Handlers ---
     const handleRunAnalysis = async () => {
         if (!defaultCvId) return alert("Please upload a CV first.");
         setAnalyzing(true);
         try {
-            await scoreAllJobs(defaultCvId);
-            await loadData(searchQuery, sortBy);
+            // Trigger efficient background scan for missing scores
+            const res = await scoreEmptyJobs(defaultCvId);
+            // Optionally show a toast: `Queued ${res.data.count} jobs for scoring`
         } catch (err) {
             alert("Analysis failed.");
         } finally {
@@ -128,7 +155,6 @@ const JobLibrary = () => {
     const handleOpenAddModal = () => { setModalJobId(null); setIsModalOpen(true); };
     const handleOpenEditModal = (jobId) => { setModalJobId(jobId); setIsModalOpen(true); };
     
-    // [3] UPDATE HANDLER: Open the Preview Modal instead of the Edit Modal
     const handleViewDescription = (job) => {
         setPreviewJob(job);
     };
@@ -282,9 +308,8 @@ const JobLibrary = () => {
                                         onViewApplication={(appId) => navigate(`/application/${appId}`)}
                                         onEdit={() => handleOpenEditModal(job.id)} 
                                         onDelete={() => handleOpenDeleteModal(job)}
-                                        
-                                        // Connected to the new Handler
                                         onViewDescription={handleViewDescription} 
+                                        userId={user?.id} // [3] PASS USER ID TO JOB CARD for its own socket use if needed
                                     />
                                 </div>
                             </div>
@@ -294,8 +319,6 @@ const JobLibrary = () => {
             </div>
 
             {/* --- MODALS --- */}
-            
-            {/* The existing Edit/Add Modal */}
             <JobModal
                 key={modalJobId || 'new'} 
                 initialJobId={modalJobId}
@@ -304,7 +327,6 @@ const JobLibrary = () => {
                 onJobUpdated={handleJobUpdated}
             />
 
-            {/* [4] RENDER THE NEW PREVIEW MODAL */}
             <JobPreviewModal 
                 job={previewJob} 
                 isOpen={!!previewJob} 

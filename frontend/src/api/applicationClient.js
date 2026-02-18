@@ -3,7 +3,7 @@ import axios from 'axios';
 // The base URL MUST match the host/port defined in your backend/main.py
 // const API_BASE_URL = 'http://192.168.1.161:8000/api'; // <-- THIS IS THE FIX
 
-const API_BASE_URL = "http://localhost:8000/api"
+export const API_BASE_URL = "http://localhost:8000/api"
 
 const apiClient = axios.create({
     baseURL: API_BASE_URL,
@@ -315,6 +315,8 @@ export const fetchMatchPreview = async (jobId, cvId) => {
     return response.data; // Expects { score: 90.0, badges: [...] }
 };
 
+export const getMatchPreview = (jobId, cvId) => apiClient.post(`/job/${jobId}/match-preview?cv_id=${cvId}`);
+
 // [NEW] Update Feature (For Inline Editing)
 // Note: If your backend doesn't support PATCH feature directly, 
 // you might need to implement "delete then add" in the backend or frontend.
@@ -322,4 +324,62 @@ export const fetchMatchPreview = async (jobId, cvId) => {
 export const updateJobFeature = (jobId, featureId, data) => {
     // data = { description: "...", type: "..." }
     return apiClient.patch(`/job/${jobId}/feature/${featureId}`, data);
+};
+
+
+/**
+ * Gets or creates a Derived CV for a specific application.
+ * If force_refresh=true, it will regenerate the CV from the current mapping.
+ */
+export const getOrCreateDerivedCV = async (appId, options = {}) => {
+    // options can include { force_refresh: true }
+    const params = new URLSearchParams();
+    if (options.force_refresh) params.append('force_refresh', 'true');
+    
+    const response = await apiClient.post(`/application/${appId}/tailored-cv?${params.toString()}`);
+    return response.data;
+};
+
+/**
+ * Updates a CV object directly.
+ * This is used to save manual edits (summary, reordering) to a Derived CV.
+ * Note: This might point to a generic CV update endpoint or a specific derived one.
+ * Given your pattern, we'll map this to the generic CV update since DerivedCV inherits from CV.
+ */
+export const updateCV = async (cvId, cvData) => {
+    // We reuse the generic CV update endpoint but pass the full object
+    // You might need to ensure your backend PATCH /cv/{id} accepts complex nested data
+    // OR create a specific endpoint for saving the tailored state.
+    
+    // For safety, let's use a specific endpoint for Derived CVs to avoid accidental data loss on Base CVs
+    const response = await apiClient.put(`/cv/${cvId}/tailored-content`, cvData);
+    return response.data;
+};
+
+
+/**
+ * Trigger background scoring ONLY for jobs that haven't been scored yet.
+ * This is efficient and non-blocking.
+ */
+export const scoreEmptyJobs = (cvId) => {
+    // If cvId is provided, append it to the query string
+    const params = cvId ? `?cv_id=${cvId}` : '';
+    
+    // Calls the new backend endpoint: POST /api/job/score-empty
+    return apiClient.post(`/job/score-empty${params}`);
+};
+
+/**
+ * Triggers the background inference/scoring for a specific Application.
+ * Call this when the Dashboard loads and sees a score of 0 or missing analysis.
+ * * Flow: 
+ * 1. UI calls this (Fire & Forget).
+ * 2. Backend enqueues task.
+ * 3. Frontend waits for WebSocket 'APP_SCORED' event.
+ */
+export const triggerApplicationAnalysis = (appId) => {
+    // Matches: backend/routes/forensics.py -> @router.post("/applications/{app_id}/generate-analysis")
+    // Note: ensure the prefix matches where you mounted the forensics router. 
+    // Usually mounted at /api/forensics
+    return apiClient.post(`/forensics/applications/${appId}/generate-analysis`);
 };
