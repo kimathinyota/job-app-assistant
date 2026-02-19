@@ -1,14 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Briefcase, Layers, Award, ChevronDown, ChevronUp } from 'lucide-react';
+import { BookOpen, Layers, Award, ChevronDown, ChevronUp } from 'lucide-react';
 import SkillLinker from './SkillLinker';
 import SelectedSkillsDisplay from './SelectedSkillsDisplay';
-import AchievementManagerPanel from './AchievementManagerPanel';
+import AchievementManagerPanel from './AchievementManagerPanel'; 
 import AchievementDisplayGrid from './AchievementDisplayGrid';
-import SkillManagerPanel from './SkillManagerPanel';
-import { useWindowSize } from '../../hooks/useWindowSize';
+import SkillManagerPanel from './SkillManagerPanel'; 
+import { useWindowSize } from '../../hooks/useWindowSize'; 
 
-
-const ExperienceForm = ({
+const EducationForm = ({
     onSubmit,
     cvId,
     allSkills,
@@ -19,13 +18,12 @@ const ExperienceForm = ({
     const { width } = useWindowSize();
     const isMobile = width <= 768; 
 
-    // Form fields
-    const [title, setTitle] = useState('');
-    const [company, setCompany] = useState('');
-    const [location, setLocation] = useState('');
+    // Form fields for Education
+    const [institution, setInstitution] = useState('');
+    const [degree, setDegree] = useState('');
+    const [field, setField] = useState(''); 
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
-    const [description, setDescription] = useState('');
     
     // State for *direct* skills
     const [directSkillIds, setDirectSkillIds] = useState([]);
@@ -37,7 +35,7 @@ const ExperienceForm = ({
     
     // Toggles
     const [showSkillLinker, setShowSkillLinker] = useState(false);
-    const [isAchievementPanelOpen, setIsAchievementPanelOpen] = useState(false);
+    const [isAchievementPanelOpen, setIsAchievementPanelOpen] = useState(false); 
     const [isSkillPanelOpen, setIsSkillPanelOpen] = useState(false); 
 
     const [aggregatedSkillIds, setAggregatedSkillIds] = useState([]);
@@ -59,15 +57,13 @@ const ExperienceForm = ({
     // Populate form on load
     useEffect(() => {
         if (isEditing) {
-            setTitle(initialData.title || '');
-            setCompany(initialData.company || '');
-            setLocation(initialData.location || '');
+            setInstitution(initialData.institution || '');
+            setDegree(initialData.degree || '');
+            setField(initialData.field || '');
             
             // --- FIX: Use helper to format dates ---
             setStartDate(formatDateForInput(initialData.start_date));
             setEndDate(formatDateForInput(initialData.end_date));
-            
-            setDescription(initialData.description || '');
             
             setDirectSkillIds(initialData.skill_ids || []);
             setDirectPendingSkills([]); 
@@ -79,12 +75,11 @@ const ExperienceForm = ({
             setLinkedExistingAchievements(initialAchievements);
             setPendingAchievements([]);
         } else {
-            setTitle('');
-            setCompany('');
-            setLocation('');
+            setInstitution('');
+            setDegree('');
+            setField('');
             setStartDate('');
             setEndDate('');
-            setDescription('');
             setDirectSkillIds([]); 
             setDirectPendingSkills([]); 
             setLinkedExistingAchievements([]);
@@ -107,7 +102,7 @@ const ExperienceForm = ({
         });
 
         achIds.forEach(id => allIds.add(id));
-        setAggregatedSkillIds(Array.from(allIds)); 
+        setAggregatedSkillIds(Array.from(allIds));
 
         const allPending = [...directPendingSkills];
         const pendingNames = new Set(directPendingSkills.map(s => s.name));
@@ -120,7 +115,7 @@ const ExperienceForm = ({
                 }
             });
         });
-        setAggregatedPendingSkills(allPending); 
+        setAggregatedPendingSkills(allPending);
 
     }, [directSkillIds, directPendingSkills, linkedExistingAchievements, pendingAchievements]);
     
@@ -188,8 +183,9 @@ const ExperienceForm = ({
 
     // Handler: Smart Pending Skills
     const smartSetAggregatedPendingSkills = (updaterFn) => {
-        const currentAggregated = aggregatedPendingSkills; 
+        const currentAggregated = aggregatedPendingSkills;
         const newAggregated = typeof updaterFn === 'function' ? updaterFn(currentAggregated) : updaterFn;
+        
         const currentNames = new Set(currentAggregated.map(s => s.name));
         const newNames = new Set(newAggregated.map(s => s.name));
         const addedSkills = newAggregated.filter(s => !currentNames.has(s.name));
@@ -220,15 +216,14 @@ const ExperienceForm = ({
     // Handler: Submit
     const handleSubmit = (e) => {
         e.preventDefault();
-        if (!title.trim() || !company.trim()) return;
+        if (!institution.trim() || !degree.trim()) return;
 
         const dataToSend = {
-            title,
-            company,
-            location: location || null,
+            institution,
+            degree,
+            field: field || null,
             start_date: startDate || null,
             end_date: endDate || null,
-            description: description || null,
             
             existing_skill_ids: directSkillIds, 
             new_skills: directPendingSkills,
@@ -241,15 +236,14 @@ const ExperienceForm = ({
             dataToSend.id = initialData.id;
         }
 
-        onSubmit(cvId, dataToSend, 'Experience');
+        onSubmit(cvId, dataToSend, 'Education');
 
         if (!isEditing) {
-            setTitle('');
-            setCompany('');
-            setLocation('');
+            setInstitution('');
+            setDegree('');
+            setField('');
             setStartDate('');
             setEndDate('');
-            setDescription('');
             setDirectSkillIds([]);
             setDirectPendingSkills([]);
             setLinkedExistingAchievements([]); 
@@ -266,10 +260,12 @@ const ExperienceForm = ({
         }
     };
 
+    // ADD isPending FLAG
     const linkedWithFlag = linkedExistingAchievements.map(a => ({ ...a, isPending: false }));
     const pendingWithFlag = pendingAchievements.map(a => ({ ...a, isPending: true }));
     const allAchievementsToShow = [...linkedWithFlag, ...pendingWithFlag];
 
+    // NEW RESPONSIVE HANDLER
     const handleSkillToggle = () => {
         if (isMobile) {
             setIsSkillPanelOpen(true);
@@ -286,30 +282,30 @@ const ExperienceForm = ({
         >
             {/* Header */}
             <div className="d-flex align-items-center gap-2 mb-4 border-bottom pb-2">
-                <Briefcase className="text-primary" size={20}/>
+                <BookOpen className="text-indigo-600" size={20}/>
                 <h5 className="mb-0 fw-bold text-dark">
-                    {isEditing ? 'Edit Experience' : 'Add New Experience'}
+                    {isEditing ? 'Edit Education' : 'Add New Education'}
                 </h5>
             </div>
 
             {/* Fields */}
             <div className="row g-3">
-                <div className="col-md-4">
-                    <label htmlFor="exp-title" className="form-label fw-bold small text-uppercase text-muted">Job Title</label>
-                    <input id="exp-title" type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g., Senior Developer" required className="form-control" />
-                </div>
-                <div className="col-md-4">
-                    <label htmlFor="exp-company" className="form-label fw-bold small text-uppercase text-muted">Company</label>
-                    <input id="exp-company" type="text" value={company} onChange={(e) => setCompany(e.target.value)} placeholder="e.g., Acme Inc." required className="form-control"/>
-                </div>
-                <div className="col-md-4">
-                    <label htmlFor="exp-location" className="form-label fw-bold small text-uppercase text-muted">Location</label>
-                    <input id="exp-location" type="text" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="e.g., Remote or City, ST" className="form-control"/>
+                <div className="col-md-6">
+                    <label htmlFor="edu-institution" className="form-label fw-bold small text-uppercase text-muted">Institution</label>
+                    <input id="edu-institution" type="text" value={institution} onChange={(e) => setInstitution(e.target.value)} placeholder="e.g., University of Example" required className="form-control" />
                 </div>
                 <div className="col-md-6">
-                    <label htmlFor="exp-start" className="form-label fw-bold small text-uppercase text-muted">Start Date</label>
+                    <label htmlFor="edu-degree" className="form-label fw-bold small text-uppercase text-muted">Degree</label>
+                    <input id="edu-degree" type="text" value={degree} onChange={(e) => setDegree(e.target.value)} placeholder="e.g., B.S. Computer Science" required className="form-control"/>
+                </div>
+                <div className="col-12">
+                    <label htmlFor="edu-field" className="form-label fw-bold small text-uppercase text-muted">Field of Study (Optional)</label>
+                    <input id="edu-field" type="text" value={field} onChange={(e) => setField(e.target.value)} placeholder="e.g., Software Engineering" className="form-control" />
+                </div>
+                <div className="col-md-6">
+                    <label htmlFor="edu-start" className="form-label fw-bold small text-uppercase text-muted">Start Date</label>
                     <input 
-                        id="exp-start" 
+                        id="edu-start" 
                         type="date" 
                         value={startDate} 
                         onChange={handleStartDateChange} 
@@ -317,9 +313,9 @@ const ExperienceForm = ({
                     />
                 </div>
                 <div className="col-md-6">
-                    <label htmlFor="exp-end" className="form-label fw-bold small text-uppercase text-muted">End Date</label>
+                    <label htmlFor="edu-end" className="form-label fw-bold small text-uppercase text-muted">End Date</label>
                     <input 
-                        id="exp-end" 
+                        id="edu-end" 
                         type="date" 
                         value={endDate} 
                         onChange={(e) => setEndDate(e.target.value)} 
@@ -330,19 +326,15 @@ const ExperienceForm = ({
                         Leave blank for 'Present' or ongoing.
                     </div>
                 </div>
-                <div className="col-12">
-                    <label htmlFor="exp-desc" className="form-label fw-bold small text-uppercase text-muted">Description</label>
-                    <textarea id="exp-desc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Brief overview of responsibilities..." className="form-control" rows="3"/>
-                </div>
             </div>
 
             <hr className="my-4 opacity-10" />
 
-            {/* --- SKILLS SECTION (RESPONSIVE) --- */}
+            {/* --- SKILLS Section (RESPONSIVE) --- */}
             <div className="mb-4">
                 <div 
                     className="d-flex justify-content-between align-items-center mb-2 cursor-pointer"
-                    onClick={handleSkillToggle} 
+                    onClick={handleSkillToggle} // Use new handler
                 >
                     <label className="form-label fw-bold text-dark d-flex align-items-center gap-2 mb-0 cursor-pointer">
                         <Layers size={16} className="text-emerald-600"/> 
@@ -375,7 +367,7 @@ const ExperienceForm = ({
                     </div>
                 )}
                 
-                {(isMobile || !showSkillLinker) && (aggregatedSkillIds.length > 0 || aggregatedPendingSkills.length > 0) ? ( 
+                {(isMobile || !showSkillLinker) && (aggregatedSkillIds.length > 0 || aggregatedPendingSkills.length > 0) ? (
                     <div 
                         className="bg-light p-3 rounded border cursor-pointer hover-bg-slate-100 transition-all"
                         onClick={handleSkillToggle} 
@@ -388,7 +380,7 @@ const ExperienceForm = ({
                     </div>
                 ) : null}
                 
-                {(isMobile || !showSkillLinker) && !(aggregatedSkillIds.length > 0 || aggregatedPendingSkills.length > 0) ? ( 
+                {(isMobile || !showSkillLinker) && !(aggregatedSkillIds.length > 0 || aggregatedPendingSkills.length > 0) ? (
                     <div 
                         className="text-muted small fst-italic border border-dashed rounded p-2 text-center cursor-pointer hover:bg-light"
                         onClick={handleSkillToggle} 
@@ -396,10 +388,9 @@ const ExperienceForm = ({
                         Click to link skills...
                     </div>
                 ) : null}
-
             </div>
 
-            {/* --- ACHIEVEMENTS SECTION (RESPONSIVE) --- */}
+            {/* --- ACHIEVEMENTS Section (RESPONSIVE) --- */}
             <div className="mb-4">
                  <div className="d-flex justify-content-between align-items-center mb-2">
                      <label className="form-label fw-bold text-dark d-flex align-items-center gap-2 mb-0">
@@ -474,10 +465,11 @@ const ExperienceForm = ({
                     </button>
                 )}
                 <button type="submit" className="btn btn-primary px-4">
-                    {isEditing ? 'Save Changes' : 'Add Experience'}
+                    {isEditing ? 'Save Changes' : 'Add Education'}
                 </button>
             </div>
         </form>
     );
 };
-export default ExperienceForm;
+
+export default EducationForm;
