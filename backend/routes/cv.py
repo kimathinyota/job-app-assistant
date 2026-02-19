@@ -725,31 +725,24 @@ def get_item_details(
 # -----------------------------------------------------------------------------
 
 from datetime import datetime
+# -----------------------------------------------------------------------------
+# EXPORT PREPARATION LOGIC
+# -----------------------------------------------------------------------------
+
 def format_date_range(start_str: Optional[str], end_str: Optional[str]) -> str:
     """
-    Formats date ranges as 'Month Year -- Month Year'.
+    Formats date ranges intelligently.
     - Handles 'YYYY-MM-DD', 'YYYY-MM', 'YYYY'
-    - If end is missing -> 'Present'
-    - If start == end -> 'Month Year'
+    - End date only -> 'Month Year'
+    - Start date only -> 'Month Year -- Present'
+    - Start == End -> 'Month Year'
     """
     def parse(d):
         if not d: return None
-        s = str(d).strip().split('T')[0] # Remove time if present
-        
-        # Stop words
+        s = str(d).strip().split('T')[0]
         if s.lower() in ['present', 'now', 'current', 'none', '']: 
             return None
-            
-        # Formats to try
-        formats = [
-            "%Y-%m-%d", # 2023-01-01
-            "%Y-%m",    # 2023-01
-            "%Y",       # 2023
-            "%b %Y",    # Jan 2023
-            "%B %Y",    # January 2023
-            "%d/%m/%Y", # 01/01/2023
-        ]
-        
+        formats = ["%Y-%m-%d", "%Y-%m", "%Y", "%b %Y", "%B %Y", "%d/%m/%Y"]
         for fmt in formats:
             try:
                 return datetime.strptime(s, fmt)
@@ -760,20 +753,23 @@ def format_date_range(start_str: Optional[str], end_str: Optional[str]) -> str:
     s_dt = parse(start_str)
     e_dt = parse(end_str)
     
-    # Fallback: if we can't parse start, return raw string or empty
-    if not s_dt: 
-        return str(start_str) if start_str else ""
-    
-    # Helper to print desired format
     def fmt_out(dt):
         return dt.strftime("%b %Y")
 
-    s_fmt = fmt_out(s_dt)
+    # If neither parsed, return fallback string
+    if not s_dt and not e_dt:
+        return ""
     
-    # Handle End Date
-    if not e_dt:
-        return f"{s_fmt} -- Present"
+    # If only end date provided
+    if not s_dt and e_dt:
+        return fmt_out(e_dt)
         
+    # If only start date provided
+    if s_dt and not e_dt:
+        return f"{fmt_out(s_dt)} -- Present"
+        
+    # If both are provided
+    s_fmt = fmt_out(s_dt)
     e_fmt = fmt_out(e_dt)
     
     if s_fmt == e_fmt:
@@ -784,59 +780,54 @@ def format_date_range(start_str: Optional[str], end_str: Optional[str]) -> str:
 def prepare_cv_for_export(cv: CV) -> tuple[dict, dict]:
     """
     Converts Pydantic CV model to a hydrated dict for templating.
-    Resolves relationships (Project contexts) and Groups Skills.
+    Resolves relationships (Project contexts), Groups Skills, cleans degrees.
     """
     data = cv.dict()
     
-    # 1. Create Lookup Maps
     ach_map = {ach['id']: ach for ach in data.get('achievements', [])}
     exp_map = {item['id']: item for item in data.get('experiences', [])}
     edu_map = {item['id']: item for item in data.get('education', [])}
     hobby_map = {item['id']: item for item in data.get('hobbies', [])}
 
-    # 2. Hydrate Sections & Format Dates
-    
     # --- EXPERIENCES ---
     for item in data.get('experiences', []):
-        item['achievements'] = [
-            ach_map[aid] for aid in item.get('achievement_ids', []) 
-            if aid in ach_map
-        ]
+        item['achievements'] = [ach_map[aid] for aid in item.get('achievement_ids', []) if aid in ach_map]
         if item.get('description'):
             item['achievements'].insert(0, {'text': item.get('description'), 'is_description': True})
-            
         item['formatted_date'] = format_date_range(item.get('start_date'), item.get('end_date'))
 
     # --- EDUCATION ---
     for item in data.get('education', []):
-        item['achievements'] = [
-            ach_map[aid] for aid in item.get('achievement_ids', []) 
-            if aid in ach_map
-        ]
+        item['achievements'] = [ach_map[aid] for aid in item.get('achievement_ids', []) if aid in ach_map]
         if item.get('description'):
             item['achievements'].insert(0, {'text': item.get('description'), 'is_description': True})
-
         item['formatted_date'] = format_date_range(item.get('start_date'), item.get('end_date'))
+        
+        # Prevent Degree & Field duplication
+        degree = (item.get('degree') or '').strip()
+        field = (item.get('field') or '').strip()
+        deg_norm = degree.lower().replace(" ", "")
+        fld_norm = field.lower().replace(" ", "")
+        
+        if fld_norm and fld_norm in deg_norm:
+            item['display_degree'] = degree
+        elif degree and field:
+            item['display_degree'] = f"{degree} {field}"
+        else:
+            item['display_degree'] = degree or field
 
     # --- HOBBIES ---
     for item in data.get('hobbies', []):
-        item['achievements'] = [
-            ach_map[aid] for aid in item.get('achievement_ids', []) 
-            if aid in ach_map
-        ]
+        item['achievements'] = [ach_map[aid] for aid in item.get('achievement_ids', []) if aid in ach_map]
         if item.get('description'):
             item['achievements'].insert(0, {'text': item.get('description'), 'is_description': True})
 
     # --- PROJECTS ---
     for item in data.get('projects', []):
-        item['achievements'] = [
-            ach_map[aid] for aid in item.get('achievement_ids', []) 
-            if aid in ach_map
-        ]
+        item['achievements'] = [ach_map[aid] for aid in item.get('achievement_ids', []) if aid in ach_map]
         if item.get('description'):
             item['achievements'].insert(0, {'text': item.get('description'), 'is_description': True})
 
-        # Context Resolution
         contexts = []
         for rid in item.get('related_experience_ids', []):
             if rid in exp_map: contexts.append(exp_map[rid].get('company', ''))
@@ -846,31 +837,21 @@ def prepare_cv_for_export(cv: CV) -> tuple[dict, dict]:
             if rid in hobby_map: contexts.append(hobby_map[rid].get('name', ''))
         
         item['context_display'] = ", ".join(filter(None, contexts))
-        
-        # Use new fields start_date/end_date if they exist on the model, otherwise fallback?
-        # Assuming model updated as requested.
         item['formatted_date'] = format_date_range(item.get('start_date'), item.get('end_date'))
 
-    # 3. Group Skills by Category
+    # Group Skills
     skill_groups = {}
     for skill in data.get('skills', []):
         raw_cat = skill.get('category', 'Other')
         cat_display = raw_cat.replace("_", " ").title() if raw_cat else "Other"
-        
-        if cat_display not in skill_groups:
-            skill_groups[cat_display] = []
+        if cat_display not in skill_groups: skill_groups[cat_display] = []
         skill_groups[cat_display].append(skill['name'])
         
     return data, skill_groups
 
 
 @router.post("/{cv_id}/export")
-def export_cv(
-    cv_id: str,
-    payload: CVExportRequest,
-    request: Request,
-    user: User = Depends(get_current_user)
-):
+def export_cv(cv_id: str, payload: CVExportRequest, request: Request, user: User = Depends(get_current_user)):
     registry: Registry = request.app.state.registry
     cv = registry.get_cv(cv_id, user.id)
     if not cv:
@@ -893,61 +874,27 @@ def export_cv(
                 section_order=payload.section_order,
                 section_titles=payload.section_titles
             )
-            return Response(
-                content=pdf_bytes,
-                media_type="application/pdf",
-                headers={"Content-Disposition": f"attachment; filename={base_filename}.pdf"}
-            )
+            return Response(content=pdf_bytes, media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={base_filename}.pdf"})
+            
         elif payload.file_format == "docx":
             docx_path = docx_gen.create_docx(
-                cv_data=cv_dict,
-                skill_groups=skill_groups,
-                section_order=payload.section_order,
-                section_titles=payload.section_titles
+                cv_data=cv_dict, skill_groups=skill_groups, section_order=payload.section_order, section_titles=payload.section_titles
             )
-            with open(docx_path, "rb") as f:
-                docx_bytes = f.read()
+            with open(docx_path, "rb") as f: docx_bytes = f.read()
             os.remove(docx_path)
-            return Response(
-                content=docx_bytes,
-                media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                headers={"Content-Disposition": f"attachment; filename={base_filename}.docx"}
-            )
+            return Response(content=docx_bytes, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", headers={"Content-Disposition": f"attachment; filename={base_filename}.docx"})
+            
         elif payload.file_format == "tex":
-            tex_context = {
-                "cv": cv_dict, 
-                "skill_groups": skill_groups,
-                "section_order": [s.lower() for s in payload.section_order],
-                "section_titles": payload.section_titles
-            }
+            tex_context = {"cv": cv_dict, "skill_groups": skill_groups, "section_order": [s.lower() for s in payload.section_order], "section_titles": payload.section_titles}
             tex_source = pdf_gen.env.get_template('cv_template.tex').render(**tex_context)
-            return Response(
-                content=tex_source,
-                media_type="application/x-tex",
-                headers={"Content-Disposition": f"attachment; filename={base_filename}.tex"}
-            )
+            return Response(content=tex_source, media_type="application/x-tex", headers={"Content-Disposition": f"attachment; filename={base_filename}.tex"})
+            
         else:
-            # Bundle
-            pdf_bytes = pdf_gen.render_cv(
-                context={"cv": cv_dict, "skill_groups": skill_groups},
-                section_order=payload.section_order,
-                section_titles=payload.section_titles
-            )
-            tex_context = {
-                "cv": cv_dict, 
-                "skill_groups": skill_groups,
-                "section_order": [s.lower() for s in payload.section_order],
-                "section_titles": payload.section_titles
-            }
+            pdf_bytes = pdf_gen.render_cv(context={"cv": cv_dict, "skill_groups": skill_groups}, section_order=payload.section_order, section_titles=payload.section_titles)
+            tex_context = {"cv": cv_dict, "skill_groups": skill_groups, "section_order": [s.lower() for s in payload.section_order], "section_titles": payload.section_titles}
             tex_source = pdf_gen.env.get_template('cv_template.tex').render(**tex_context)
-            docx_path = docx_gen.create_docx(
-                cv_data=cv_dict,
-                skill_groups=skill_groups,
-                section_order=payload.section_order,
-                section_titles=payload.section_titles
-            )
-            with open(docx_path, "rb") as f:
-                docx_bytes = f.read()
+            docx_path = docx_gen.create_docx(cv_data=cv_dict, skill_groups=skill_groups, section_order=payload.section_order, section_titles=payload.section_titles)
+            with open(docx_path, "rb") as f: docx_bytes = f.read()
             os.remove(docx_path)
 
             zip_buffer = io.BytesIO()
@@ -957,17 +904,13 @@ def export_cv(
                 zip_file.writestr(f"{base_filename}.docx", docx_bytes)
             
             zip_buffer.seek(0)
-            return Response(
-                content=zip_buffer.getvalue(),
-                media_type="application/zip",
-                headers={"Content-Disposition": f"attachment; filename={base_filename}_Bundle.zip"}
-            )
+            return Response(content=zip_buffer.getvalue(), media_type="application/zip", headers={"Content-Disposition": f"attachment; filename={base_filename}_Bundle.zip"})
 
     except Exception as e:
         import logging
         logging.getLogger(__name__).error(f"Export Error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Generation failed: {str(e)}")
-    
+        raise HTTPException(status_code=500, detail=f"Generation failed: {str(e)}")   
+
 @router.put("/primary")
 def set_primary_cv(
     cv_id: str, 

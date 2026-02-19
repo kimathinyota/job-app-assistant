@@ -12,6 +12,10 @@
 \usepackage[english]{babel}
 \usepackage{tabularx}
 
+% Use Sans-Serif font (Helvetica/Arial look) to match DOCX output
+\usepackage{helvet}
+\renewcommand{\familydefault}{\sfdefault}
+
 % --- Typography & Page Setup ---
 \pagestyle{fancy}
 \fancyhf{} 
@@ -45,10 +49,11 @@
 }
 
 % Standard Subheading (Used for Experience)
+% Swapped args to meet layout request:
 % Arg 1: Title (Top Left)
-% Arg 2: Location (Top Right)
+% Arg 2: Dates (Top Right)
 % Arg 3: Company (Bottom Left)
-% Arg 4: Dates (Bottom Right)
+% Arg 4: Location (Bottom Right)
 \newcommand{\resumeSubheading}[4]{
   \vspace{2pt}\item
     \begin{tabular*}{0.97\textwidth}[t]{l@{\extracolsep{\fill}}r}
@@ -58,9 +63,6 @@
 }
 
 % Education Subheading
-% Arg 1: Degree Field (Top Left)
-% Arg 2: Dates (Top Right)
-% Arg 3: Institution (Bottom Left)
 \newcommand{\resumeEducationHeading}[3]{
   \vspace{2pt}\item
     \begin{tabular*}{0.97\textwidth}[t]{l@{\extracolsep{\fill}}r}
@@ -69,13 +71,20 @@
     \end{tabular*}\vspace{-5pt}
 }
 
-% Project Heading
-% Arg 1: Title | Context (Left)
-% Arg 2: Dates (Right)
+% Project Heading (Title + Date ONLY)
 \newcommand{\resumeProjectHeading}[2]{
     \vspace{2pt}\item
     \begin{tabular*}{0.97\textwidth}{l@{\extracolsep{\fill}}r}
-      \small#1 & #2 \\
+      \textbf{#1} & #2 \\
+    \end{tabular*}\vspace{-5pt}
+}
+
+% Project Heading With Context Line Below
+\newcommand{\resumeProjectSubheading}[3]{
+    \vspace{2pt}\item
+    \begin{tabular*}{0.97\textwidth}[t]{l@{\extracolsep{\fill}}r}
+      \textbf{#1} & #2 \\
+      \textit{\small#3} & \\
     \end{tabular*}\vspace{-5pt}
 }
 
@@ -122,7 +131,7 @@
           \resumeSubHeadingListStart
           \BLOCK{ for edu in cv.education }
             \resumeEducationHeading
-              {\VAR{edu.degree | latex_escape} \VAR{edu.field | latex_escape}}
+              {\VAR{edu.display_degree | latex_escape}}
               {\VAR{edu.formatted_date | latex_escape}}
               {\VAR{edu.institution | latex_escape}}
               \BLOCK{ if edu.achievements }
@@ -153,10 +162,16 @@
         \section{\VAR{section_titles.projects | default('Academic & Research Projects') | latex_escape}}
             \resumeSubHeadingListStart
               \BLOCK{ for proj in cv.projects }
-              \resumeProjectHeading
-                  {\textbf{\VAR{proj.title | latex_escape}}
-                   \BLOCK{ if proj.context_display } $|$ \emph{\VAR{proj.context_display | latex_escape}}\BLOCK{ endif }}
-                  {\VAR{proj.formatted_date | latex_escape}}
+                  \BLOCK{ if proj.context_display }
+                      \resumeProjectSubheading
+                          {\VAR{proj.title | latex_escape}}
+                          {\VAR{proj.formatted_date | latex_escape}}
+                          {\VAR{proj.context_display | latex_escape}}
+                  \BLOCK{ else }
+                      \resumeProjectHeading
+                          {\VAR{proj.title | latex_escape}}
+                          {\VAR{proj.formatted_date | latex_escape}}
+                  \BLOCK{ endif }
                   \BLOCK{ if proj.achievements }
                       \resumeItemListStart
                         \BLOCK{ for ach in proj.achievements }
@@ -175,9 +190,9 @@
           \BLOCK{ for exp in cv.experiences }
             \resumeSubheading
               {\VAR{exp.title | latex_escape}}
-              {\VAR{exp.location | latex_escape}}
-              {\VAR{exp.company | latex_escape}}
               {\VAR{exp.formatted_date | latex_escape}}
+              {\VAR{exp.company | latex_escape}}
+              {\BLOCK{ if exp.location }\VAR{exp.location | latex_escape}\BLOCK{ endif }}
               \BLOCK{ if exp.achievements }
                   \resumeItemListStart
                    \BLOCK{ for ach in exp.achievements }

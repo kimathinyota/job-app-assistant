@@ -119,7 +119,6 @@ class WordGenerator:
             section.left_margin = Inches(0.5)
             section.right_margin = Inches(0.5)
         
-        # --- FONT SETTING: ARIAL ---
         style = doc.styles['Normal']
         style.font.name = 'Arial' 
         style.font.size = Pt(12)
@@ -128,7 +127,7 @@ class WordGenerator:
     def _add_section_header(self, doc, title):
         p = doc.add_paragraph()
         run = p.add_run(str(title).upper()) 
-        run.font.name = 'Arial' # Explicitly set font
+        run.font.name = 'Arial'
         run.font.size = Pt(14)
         run.bold = True
         
@@ -176,7 +175,6 @@ class WordGenerator:
             p.paragraph_format.line_spacing = 1.0
 
     def _add_bullet(self, doc, text):
-        """Helper to add properly indented bullet points."""
         bull = doc.add_paragraph(text, style='List Bullet')
         bull.style.font.name = 'Arial'
         bull.paragraph_format.left_indent = Inches(0.5)
@@ -187,9 +185,6 @@ class WordGenerator:
         return bull
 
     def _add_item_spacer(self, doc):
-        """
-        Adds a small visual separator between items.
-        """
         spacer = doc.add_paragraph()
         spacer.paragraph_format.space_after = Pt(0)
         spacer.paragraph_format.space_before = Pt(0)
@@ -220,25 +215,27 @@ class WordGenerator:
 
             table = doc.add_table(rows=2, cols=2)
             table.autofit = False
-            # Arial is wider, so we ensure the left column has enough space
             table.columns[0].width = Inches(6.0)
             table.columns[1].width = Inches(1.5)
             
             date_str = self._prepare_date(edu.get('formatted_date'))
             
             r1 = table.rows[0]
-            r1.cells[0].text = f"{edu.get('degree', '')} {edu.get('field', '')}"
-            r1.cells[0].paragraphs[0].runs[0].bold = True
-            r1.cells[0].paragraphs[0].runs[0].font.name = 'Arial'
+            r1.cells[0].text = edu.get('display_degree', '')
+            if r1.cells[0].paragraphs[0].runs:
+                r1.cells[0].paragraphs[0].runs[0].bold = True
+                r1.cells[0].paragraphs[0].runs[0].font.name = 'Arial'
             
             r1.cells[1].text = date_str
             r1.cells[1].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
-            r1.cells[1].paragraphs[0].runs[0].font.name = 'Arial'
+            if r1.cells[1].paragraphs[0].runs:
+                r1.cells[1].paragraphs[0].runs[0].font.name = 'Arial'
             
             r2 = table.rows[1]
             r2.cells[0].text = edu.get('institution', '')
-            r2.cells[0].paragraphs[0].runs[0].italic = True
-            r2.cells[0].paragraphs[0].runs[0].font.name = 'Arial'
+            if r2.cells[0].paragraphs[0].runs:
+                r2.cells[0].paragraphs[0].runs[0].italic = True
+                r2.cells[0].paragraphs[0].runs[0].font.name = 'Arial'
 
             self._format_cell_p(r1.cells[0])
             self._format_cell_p(r1.cells[1])
@@ -271,31 +268,39 @@ class WordGenerator:
         for i, proj in enumerate(items):
             if i > 0: self._add_item_spacer(doc)
 
-            table = doc.add_table(rows=1, cols=2)
+            context = proj.get('context_display', '')
+            rows_needed = 2 if context else 1
+            
+            table = doc.add_table(rows=rows_needed, cols=2)
             table.autofit = False 
             table.columns[0].width = Inches(6.0)
             table.columns[1].width = Inches(1.5)
             
+            # Row 1: Title (Left) | Date (Right)
             r1 = table.rows[0]
-            
-            c1_p = r1.cells[0].paragraphs[0]
-            t_run = c1_p.add_run(proj.get('title', ''))
-            t_run.bold = True
-            t_run.font.name = 'Arial'
-            
-            context = proj.get('context_display', '')
-            if context:
-                c_run = c1_p.add_run(f" | {context}")
-                c_run.italic = True
-                c_run.font.name = 'Arial'
+            r1.cells[0].text = proj.get('title', '')
+            if r1.cells[0].paragraphs[0].runs:
+                r1.cells[0].paragraphs[0].runs[0].bold = True
+                r1.cells[0].paragraphs[0].runs[0].font.name = 'Arial'
             
             date_str = self._prepare_date(proj.get('formatted_date'))
             r1.cells[1].text = date_str
             r1.cells[1].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
-            r1.cells[1].paragraphs[0].runs[0].font.name = 'Arial'
+            if r1.cells[1].paragraphs[0].runs:
+                r1.cells[1].paragraphs[0].runs[0].font.name = 'Arial'
 
             self._format_cell_p(r1.cells[0])
             self._format_cell_p(r1.cells[1])
+            
+            # Row 2 (Optional): Context (Left)
+            if context:
+                r2 = table.rows[1]
+                r2.cells[0].text = context
+                if r2.cells[0].paragraphs[0].runs:
+                    r2.cells[0].paragraphs[0].runs[0].italic = True
+                    r2.cells[0].paragraphs[0].runs[0].font.name = 'Arial'
+                self._format_cell_p(r2.cells[0])
+                self._format_cell_p(r2.cells[1])
 
             for ach in proj.get('achievements', []):
                 self._add_bullet(doc, ach['text'])
@@ -314,25 +319,32 @@ class WordGenerator:
             table.columns[1].width = Inches(1.5)
             
             date_str = self._prepare_date(exp.get('formatted_date'))
+            loc_str = exp.get('location', '')
             
+            # Row 1: Title (Left) | Date (Right)
             r1 = table.rows[0]
             r1.cells[0].text = exp.get('title', '')
-            r1.cells[0].paragraphs[0].runs[0].bold = True
-            r1.cells[0].paragraphs[0].runs[0].font.name = 'Arial'
+            if r1.cells[0].paragraphs[0].runs:
+                r1.cells[0].paragraphs[0].runs[0].bold = True
+                r1.cells[0].paragraphs[0].runs[0].font.name = 'Arial'
             
-            if exp.get('location'):
-                r1.cells[1].text = exp.get('location', '')
-                r1.cells[1].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
+            r1.cells[1].text = date_str
+            r1.cells[1].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
+            if r1.cells[1].paragraphs[0].runs:
                 r1.cells[1].paragraphs[0].runs[0].font.name = 'Arial'
             
+            # Row 2: Company (Left) | Location (Right)
             r2 = table.rows[1]
             r2.cells[0].text = exp.get('company', '')
-            r2.cells[0].paragraphs[0].runs[0].italic = True
-            r2.cells[0].paragraphs[0].runs[0].font.name = 'Arial'
+            if r2.cells[0].paragraphs[0].runs:
+                r2.cells[0].paragraphs[0].runs[0].italic = True
+                r2.cells[0].paragraphs[0].runs[0].font.name = 'Arial'
             
-            r2.cells[1].text = date_str
+            r2.cells[1].text = loc_str
             r2.cells[1].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
-            r2.cells[1].paragraphs[0].runs[0].font.name = 'Arial'
+            if r2.cells[1].paragraphs[0].runs:
+                r2.cells[1].paragraphs[0].runs[0].italic = True
+                r2.cells[1].paragraphs[0].runs[0].font.name = 'Arial'
             
             self._format_cell_p(r1.cells[0])
             self._format_cell_p(r1.cells[1])
