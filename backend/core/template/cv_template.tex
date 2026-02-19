@@ -1,4 +1,4 @@
-\documentclass[letterpaper,11pt]{article}
+\documentclass[letterpaper,12pt]{article}
 
 \usepackage{latexsym}
 \usepackage[empty]{fullpage}
@@ -44,19 +44,39 @@
   }
 }
 
+% Standard Subheading (Used for Experience)
+% Arg 1: Title (Top Left)
+% Arg 2: Location (Top Right)
+% Arg 3: Company (Bottom Left)
+% Arg 4: Dates (Bottom Right)
 \newcommand{\resumeSubheading}[4]{
-  \vspace{-2pt}\item
+  \vspace{2pt}\item
     \begin{tabular*}{0.97\textwidth}[t]{l@{\extracolsep{\fill}}r}
       \textbf{#1} & #2 \\
       \textit{\small#3} & \textit{\small #4} \\
-    \end{tabular*}\vspace{-7pt}
+    \end{tabular*}\vspace{-5pt}
 }
 
+% Education Subheading
+% Arg 1: Degree Field (Top Left)
+% Arg 2: Dates (Top Right)
+% Arg 3: Institution (Bottom Left)
+\newcommand{\resumeEducationHeading}[3]{
+  \vspace{2pt}\item
+    \begin{tabular*}{0.97\textwidth}[t]{l@{\extracolsep{\fill}}r}
+      \textbf{#1} & #2 \\
+      \textit{\small#3} & \\
+    \end{tabular*}\vspace{-5pt}
+}
+
+% Project Heading
+% Arg 1: Title | Context (Left)
+% Arg 2: Dates (Right)
 \newcommand{\resumeProjectHeading}[2]{
-    \item
+    \vspace{2pt}\item
     \begin{tabular*}{0.97\textwidth}{l@{\extracolsep{\fill}}r}
       \small#1 & #2 \\
-    \end{tabular*}\vspace{-7pt}
+    \end{tabular*}\vspace{-5pt}
 }
 
 \newcommand{\resumeSubHeadingListStart}{\begin{itemize}[leftmargin=0.15in, label={}]}
@@ -71,15 +91,15 @@
 
 % --- Heading ---
 \begin{center}
-    \textbf{\Huge \scshape \VAR{cv.first_name | latex_escape} \VAR{cv.last_name | latex_escape}} \\ \vspace{1pt}
-    \footnotesize
+    \textbf{\Huge \scshape 
+    \BLOCK{ if cv.is_title_in_name and cv.title }\VAR{cv.title | latex_escape} \BLOCK{ endif }
+    \VAR{cv.first_name | latex_escape} \VAR{cv.last_name | latex_escape}} \\ \vspace{4pt}
+    \small
     \BLOCK{ for key, val in cv.contact_info.items() }
         \BLOCK{ if key == 'email' }
            \href{mailto:\VAR{val | latex_escape}}{\underline{\VAR{val | latex_escape}}}
-        \BLOCK{ elif key == 'linkedin' }
-           \href{\VAR{val | latex_escape}}{\underline{LinkedIn}}
         \BLOCK{ else }
-           \VAR{val | latex_escape}
+           \href{\VAR{val | latex_escape}}{\underline{\VAR{val | latex_escape}}}
         \BLOCK{ endif }
         \BLOCK{ if not loop.last } $|$ \BLOCK{ endif }
     \BLOCK{ endfor }
@@ -88,10 +108,12 @@
 % --- Dynamic Body Sections ---
 \BLOCK{ for section in section_order }
 
-    % --- SUMMARY (NEW) ---
+    % --- SUMMARY ---
     \BLOCK{ if section == 'summary' and cv.summary }
         \section{\VAR{section_titles.summary | default('Professional Summary') | latex_escape}}
+        \vspace{3pt}
         \small{\VAR{cv.summary | latex_escape}} \\
+        \vspace{3pt}
     \BLOCK{ endif }
 
     % --- EDUCATION ---
@@ -99,9 +121,10 @@
         \section{\VAR{section_titles.education | default('Education') | latex_escape}}
           \resumeSubHeadingListStart
           \BLOCK{ for edu in cv.education }
-            \resumeSubheading
-              {\VAR{edu.institution | latex_escape}}{\VAR{edu.degree | latex_escape}}
-              {\VAR{edu.field | latex_escape}}{\VAR{edu.start_date | latex_escape} -- \VAR{edu.end_date | latex_escape}}
+            \resumeEducationHeading
+              {\VAR{edu.degree | latex_escape} \VAR{edu.field | latex_escape}}
+              {\VAR{edu.formatted_date | latex_escape}}
+              {\VAR{edu.institution | latex_escape}}
               \BLOCK{ if edu.achievements }
                   \resumeItemListStart
                     \BLOCK{ for ach in edu.achievements }
@@ -131,7 +154,9 @@
             \resumeSubHeadingListStart
               \BLOCK{ for proj in cv.projects }
               \resumeProjectHeading
-                  {\textbf{\VAR{proj.title | latex_escape}} $|$ \emph{\VAR{proj.related_context | latex_escape}}}{\VAR{proj.dates | default('Present') | latex_escape}}
+                  {\textbf{\VAR{proj.title | latex_escape}}
+                   \BLOCK{ if proj.context_display } $|$ \emph{\VAR{proj.context_display | latex_escape}}\BLOCK{ endif }}
+                  {\VAR{proj.formatted_date | latex_escape}}
                   \BLOCK{ if proj.achievements }
                       \resumeItemListStart
                         \BLOCK{ for ach in proj.achievements }
@@ -140,7 +165,7 @@
                       \resumeItemListEnd
                   \BLOCK{ endif }
               \BLOCK{ endfor }
-            \resumeSubHeadingListEnd
+          \resumeSubHeadingListEnd
     \BLOCK{ endif }
 
     % --- EXPERIENCE ---
@@ -149,8 +174,10 @@
           \resumeSubHeadingListStart
           \BLOCK{ for exp in cv.experiences }
             \resumeSubheading
-              {\VAR{exp.title | latex_escape}}{\VAR{exp.company | latex_escape}}
-              {\VAR{exp.location | default('') | latex_escape}}{\VAR{exp.start_date | latex_escape} -- \VAR{exp.end_date | latex_escape}}
+              {\VAR{exp.title | latex_escape}}
+              {\VAR{exp.location | latex_escape}}
+              {\VAR{exp.company | latex_escape}}
+              {\VAR{exp.formatted_date | latex_escape}}
               \BLOCK{ if exp.achievements }
                   \resumeItemListStart
                    \BLOCK{ for ach in exp.achievements }
@@ -169,7 +196,6 @@
           \BLOCK{ for hobby in cv.hobbies }
             \item
               \textbf{\VAR{hobby.name | latex_escape}}
-              \BLOCK{ if hobby.description }: \VAR{hobby.description | latex_escape} \BLOCK{ endif }
               \BLOCK{ if hobby.achievements }
                   \resumeItemListStart
                     \BLOCK{ for ach in hobby.achievements }
