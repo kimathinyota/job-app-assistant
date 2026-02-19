@@ -96,6 +96,8 @@ def normalize_date_string(v: Optional[str], default_month: int = 1) -> Optional[
     # Handle "Present" keywords -> Null (Ongoing)
     if s in ["present", "now", "current", "null", "none", "ongoing"]:
         return None
+
+    # print(f"Attempting to parse date string: '{v}' with default month {default_month}"  )
         
     try:
         # We use a default year of 2000, but the critical part is default_month and day=1.
@@ -103,8 +105,10 @@ def normalize_date_string(v: Optional[str], default_month: int = 1) -> Optional[
         default_date = datetime(2000, default_month, 1)
         
         dt = date_parser.parse(v, default=default_date)
+        # print(f"Parsed date '{v}' as '{dt.date()}'" )
         return dt.strftime("%Y-%m-%d")
     except:
+        # print(f"Warning: Failed to parse date '{v}'. Keeping original string.")
         return v
 
 # ---------------------------------------------------------------------
@@ -116,6 +120,7 @@ class Experience(BaseEntity, SkillLinkMixin):
     company: str
     start_date: Optional[str] = None
     end_date: Optional[str] = None
+    location: Optional[str] = None
     description: Optional[str] = None
     achievement_ids: List[str] = Field(default_factory=list)
 
@@ -130,22 +135,6 @@ class Experience(BaseEntity, SkillLinkMixin):
         self.touch()
         return achievement
 
-class CVExportRequest(BaseModel):
-    # Added "hobbies" to default list
-    section_order: List[str] = ["education", "skills", "projects", "experience", "hobbies"]
-    section_titles: Dict[str, str] = {
-        "education": "Education",
-        "skills": "Technical Skills",
-        "projects": "Academic & Research Projects",
-        "experience": "Experience",
-        "hobbies": "Interests & Hobbies"
-    }
-    file_format: Literal["pdf", "docx", "tex", "zip"] = "pdf"
-
-
-class CVImportRequest(BaseModel):
-    text: str
-    name: Optional[str] = "Imported CV"
 
 class Education(BaseEntity, SkillLinkMixin):
     institution: str
@@ -171,6 +160,9 @@ class Project(BaseEntity, SkillLinkMixin):
     title: str
     description: str
 
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+
     # DEPECREATED FIELDS: kept only for backward compatibility
     related_experience_id: Optional[str] = None
     related_education_id: Optional[str] = None
@@ -181,6 +173,12 @@ class Project(BaseEntity, SkillLinkMixin):
     related_hobby_ids: List[str] = Field(default_factory=list)  # <--- Added Hobbies support
 
     achievement_ids: List[str] = Field(default_factory=list)
+
+     # --- 2. Add Validators ---
+    @validator('start_date', 'end_date', pre=True)
+    def clean_dates(cls, v):
+        return normalize_date_string(v, default_month=1)
+
 
     def add_achievement(self, achievement: Achievement):
         if achievement.id not in self.achievement_ids:
@@ -212,6 +210,7 @@ class CV(UserOwnedEntity):
     first_name: Optional[str] = None # Actual first name for the document
     last_name: Optional[str] = None  # Actual last name for the document
     title: Optional[str] = None   # e.g., "Mr/Dr/Ms/Mrs/Miss"
+    is_title_in_name: Optional[bool] = False  # If True, "title" is part of "name" and should be rendered as such
     # --- END NEW FIELDS ---
     summary: Optional[str] = None
     contact_info: Dict[str, str] = Field(default_factory=dict)
@@ -448,6 +447,23 @@ class DerivedCV(CV):
 # ---------------------------------------------------------------------
 # Job description & matching
 # ---------------------------------------------------------------------
+
+class CVExportRequest(BaseModel):
+    # Added "hobbies" to default list
+    section_order: List[str] = ["education", "skills", "projects", "experience", "hobbies"]
+    section_titles: Dict[str, str] = {
+        "education": "Education",
+        "skills": "Technical Skills",
+        "projects": "Academic & Research Projects",
+        "experience": "Experience",
+        "hobbies": "Interests & Hobbies"
+    }
+    file_format: Literal["pdf", "docx", "tex", "zip"] = "pdf"
+
+
+class CVImportRequest(BaseModel):
+    text: str
+    name: Optional[str] = "Imported CV"
 
 
 class JobDescriptionFeature(BaseEntity):
@@ -817,7 +833,7 @@ class Goal(UserOwnedEntity):
 class PendingSkillInput(BaseModel):
     """Payload for a skill that needs to be created."""
     name: str
-    category: Literal["technical", "soft", "language", "other"] = "technical"
+    category: str = "technical"
 
 class PendingAchievementInput(BaseModel):
     """Payload for an achievement that needs to be created."""
@@ -898,6 +914,9 @@ class ProjectComplexPayload(BaseModel):
     # Core Project fields
     title: str
     description: Optional[str] = None
+
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
 
     # DEPECREATED FIELDS: kept only for backward compatibility
     related_experience_id: Optional[str] = None

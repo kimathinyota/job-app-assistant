@@ -66,7 +66,8 @@ Extract specific text segments into a "features" list based on these types:
 #### GROUP B: JOB EXECUTION (The "What")
 4. "responsibility": 
    - MATCH: Actions the employee DOES daily. Look for bullet points starting with Action Verbs.
-5. "requirement": 
+   - CRITICAL RULE: Extract ATOMIC (single-action) responsibilities. Break compound sentences into separate items separated by semicolons. DO NOT split noun lists sharing a single verb.
+5. "requirement":
    - MATCH: Mandatory constraints (Logistics, Legal status, History).
    - CRITICAL RULE: If the requirement is historical (e.g., "3 years experience"), you MUST append " (experience)" to the string.
 
@@ -77,6 +78,7 @@ Extract specific text segments into a "features" list based on these types:
    - MATCH: High-level purpose statements (What the company does and why).
 8. "perk": 
    - MATCH: Benefits, bonuses, insurance, time off, or lifestyle rewards.
+   - FORMAT: Extract as ATOMIC perks separated by semicolons
 
 ### OUTPUT SCHEMA (STRICT JSON):
 Return a single JSON object with no markdown formatting:
@@ -106,7 +108,6 @@ DO NOT RETURN MARKDOWN. DO NOT USE ```json BLOCKS. JUST THE RAW JSON.
         print(job_text)
 
         # 1. Request Inference via Manager
-        # Note: Using temperature=0.0 as per your 'job' requirement
         data = await self.manager.request_inference(
             system_prompt=self.PROMPT_MASTER,
             user_text=job_text,
@@ -129,7 +130,91 @@ DO NOT RETURN MARKDOWN. DO NOT USE ```json BLOCKS. JUST THE RAW JSON.
             "_meta": {}
         }
 
+        # ---------------------------------------------------------
+        # NEW HELPER: Type-Aware Smart Splitter
+        # ---------------------------------------------------------
+        def smart_split_feature(raw_string: str, f_type: str) -> list:
+            if not raw_string:
+                return []
+
+            text = str(raw_string)
+
+            # 1. TEXT NORMALIZATION (The Placeholder Trick)
+            general_abbrevs = r'\b(vs|i\.e|e\.g|etc|Dr|Mr|Mrs|Ms|Prof|Inc|Ltd|Co)\.'
+            text = re.sub(general_abbrevs, r'\1__DOT__', text, flags=re.IGNORECASE)
+            
+            degree_abbrevs = r'\b(Ph\.D|B\.Sc|M\.Sc|B\.A|M\.A)\.'
+            text = re.sub(degree_abbrevs, r'\1__DOT__', text, flags=re.IGNORECASE)
+
+            initials = r'\b([A-Z])\.\s'
+            text = re.sub(initials, r'\1__DOT__ ', text)
+
+            # 2. ROGUE NEWLINE CLEANUP
+            text = re.sub(r'\n(?!\s*[\n•\-\*]|\s*\d+\.)', ' ', text)
+
+            # 3. TYPE-AWARE SPLITTING LOGIC
+            # If it is a short list type, aggressively split on commas and semicolons.
+            if f_type in ["hard_skill", "soft_skill", "qualification", "certification"]:
+                pattern = r'(?:;|,\s*|\n\s*(?:[•\-\*]\s*)+|\n\s*\d+[\.\)]\s+|\n\s*\n+)(?![^(]*\))'
+                merge_threshold = 0  # Do not merge short skills back together
+            
+            # If it is a descriptive text type, DO NOT split on commas.
+            else:
+                pattern = r'(?:;|\.\s+(?=[A-Z])|\n\s*(?:[•\-\*]\s*)+|\n\s*\d+[\.\)]\s+|\n\s*\n+)(?![^(]*\))'
+                merge_threshold = 4  # Merge highly fragmented sentences
+
+            initial_chunks = re.split(pattern, text)
+            
+            final_list = []
+            if initial_chunks:
+                current_buffer = initial_chunks[0].strip()
+                for i in range(1, len(initial_chunks)):
+                    next_chunk = initial_chunks[i].strip()
+                    word_count = len(next_chunk.split())
+                    
+                    # Quote Tracker to prevent splitting inside quotations
+                    buffer_no_apostrophes = re.sub(r"\b'\b", "", current_buffer)
+                    single_quotes = buffer_no_apostrophes.count("'")
+                    double_quotes = current_buffer.count('"')
+                    is_inside_quote = (single_quotes % 2 != 0) or (double_quotes % 2 != 0)
+                    
+                    if word_count < merge_threshold or is_inside_quote:
+                        # Descriptive text rejoins with a period if it was split
+                        join_char = "." if merge_threshold > 0 else ""
+                        current_buffer += f"{join_char} {next_chunk}"
+                    else:
+                        if len(current_buffer) >= 2: 
+                            final_list.append(current_buffer)
+                        current_buffer = next_chunk
+                
+                if len(current_buffer) >= 2:
+                    final_list.append(current_buffer)
+
+            # 4. FINAL CLEANUP & FORMATTING
+            cleaned_results = []
+            for chunk in final_list:
+                clean_chunk = re.sub(r'^[-•*]\s*|^\d+[\.\)]\s*', '', chunk).strip()
+                clean_chunk = re.sub(r'\s+', ' ', clean_chunk)
+                clean_chunk = clean_chunk.replace('__DOT__', '.')
+                
+                # Strip dangling "and" or "or" at the start of a split phrase
+                clean_chunk = re.sub(r'^(?:and|or)\s+', '', clean_chunk, flags=re.IGNORECASE).strip()
+                
+                if clean_chunk:
+                    # Capitalize first letter safely
+                    clean_chunk = clean_chunk[0].upper() + clean_chunk[1:]
+                    
+                    # Ensure descriptive fields end with a period
+                    if f_type not in ["hard_skill", "soft_skill", "qualification", "certification"] and not clean_chunk.endswith('.'):
+                        clean_chunk += '.'
+                        
+                    cleaned_results.append(clean_chunk)
+                    
+            return cleaned_results
+
+        # ---------------------------------------------------------
         # 3. Logic: Deduplicate and Map Features
+        # ---------------------------------------------------------
         raw_features = data.get("features", [])
         seen = set()
         unique_features = []
@@ -159,24 +244,23 @@ DO NOT RETURN MARKDOWN. DO NOT USE ```json BLOCKS. JUST THE RAW JSON.
             if feat_type not in VALID_TYPES and feat_type != "requirement":
                 continue
 
-            # Unbundling Logic (Semicolons)
-            for raw_item in clean_desc_full.split(';'):
-                clean_desc_semi = raw_item.strip()
-                for raw_line in clean_desc_semi.split(','):
-                    clean_desc = raw_line.strip()
-                    # Final Filters
-                    if not clean_desc or len(clean_desc) < 2: continue
-                    if clean_desc.lower().startswith("we are looking"): continue
-                    if clean_desc == final_result.get("location"): continue
-                    
-                    sig = (feat_type, clean_desc.lower())
-                    if sig not in seen:
-                        seen.add(sig)
-                        unique_features.append({
-                            "type": feat_type,
-                            "description": clean_desc,
-                            "preferred": bool(f.get("preferred", False))
-                        })
+            # NEW: Run the unbundling logic using our smart, type-aware helper
+            parsed_chunks = smart_split_feature(clean_desc_full, feat_type)
+            
+            for clean_desc in parsed_chunks:
+                # Final Filters
+                if not clean_desc or len(clean_desc) < 2: continue
+                if clean_desc.lower().startswith("we are looking"): continue
+                if clean_desc == final_result.get("location"): continue
+                
+                sig = (feat_type, clean_desc.lower())
+                if sig not in seen:
+                    seen.add(sig)
+                    unique_features.append({
+                        "type": feat_type,
+                        "description": clean_desc,
+                        "preferred": bool(f.get("preferred", False))
+                    })
 
         final_result["features"] = unique_features
         final_result["_meta"]["generation_time_sec"] = round(time.time() - start_time, 2)
@@ -205,7 +289,7 @@ Extract candidate metadata and a global skill set with inferred categories.
 ### SECTION 2: SKILL EXTRACTION
 - "skills": 
    - MATCH: All technical tools, soft skills, languages, and frameworks.
-   - CATEGORY: Infer a category for each skill based on the CV context (e.g. "Technical", "Soft", "Language", "Data", "Leadership", "Tool").
+   - CATEGORY: Extract explicit category headers from the CV if present. If none exist, infer a category. (e.g. "Technical", "Soft", "Language", "Data", "Leadership", "Tool").
    - CONSTRAINT: Category must NEVER be null. Default to "Technical" if unsure.
 
 ### OUTPUT SCHEMA (STRICT JSON):
@@ -234,11 +318,11 @@ Extract professional experience into a structured list.
 2. "title": MATCH the job title.
 3. "start_date": MATCH the start date verbatim.
 4. "end_date": MATCH the end date verbatim.
-5. "achievements_list": 
-   - MATCH: Every bullet point or result described in this role.
+5. "location": MATCH the job location (if available).
+6. "achievements_list":
+   - MATCH: Extract EVERY bullet point, result, and descriptive sentence verbatim. Do not summarize, truncate, or drop text.
    - FORMAT: Combine into a single string separated by semicolons (;).
-   - REJECT: General duties (e.g. "Responsible for coding"). Focus on results.
-6. "tools_used":
+7. "tools_used":
    - MATCH: Specific tools/tech/skills mentioned *within this role description*.
    - FORMAT: Semicolon separated.
 
@@ -250,6 +334,7 @@ Extract professional experience into a structured list.
       "title": "string",
       "start_date": "string",
       "end_date": "string",
+      "location": "string",
       "description": "string (Short summary paragraph)",
       "achievements_list": "string",
       "tools_used": "string"
@@ -270,7 +355,7 @@ Extract education history and specific grades.
 3. "field": MATCH the major or subject. If not explicitly stated, infer it or use "General".
 4. "grade": MATCH the specific GPA, classification (e.g. "First Class"), or score. If not found, return null.
 5. "details_list":
-   - MATCH: Honors, Awards, or Thesis titles (excluding the grade).
+   - MATCH: Honors, Awards, Thesis titles, modules, coursework, and any other supplementary text (excluding the grade).
    - FORMAT: Semicolon separated string.
 
 ### OUTPUT SCHEMA (STRICT JSON):
@@ -307,10 +392,17 @@ Extract independent projects ONLY from dedicated project sections.
 ### EXTRACTION RULES:
 1. "title": MATCH the project name.
 2. "related_context":
-   - MATCH: The name of the Company, University, or "Personal".
-3. "achievements_list": Semicolon separated results.
-4. "tools_used": Semicolon separated tools/tech/skills.
-
+   - MATCH: The name of the affiliated Company, Institution, Degree, Society, or Hobby. A project can be linked to work experience, education, or hobbies, so extract any associated names.
+   - FORMAT: Semicolon separated if multiple apply. Return null if no clear affiliation is stated. Do not guess.
+3. "achievements_list": 
+   - MATCH: Extract EVERY bullet point, result, and descriptive sentence verbatim. Do not summarize, truncate, or drop text.
+   - FORMAT: Combine into a single string separated by semicolons (;).
+4. "tools_used": 
+   - MATCH: Specific tools/tech/skills mentioned *within this project description*.
+   - FORMAT: Semicolon separated.
+5. "start_date" and "end_date": 
+   - MATCH: Date ranges or single dates.
+   - CRITICAL RULE: If only ONE date is found, assign it to "end_date" and set "start_date" to null. If a date range is found, map them normally. If no dates are found, set both to null.
 ### OUTPUT SCHEMA (STRICT JSON):
 {
   "items": [
@@ -319,7 +411,9 @@ Extract independent projects ONLY from dedicated project sections.
       "description": "string",
       "achievements_list": "string",
       "tools_used": "string",
-      "related_context": "string"
+      "related_context": "string",
+      "start_date": "string or null",
+      "end_date": "string or null"
     }
   ]
 }
@@ -484,8 +578,31 @@ NO MARKDOWN. RAW JSON ONLY.
             if not raw_string:
                 return
 
-            pattern = r'(?:;|,(?=\s*[A-Z][a-zA-Z]))(?![^(]*\))'
-            initial_chunks = re.split(pattern, str(raw_string))
+            text = str(raw_string)
+
+            # 1. TEXT NORMALIZATION (The Placeholder Trick)
+            general_abbrevs = r'\b(vs|i\.e|e\.g|etc|Dr|Mr|Mrs|Ms|Prof|Inc|Ltd|Co)\.'
+            text = re.sub(general_abbrevs, r'\1__DOT__', text, flags=re.IGNORECASE)
+            
+            degree_abbrevs = r'\b(Ph\.D|B\.Sc|M\.Sc|B\.A|M\.A)\.'
+            text = re.sub(degree_abbrevs, r'\1__DOT__', text, flags=re.IGNORECASE)
+
+            initials = r'\b([A-Z])\.\s'
+            text = re.sub(initials, r'\1__DOT__ ', text)
+
+            # 2. ROGUE NEWLINE CLEANUP
+            text = re.sub(r'\n(?!\s*[\n•\-\*]|\s*\d+\.)', ' ', text)
+
+            # 3. THE SPLIT
+            # Now explicitly splits on:
+            # * Semicolons
+            # * Periods followed by a capital letter
+            # * Commas followed by a capital letter (relying on threshold to fix lists)
+            # * Bullet points (\n followed by -, •, or *)
+            # * Numbered lists (\n followed by 1., 2), etc.)
+            # * Multiple line breaks (\n\n)
+            pattern = r'(?:;|\.\s+(?=[A-Z])|,\s+(?=[A-Z][a-zA-Z])|\n\s*(?:[•\-\*]\s*)+|\n\s*\d+[\.\)]\s+|\n\s*\n+)(?![^(]*\))'
+            initial_chunks = re.split(pattern, text)
             
             final_list = []
             if initial_chunks:
@@ -494,7 +611,14 @@ NO MARKDOWN. RAW JSON ONLY.
                     next_chunk = initial_chunks[i].strip()
                     word_count = len(next_chunk.split())
                     
-                    if word_count < merge_threshold:
+                    # 4. THE QUOTE TRACKER
+                    buffer_no_apostrophes = re.sub(r"\b'\b", "", current_buffer)
+                    single_quotes = buffer_no_apostrophes.count("'")
+                    double_quotes = current_buffer.count('"')
+                    is_inside_quote = (single_quotes % 2 != 0) or (double_quotes % 2 != 0)
+                    
+                    # Merge if fragment is too short OR if we are inside a quote
+                    if word_count < merge_threshold or is_inside_quote:
                         current_buffer += f", {next_chunk}"
                     else:
                         if len(current_buffer) > 3: 
@@ -505,9 +629,26 @@ NO MARKDOWN. RAW JSON ONLY.
                     final_list.append(current_buffer)
 
             for ach_text in final_list:
-                ach = cv_obj.add_achievement(text=ach_text, context=context_str)
-                parent_obj.add_achievement(ach)
+                # Clean up stray bullet points, numbers, or hyphens at the start
+                clean_ach = re.sub(r'^[-•*]\s*|^\d+[\.\)]\s*', '', ach_text).strip()
+                
+                # Strip multiple spaces down to a single space
+                clean_ach = re.sub(r'\s+', ' ', clean_ach)
+                
+                # 5. RESTORE THE DOTS
+                clean_ach = clean_ach.replace('__DOT__', '.')
 
+                # Capitalize the first letter
+                if clean_ach:
+                    clean_ach = clean_ach[0].upper() + clean_ach[1:]
+                
+                # Format consistency: Ensure the achievement ends with a period
+                if clean_ach and not clean_ach.endswith('.'):
+                    clean_ach += '.'
+                    
+                if clean_ach:
+                    ach = cv_obj.add_achievement(text=clean_ach, context=context_str)
+                    parent_obj.add_achievement(ach)
         # ---------------------------------------------------------
         # 5. Assembly
         # ---------------------------------------------------------
@@ -520,6 +661,7 @@ NO MARKDOWN. RAW JSON ONLY.
                 title=item.get("title") or "Role",
                 company=item.get("company") or "Company",
                 start_date=item.get("start_date"),
+                location=item.get("location"),
                 end_date=item.get("end_date"),
                 description=item.get("description")
             )
@@ -545,10 +687,13 @@ NO MARKDOWN. RAW JSON ONLY.
             )
             
             # Extract Grade
-            grade = item.get("grade")
-            if grade and str(grade).lower() != "null":
-                ach = cv_obj.add_achievement(text=f"Grade: {grade}", context=edu.institution)
-                edu.add_achievement(ach)
+            # Split and Extract Multiple Grades
+            grade_raw = item.get("grade")
+            if grade_raw and str(grade_raw).lower() != "null":
+                for g in str(grade_raw).split(';'):
+                    if g.strip():
+                        ach = cv_obj.add_achievement(text=f"Grade: {g.strip()}", context=edu.institution)
+                        edu.add_achievement(ach)
 
             process_achievements(
                 raw_string=item.get("details_list"), 
@@ -557,23 +702,63 @@ NO MARKDOWN. RAW JSON ONLY.
                 merge_threshold=4 
             )
 
-        # --- Projects ---
         for item in ensure_list(proj_data):
             rel_exp_ids = []
             rel_edu_ids = []
-            ctx = (item.get("related_context") or "").lower()
-            if ctx:
-                for e in cv_obj.experiences:
-                    if e.company.lower() in ctx: rel_exp_ids.append(e.id)
-                for ed in cv_obj.education:
-                    if ed.institution.lower() in ctx: rel_edu_ids.append(ed.id)
+            rel_hobby_ids = []
+            
+            ctx_raw = item.get("related_context")
+            
+            # Check if context exists and is not literally "null"
+            if ctx_raw and str(ctx_raw).lower() != "null":
+                
+                # Split by semicolon to handle multiple contexts
+                for ctx_part in str(ctx_raw).split(';'):
+                    ctx = ctx_part.lower().strip()
+                    
+                    # Prevent generic words from causing false positive links
+                    if not ctx or ctx in ["personal", "none", "n/a", "independent"]:
+                        continue
+                        
+                    # 1. Match Experiences
+                    for e in cv_obj.experiences:
+                        comp = (e.company or "").lower()
+                        title = (e.title or "").lower()
+                        
+                        # Bidirectional company match OR title match
+                        if (comp and comp in ctx) or (comp and ctx in comp) or (title and title in ctx):
+                            if e.id not in rel_exp_ids:
+                                rel_exp_ids.append(e.id)
+                                
+                    # 2. Match Education
+                    for ed in cv_obj.education:
+                        inst = (ed.institution or "").lower()
+                        field = (ed.field or "").lower()
+                        
+                        # Bidirectional institution match OR field of study match
+                        if (inst and inst in ctx) or (inst and ctx in inst) or (field and field in ctx):
+                            if ed.id not in rel_edu_ids:
+                                rel_edu_ids.append(ed.id)
+
+                    # 3. Match Hobbies
+                    for h in cv_obj.hobbies:
+                        h_name = (h.name or "").lower()
+                        
+                        # Bidirectional hobby name match
+                        if (h_name and h_name in ctx) or (h_name and ctx in h_name):
+                            if h.id not in rel_hobby_ids:
+                                rel_hobby_ids.append(h.id)
 
             proj = cv_obj.add_project(
                 title=item.get("title") or "Project",
                 description=item.get("description") or "",
                 related_experience_ids=rel_exp_ids,
-                related_education_ids=rel_edu_ids
+                related_education_ids=rel_edu_ids,
+                related_hobby_ids=rel_hobby_ids,  # Make sure your class supports this argument
+                start_date=item.get("start_date"),
+                end_date=item.get("end_date")
             )
+            
             proj.skill_ids.extend(register_skills(item.get("tools_used"), default_category="Technical"))
             
             process_achievements(
@@ -599,6 +784,7 @@ NO MARKDOWN. RAW JSON ONLY.
         log.info(f"✅ Fast Parse Complete: {len(cv_obj.experiences)} exps, {len(cv_obj.skills)} skills.")
         return cv_obj# Utilities
 # =====================================================
+
 def normalize_text(text: str) -> str:
     """Simple normalization: lowercase, strip punctuation, squeeze spaces."""
     if not text: return ""
