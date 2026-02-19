@@ -7,7 +7,6 @@ import AchievementDisplayGrid from './AchievementDisplayGrid';
 import SkillManagerPanel from './SkillManagerPanel';
 import { useWindowSize } from '../../hooks/useWindowSize';
 
-
 const ExperienceForm = ({
     onSubmit,
     cvId,
@@ -22,6 +21,7 @@ const ExperienceForm = ({
     // Form fields
     const [title, setTitle] = useState('');
     const [company, setCompany] = useState('');
+    const [location, setLocation] = useState('');
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
     const [description, setDescription] = useState('');
@@ -44,24 +44,19 @@ const ExperienceForm = ({
 
     const isEditing = Boolean(initialData);
 
-    // --- HELPER: Ensure date is YYYY-MM-DD for input ---
     const formatDateForInput = (dateString) => {
-        console.log("Formatting date:", dateString);
         if (!dateString) return '';
-        // If it's already YYYY-MM-DD, return it
         if (/^\d{4}-\d{2}-\d{2}$/.test(dateString)) return dateString;
-        // If ISO string (e.g. 2023-01-01T00:00:00), split it
         if (dateString.includes('T')) return dateString.split('T')[0];
         return '';
     };
 
-    // Populate form on load
     useEffect(() => {
         if (isEditing) {
             setTitle(initialData.title || '');
             setCompany(initialData.company || '');
+            setLocation(initialData.location || '');
             
-            // --- FIX: Use helper to format dates ---
             setStartDate(formatDateForInput(initialData.start_date));
             setEndDate(formatDateForInput(initialData.end_date));
             
@@ -79,6 +74,7 @@ const ExperienceForm = ({
         } else {
             setTitle('');
             setCompany('');
+            setLocation('');
             setStartDate('');
             setEndDate('');
             setDescription('');
@@ -90,8 +86,6 @@ const ExperienceForm = ({
         }
     }, [initialData, isEditing, cvId, allAchievements]); 
 
-    
-    // Calculate aggregated lists
     useEffect(() => {
         const allIds = new Set(directSkillIds);
         const achIds = new Set(); 
@@ -121,8 +115,6 @@ const ExperienceForm = ({
 
     }, [directSkillIds, directPendingSkills, linkedExistingAchievements, pendingAchievements]);
     
-    
-    // Handler: Achievement Selection
     const handleExistingAchievementSelection = (newIdList) => {
         const newIds = newIdList.filter(id => !linkedExistingAchievements.some(a => a.id === id));
         const removedIds = linkedExistingAchievements.map(a => a.id).filter(id => !newIdList.includes(id));
@@ -137,7 +129,6 @@ const ExperienceForm = ({
         setLinkedExistingAchievements(newList);
     };
 
-    // Handler: Skill Selection
     const handleSkillSelectionChange = (newAggregatedList) => {
         const oldAggregatedList = aggregatedSkillIds; 
 
@@ -183,7 +174,6 @@ const ExperienceForm = ({
         }
     };
 
-    // Handler: Smart Pending Skills
     const smartSetAggregatedPendingSkills = (updaterFn) => {
         const currentAggregated = aggregatedPendingSkills; 
         const newAggregated = typeof updaterFn === 'function' ? updaterFn(currentAggregated) : updaterFn;
@@ -214,7 +204,6 @@ const ExperienceForm = ({
         }
     };
 
-    // Handler: Submit
     const handleSubmit = (e) => {
         e.preventDefault();
         if (!title.trim() || !company.trim()) return;
@@ -222,6 +211,7 @@ const ExperienceForm = ({
         const dataToSend = {
             title,
             company,
+            location: location || null,
             start_date: startDate || null,
             end_date: endDate || null,
             description: description || null,
@@ -242,6 +232,7 @@ const ExperienceForm = ({
         if (!isEditing) {
             setTitle('');
             setCompany('');
+            setLocation('');
             setStartDate('');
             setEndDate('');
             setDescription('');
@@ -279,7 +270,6 @@ const ExperienceForm = ({
             onSubmit={handleSubmit} 
             className="card border-0 shadow-sm p-3 p-md-4 bg-white" 
         >
-            {/* Header */}
             <div className="d-flex align-items-center gap-2 mb-4 border-bottom pb-2">
                 <Briefcase className="text-primary" size={20}/>
                 <h5 className="mb-0 fw-bold text-dark">
@@ -287,15 +277,18 @@ const ExperienceForm = ({
                 </h5>
             </div>
 
-            {/* Fields */}
             <div className="row g-3">
-                <div className="col-md-6">
+                <div className="col-md-4">
                     <label htmlFor="exp-title" className="form-label fw-bold small text-uppercase text-muted">Job Title</label>
                     <input id="exp-title" type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g., Senior Developer" required className="form-control" />
                 </div>
-                <div className="col-md-6">
+                <div className="col-md-4">
                     <label htmlFor="exp-company" className="form-label fw-bold small text-uppercase text-muted">Company</label>
                     <input id="exp-company" type="text" value={company} onChange={(e) => setCompany(e.target.value)} placeholder="e.g., Acme Inc." required className="form-control"/>
+                </div>
+                <div className="col-md-4">
+                    <label htmlFor="exp-location" className="form-label fw-bold small text-uppercase text-muted">Location</label>
+                    <input id="exp-location" type="text" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="e.g., Remote or City, ST" className="form-control"/>
                 </div>
                 <div className="col-md-6">
                     <label htmlFor="exp-start" className="form-label fw-bold small text-uppercase text-muted">Start Date</label>
@@ -329,7 +322,6 @@ const ExperienceForm = ({
 
             <hr className="my-4 opacity-10" />
 
-            {/* --- SKILLS SECTION (RESPONSIVE) --- */}
             <div className="mb-4">
                 <div 
                     className="d-flex justify-content-between align-items-center mb-2 cursor-pointer"
@@ -390,7 +382,6 @@ const ExperienceForm = ({
 
             </div>
 
-            {/* --- ACHIEVEMENTS SECTION (RESPONSIVE) --- */}
             <div className="mb-4">
                  <div className="d-flex justify-content-between align-items-center mb-2">
                      <label className="form-label fw-bold text-dark d-flex align-items-center gap-2 mb-0">
@@ -430,7 +421,6 @@ const ExperienceForm = ({
                  )}
             </div>
 
-            {/* --- PANELS --- */}
              <AchievementManagerPanel
                  isOpen={isAchievementPanelOpen}
                  onClose={() => setIsAchievementPanelOpen(false)}

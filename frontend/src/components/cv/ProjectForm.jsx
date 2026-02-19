@@ -1,12 +1,13 @@
+// frontend/src/components/cv/ProjectForm.jsx
 import React, { useState, useEffect } from 'react';
 import { Cpu, Layers, Award, Link, ChevronDown, ChevronUp, Briefcase, BookOpen, Smile} from 'lucide-react';
 import SkillLinker from './SkillLinker';
 import SelectedSkillsDisplay from './SelectedSkillsDisplay';
-import AchievementManagerPanel from './AchievementManagerPanel'; // 1. IMPORT PANEL
+import AchievementManagerPanel from './AchievementManagerPanel';
 import AchievementDisplayGrid from './AchievementDisplayGrid';
 import ContextLinker from './ContextLinker';
-import SkillManagerPanel from './SkillManagerPanel'; // 2. IMPORT PANEL
-import { useWindowSize } from '../../hooks/useWindowSize'; // 3. IMPORT HOOK
+import SkillManagerPanel from './SkillManagerPanel';
+import { useWindowSize } from '../../hooks/useWindowSize';
 
 const ProjectForm = ({
     onSubmit,
@@ -19,12 +20,13 @@ const ProjectForm = ({
     initialData,
     onCancelEdit
 }) => {
-    // 4. HOOK FOR RESPONSIVENESS
     const { width } = useWindowSize();
-    const isMobile = width <= 768; // Bootstrap 'md' breakpoint
+    const isMobile = width <= 768;
 
     // Form fields
     const [title, setTitle] = useState('');
+    const [startDate, setStartDate] = useState('');
+    const [endDate, setEndDate] = useState('');
     const [description, setDescription] = useState('');
     
     // Related item Lists
@@ -32,7 +34,7 @@ const ProjectForm = ({
     const [relatedEduIds, setRelatedEduIds] = useState([]);
     const [relatedHobbyIds, setRelatedHobbyIds] = useState([]);
     
-    // State for *direct* skills
+    // State for direct skills
     const [directSkillIds, setDirectSkillIds] = useState([]);
     const [directPendingSkills, setDirectPendingSkills] = useState([]);
 
@@ -43,20 +45,31 @@ const ProjectForm = ({
     // Toggles
     const [showSkillLinker, setShowSkillLinker] = useState(false);
     const [showContextLinker, setShowContextLinker] = useState(false);
-    const [isAchievementPanelOpen, setIsAchievementPanelOpen] = useState(false); // 5. STATE RENAMED
-    const [isSkillPanelOpen, setIsSkillPanelOpen] = useState(false); // 6. NEW STATE
+    const [isAchievementPanelOpen, setIsAchievementPanelOpen] = useState(false);
+    const [isSkillPanelOpen, setIsSkillPanelOpen] = useState(false);
 
-    // State for "rolled-up" display (BUG FIX ALREADY PRESENT)
+    // State for "rolled-up" display
     const [aggregatedSkillIds, setAggregatedSkillIds] = useState([]);
     const [aggregatedPendingSkills, setAggregatedPendingSkills] = useState([]);
 
     const isEditing = Boolean(initialData);
 
-    // Populate form on load (Unchanged)
+    // Helper: Ensure date is YYYY-MM-DD for input
+    const formatDateForInput = (dateString) => {
+        if (!dateString) return '';
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dateString)) return dateString;
+        if (dateString.includes('T')) return dateString.split('T')[0];
+        return '';
+    };
+
+    // Populate form on load
     useEffect(() => {
         if (isEditing) {
             setTitle(initialData.title || '');
             setDescription(initialData.description || '');
+            
+            setStartDate(formatDateForInput(initialData.start_date));
+            setEndDate(formatDateForInput(initialData.end_date));
             
             const initExpIds = initialData.related_experience_ids || [];
             if (initExpIds.length === 0 && initialData.related_experience_id) {
@@ -84,6 +97,8 @@ const ProjectForm = ({
             setPendingAchievements([]);
         } else {
             setTitle('');
+            setStartDate('');
+            setEndDate('');
             setDescription('');
             setRelatedExpIds([]);
             setRelatedEduIds([]);
@@ -98,7 +113,7 @@ const ProjectForm = ({
     }, [initialData, isEditing, cvId, allAchievements]); 
 
     
-    // Calculate aggregated lists (Unchanged)
+    // Calculate aggregated lists
     useEffect(() => {
         const allIds = new Set(directSkillIds);
         const achIds = new Set(); 
@@ -128,10 +143,7 @@ const ProjectForm = ({
 
     }, [directSkillIds, directPendingSkills, linkedExistingAchievements, pendingAchievements]);
     
-    
     // Handlers
-
-    // Context Handler (Unchanged)
     const handleContextToggle = (type, id) => {
         if (type === 'experiences') {
             setRelatedExpIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
@@ -142,7 +154,6 @@ const ProjectForm = ({
         }
     };
 
-    // Achievement Handler (Unchanged)
     const handleExistingAchievementSelection = (newIdList) => {
         const newIds = newIdList.filter(id => !linkedExistingAchievements.some(a => a.id === id));
         const removedIds = linkedExistingAchievements.map(a => a.id).filter(id => !newIdList.includes(id));
@@ -157,7 +168,6 @@ const ProjectForm = ({
         setLinkedExistingAchievements(newList);
     };
 
-    // Skill Selection Handler (Unchanged)
     const handleSkillSelectionChange = (newAggregatedList) => {
         const oldAggregatedList = aggregatedSkillIds; 
 
@@ -203,7 +213,6 @@ const ProjectForm = ({
         }
     };
 
-    // Smart Pending Skills Handler (Unchanged)
     const smartSetAggregatedPendingSkills = (updaterFn) => {
         const currentAggregated = aggregatedPendingSkills;
         const newAggregated = typeof updaterFn === 'function' ? updaterFn(currentAggregated) : updaterFn;
@@ -235,13 +244,22 @@ const ProjectForm = ({
         }
     };
 
-    // Submit Handler (Unchanged)
+    const handleStartDateChange = (e) => {
+        const newStartDate = e.target.value;
+        setStartDate(newStartDate);
+        if (endDate && newStartDate > endDate) {
+            setEndDate('');
+        }
+    };
+
     const handleSubmit = (e) => {
         e.preventDefault();
         if (!title.trim()) return;
 
         const dataToSend = {
             title,
+            start_date: startDate || null,
+            end_date: endDate || null,
             description: description || null,
             
             related_experience_ids: relatedExpIds,
@@ -263,6 +281,8 @@ const ProjectForm = ({
 
         if (!isEditing) {
             setTitle('');
+            setStartDate('');
+            setEndDate('');
             setDescription('');
             setRelatedExpIds([]);
             setRelatedEduIds([]);
@@ -276,12 +296,10 @@ const ProjectForm = ({
         }
     };
 
-    // 7. ADD isPending FLAG
     const linkedWithFlag = linkedExistingAchievements.map(a => ({ ...a, isPending: false }));
     const pendingWithFlag = pendingAchievements.map(a => ({ ...a, isPending: true }));
     const allAchievementsToShow = [...linkedWithFlag, ...pendingWithFlag];
 
-    // 8. NEW RESPONSIVE HANDLER
     const handleSkillToggle = () => {
         if (isMobile) {
             setIsSkillPanelOpen(true);
@@ -294,7 +312,7 @@ const ProjectForm = ({
         <form 
             key={initialData?.id || 'new'} 
             onSubmit={handleSubmit} 
-            className="card border-0 shadow-sm p-3 p-md-4 bg-white" // Responsive padding
+            className="card border-0 shadow-sm p-3 p-md-4 bg-white"
         >
             {/* Header */}
             <div className="d-flex align-items-center gap-2 mb-4 border-bottom pb-2">
@@ -305,18 +323,44 @@ const ProjectForm = ({
             </div>
 
             {/* Core Fields */}
-            <div className="mb-3">
-                <label htmlFor="project-title" className="form-label fw-bold small text-uppercase text-muted">Project Title</label>
-                <input id="project-title" type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g., My Portfolio Website" required className="form-control" />
-            </div>
-             <div className="mb-3">
-                <label htmlFor="project-desc" className="form-label fw-bold small text-uppercase text-muted">Description</label>
-                <textarea id="project-desc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="e.g., Built with React and FastAPI..." className="form-control" rows="3"/>
+            <div className="row g-3">
+                <div className="col-12">
+                    <label htmlFor="project-title" className="form-label fw-bold small text-uppercase text-muted">Project Title</label>
+                    <input id="project-title" type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g., My Portfolio Website" required className="form-control" />
+                </div>
+                <div className="col-md-6">
+                    <label htmlFor="project-start" className="form-label fw-bold small text-uppercase text-muted">Start Date</label>
+                    <input 
+                        id="project-start" 
+                        type="date" 
+                        value={startDate} 
+                        onChange={handleStartDateChange} 
+                        className="form-control"
+                    />
+                </div>
+                <div className="col-md-6">
+                    <label htmlFor="project-end" className="form-label fw-bold small text-uppercase text-muted">End Date</label>
+                    <input 
+                        id="project-end" 
+                        type="date" 
+                        value={endDate} 
+                        onChange={(e) => setEndDate(e.target.value)} 
+                        min={startDate} 
+                        className="form-control"
+                    />
+                    <div className="form-text small">
+                        Leave blank for 'Present' or ongoing.
+                    </div>
+                </div>
+                <div className="col-12">
+                    <label htmlFor="project-desc" className="form-label fw-bold small text-uppercase text-muted">Description</label>
+                    <textarea id="project-desc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="e.g., Built with React and FastAPI..." className="form-control" rows="3"/>
+                </div>
             </div>
             
             <hr className="my-4 opacity-10" />
 
-            {/* --- ContextLinker Section (LOGIC UNCHANGED) --- */}
+            {/* ContextLinker Section */}
             <div className="mb-4">
                 <div 
                     className="d-flex justify-content-between align-items-center mb-2 cursor-pointer"
@@ -338,7 +382,6 @@ const ProjectForm = ({
                     </button>
                 </div>
 
-                {/* Badge Display */}
                 {!showContextLinker && (
                     (relatedExpIds.length + relatedEduIds.length + relatedHobbyIds.length) > 0 ? (
                         <div 
@@ -375,7 +418,7 @@ const ProjectForm = ({
                             className="text-muted small fst-italic border border-dashed rounded p-2 text-center cursor-pointer hover:bg-light"
                             onClick={() => setShowContextLinker(true)}
                         >
-                            Click to link context (experiences, education..._
+                            Click to link context (experiences, education...)
                         </div>
                     )
                 )}
@@ -398,11 +441,11 @@ const ProjectForm = ({
                 )}
             </div>
 
-            {/* --- 9. SKILLS Section (RESPONSIVE) --- */}
+            {/* SKILLS Section */}
             <div className="mb-4">
                 <div 
                     className="d-flex justify-content-between align-items-center mb-2 cursor-pointer"
-                    onClick={handleSkillToggle} // Use new handler
+                    onClick={handleSkillToggle}
                 >
                     <label className="form-label fw-bold text-dark d-flex align-items-center gap-2 mb-0 cursor-pointer">
                         <Layers size={16} className="text-emerald-600"/> 
@@ -415,7 +458,6 @@ const ProjectForm = ({
                         type="button" 
                         className="btn btn-light btn-sm text-secondary"
                     >
-                        {/* Show chevron on mobile, or toggle up/down on desktop */}
                         {isMobile ? 
                             <ChevronDown size={16}/> : 
                             (showSkillLinker ? <ChevronUp size={16}/> : <ChevronDown size={16}/>)
@@ -423,8 +465,6 @@ const ProjectForm = ({
                     </button>
                 </div>
 
-                {/* --- RENDER LOGIC FOR SKILLS --- */}
-                {/* A. On Desktop, show inline linker */}
                 {!isMobile && showSkillLinker && (
                     <div className="animate-fade-in mt-2 p-3 bg-light rounded border">
                         <SkillLinker
@@ -438,11 +478,10 @@ const ProjectForm = ({
                     </div>
                 )}
                 
-                {/* B. On Desktop AND Mobile, show display card when linker is hidden */}
                 {(isMobile || !showSkillLinker) && (aggregatedSkillIds.length > 0 || aggregatedPendingSkills.length > 0) ? (
                     <div 
                         className="bg-light p-3 rounded border cursor-pointer hover-bg-slate-100 transition-all"
-                        onClick={handleSkillToggle} // This will now open the panel on mobile
+                        onClick={handleSkillToggle}
                     >
                         <SelectedSkillsDisplay
                             allSkills={allSkills}
@@ -452,24 +491,22 @@ const ProjectForm = ({
                     </div>
                 ) : null}
                 
-                {/* C. On Desktop AND Mobile, show empty state when linker is hidden */}
                 {(isMobile || !showSkillLinker) && !(aggregatedSkillIds.length > 0 || aggregatedPendingSkills.length > 0) ? (
                     <div 
                         className="text-muted small fst-italic border border-dashed rounded p-2 text-center cursor-pointer hover:bg-light"
-                        onClick={handleSkillToggle} // This will now open the panel on mobile
+                        onClick={handleSkillToggle}
                     >
                         Click to link skills...
                     </div>
                 ) : null}
             </div>
 
-            {/* --- 10. ACHIEVEMENTS Section (RESPONSIVE) --- */}
+            {/* ACHIEVEMENTS Section */}
             <div className="mb-4">
                  <div className="d-flex justify-content-between align-items-center mb-2">
                      <label className="form-label fw-bold text-dark d-flex align-items-center gap-2 mb-0">
                         <Award size={16} className="text-amber-500"/> Achievements
                      </label>
-                     {/* Responsive Button */}
                      <button 
                         type="button" 
                         onClick={() => setIsAchievementPanelOpen(true)}
@@ -484,7 +521,7 @@ const ProjectForm = ({
                  </div>
                  
                  {allAchievementsToShow.length > 0 ? (
-                     <div // Make grid clickable
+                     <div 
                         className="bg-light p-3 rounded border cursor-pointer hover-bg-slate-100 transition-all"
                         onClick={() => setIsAchievementPanelOpen(true)} 
                     >
@@ -495,7 +532,7 @@ const ProjectForm = ({
                         />
                      </div>
                  ) : (
-                     <div // Make empty state clickable
+                     <div 
                         className="bg-light p-3 rounded border text-center cursor-pointer hover-bg-slate-100 transition-all"
                         onClick={() => setIsAchievementPanelOpen(true)}
                     >
@@ -504,7 +541,7 @@ const ProjectForm = ({
                  )}
             </div>
 
-            {/* --- 11. RENDER THE PANELS --- */}
+            {/* PANELS */}
              <AchievementManagerPanel
                  isOpen={isAchievementPanelOpen}
                  onClose={() => setIsAchievementPanelOpen(false)}
@@ -528,7 +565,6 @@ const ProjectForm = ({
                 sessionSkills={aggregatedPendingSkills}
              />
 
-            {/* ACTION BUTTONS (Unchanged) */}
             <div className="d-flex gap-2 justify-content-end mt-4 pt-3 border-top">
                 {onCancelEdit && (
                     <button 

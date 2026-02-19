@@ -4,6 +4,7 @@ import { Plus, Edit2, Trash2, Cpu, Briefcase, BookOpen, Smile } from 'lucide-rea
 import ProjectForm from './ProjectForm';
 import AchievementDisplayGrid from './AchievementDisplayGrid';
 import SelectedSkillsDisplay from './SelectedSkillsDisplay';
+import { formatDateRange } from '../../utils/cvHelpers';
 
 const ProjectManager = ({
   cvId,
@@ -19,10 +20,9 @@ const ProjectManager = ({
   const [isCreating, setIsCreating] = useState(false);
   const [editingId, setEditingId] = useState(null);
 
-  // --- Helper to resolve mixed (singular/plural) references ---
+  // Helper to resolve mixed (singular/plural) references
   const resolveReferences = (itemIds, singularId, sourceList) => {
     const uniqueIds = new Set(itemIds || []);
-    // Backward compatibility: if no list items, check the old singular ID
     if (singularId && uniqueIds.size === 0) {
         uniqueIds.add(singularId); 
     }
@@ -97,7 +97,7 @@ const ProjectManager = ({
 
         {projects.map(item => {
           if (item.id === editingId) {
-            // --- EDIT MODE ---
+            // EDIT MODE
             return (
               <div key={item.id} className="p-4 bg-light rounded-xl border shadow-sm">
                   <ProjectForm
@@ -115,7 +115,7 @@ const ProjectManager = ({
               </div>
             );
           } else {
-            // --- DISPLAY MODE ---
+            // DISPLAY MODE
             const linkedAchievements = getAchievements(item.achievement_ids);
             
             // Calculate Aggregate Skills
@@ -136,6 +136,13 @@ const ProjectManager = ({
                     <div>
                         <h5 className="fw-bold text-dark mb-1">{item.title || 'Untitled Project'}</h5>
                         
+                        {/* Dates */}
+                        {(item.start_date || item.end_date) && (
+                            <div className="small text-muted mt-1 mb-2">
+                                {formatDateRange(item.start_date, item.end_date)}
+                            </div>
+                        )}
+
                         {/* Context Badges */}
                         <div className="d-flex flex-wrap gap-2 mt-2">
                             {linkedExperiences.map(exp => (

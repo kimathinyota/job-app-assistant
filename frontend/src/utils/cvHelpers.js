@@ -27,13 +27,21 @@ export const formatMonthYear = (dateStr) => {
  * Formats a date range with intelligent logic.
  */
 export const formatDateRange = (startStr, endStr) => {
-    if (!startStr) return "";
+    // If both are missing, return empty
+    if (!startStr && !endStr) return "";
+
+    // If only the end date is provided, return just the end date
+    if (!startStr && endStr) {
+        const end = new Date(endStr);
+        return isNaN(end.getTime()) ? endStr : formatMonthYear(endStr);
+    }
+
     const start = new Date(startStr);
     const isPresent = !endStr;
     const end = isPresent ? new Date() : new Date(endStr);
 
     if (isNaN(start.getTime()) || (!isPresent && isNaN(end.getTime()))) {
-        return `${startStr} – ${endStr || 'Present'}`;
+        return `${startStr} - ${endStr || 'Present'}`;
     }
 
     const sameMonth = start.getMonth() === end.getMonth();
@@ -44,16 +52,15 @@ export const formatDateRange = (startStr, endStr) => {
         if (hasDays) {
             const startDay = start.getDate();
             const endDay = end.getDate();
-            return `${start.toLocaleDateString('en-US', { month: 'short' })} ${startDay} – ${endDay}, ${start.getFullYear()}`;
+            return `${start.toLocaleDateString('en-US', { month: 'short' })} ${startDay} - ${endDay}, ${start.getFullYear()}`;
         }
         return formatMonthYear(startStr);
     }
 
     const startDisplay = formatMonthYear(startStr);
     const endDisplay = isPresent ? "Present" : formatMonthYear(endStr);
-    return `${startDisplay} – ${endDisplay}`;
+    return `${startDisplay} - ${endDisplay}`;
 };
-
 /**
  * NEW: Returns a human-readable relative time string.
  * e.g. "2 minutes ago", "1 hour ago"

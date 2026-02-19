@@ -111,14 +111,19 @@ const ExperienceManager = ({
             return (
               <div key={item.id} className="bg-white p-4 rounded-xl border shadow-sm hover-lift transition-all">
                 
-                {/* Card Header: Title, Company, Dates, Actions */}
+                {/* Card Header: Title, Company, Location, Dates, Actions */}
                 <div className="d-flex justify-content-between align-items-start mb-3">
                     <div>
                         <h5 className="fw-bold text-dark mb-1">{item.title || 'Untitled Experience'}</h5>
-                        <div className="text-muted fw-medium">
+                        <div className="text-muted fw-medium d-flex align-items-center flex-wrap gap-2">
                             {item.company && <span>@{item.company}</span>}
+                            {item.location && (
+                                <span className="small text-secondary border-start ps-2">
+                                    {item.location}
+                                </span>
+                            )}
                             {(item.start_date || item.end_date) && (
-                                <span className="ms-2 small text-secondary border-start ps-2">
+                                <span className="small text-secondary border-start ps-2">
                                      {/* Use helper here */}
                                     {formatDateRange(item.start_date, item.end_date)}
                                 </span>
