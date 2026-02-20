@@ -42,15 +42,21 @@ class PDFGenerator:
     def __init__(self, template_dir: str):
         self.env = create_latex_env(template_dir)
 
-    def render_cv(self, context: dict, section_order: List[str] = None, section_titles: Dict[str, str] = None) -> bytes:
+    def _build_context(self, context: dict, section_order: List[str] = None, section_titles: Dict[str, str] = None, font_size: int = 11, font_family: str = "Arial") -> dict:
         if not section_order:
             section_order = ["summary", "education", "skills", "projects", "experience", "hobbies"]
         
         context['section_order'] = [s.lower() for s in section_order]
         context['section_titles'] = section_titles or {}
+        context['font_size'] = font_size
+        context['font_family'] = font_family
+        return context
 
+    def render_cv(self, context: dict, section_order: List[str] = None, section_titles: Dict[str, str] = None, font_size: int = 11, font_family: str = "Arial") -> bytes:
+        
+        ctx = self._build_context(context, section_order, section_titles, font_size, font_family)
         template = self.env.get_template('cv_template.tex')
-        tex_content = template.render(**context)
+        tex_content = template.render(**ctx)
         return self._compile_tex(tex_content)
 
     def _compile_tex(self, tex_content: str) -> bytes:
@@ -69,12 +75,18 @@ class PDFGenerator:
             pdf_path = Path(temp_dir) / "resume.pdf"
             return pdf_path.read_bytes()
 
+
 # ---------------------------------------------------------
 # Word Generator (Docx)
 # ---------------------------------------------------------
 class WordGenerator:
     
-    def create_docx(self, cv_data: dict, skill_groups: dict, section_order: List[str] = None, section_titles: Dict[str, str] = None) -> Path:
+    def create_docx(self, cv_data: dict, skill_groups: dict, section_order: List[str] = None, section_titles: Dict[str, str] = None, font_size: int = 11, font_family: str = "Arial") -> Path:
+        
+        # Store font settings on the instance for use in helper methods
+        self.base_font_size = font_size
+        self.font_family = font_family
+
         doc = Document()
         self._setup_page_layout(doc)
         self._add_header(doc, cv_data)
@@ -112,6 +124,11 @@ class WordGenerator:
 
     # --- Internal Helpers ---
 
+    def _apply_font(self, run_or_style, size_offset=0):
+        """Helper to apply the dynamic font size and family."""
+        run_or_style.font.name = self.font_family
+        run_or_style.font.size = Pt(self.base_font_size + size_offset)
+
     def _setup_page_layout(self, doc):
         for section in doc.sections:
             section.top_margin = Inches(0.5)
@@ -120,15 +137,13 @@ class WordGenerator:
             section.right_margin = Inches(0.5)
         
         style = doc.styles['Normal']
-        style.font.name = 'Arial' 
-        style.font.size = Pt(12)
+        self._apply_font(style)
         style.paragraph_format.line_spacing = 1.0
 
     def _add_section_header(self, doc, title):
         p = doc.add_paragraph()
         run = p.add_run(str(title).upper()) 
-        run.font.name = 'Arial'
-        run.font.size = Pt(14)
+        self._apply_font(run, size_offset=2) # e.g. 11 -> 13pt
         run.bold = True
         
         pPr = p._p.get_or_add_pPr()
@@ -153,8 +168,7 @@ class WordGenerator:
             full_name = f"{cv_data.get('title')} {full_name}"
             
         name_run = header.add_run(full_name)
-        name_run.font.name = 'Arial'
-        name_run.font.size = Pt(24)
+        self._apply_font(name_run, size_offset=12) # e.g. 11 -> 23pt
         name_run.bold = True
         
         info = cv_data.get('contact_info', {})
@@ -164,11 +178,9 @@ class WordGenerator:
             
         contact_line = " | ".join(parts)
         contact_run = header.add_run(f"\n{contact_line}")
-        contact_run.font.name = 'Arial'
-        contact_run.font.size = Pt(11)
+        self._apply_font(contact_run, size_offset=-1)
 
     def _format_cell_p(self, cell):
-        """Helper to remove extra spacing from table cells for tighter look."""
         for p in cell.paragraphs:
             p.paragraph_format.space_after = Pt(0)
             p.paragraph_format.space_before = Pt(0)
@@ -176,7 +188,7 @@ class WordGenerator:
 
     def _add_bullet(self, doc, text):
         bull = doc.add_paragraph(text, style='List Bullet')
-        bull.style.font.name = 'Arial'
+        self._apply_font(bull.style) # Apply font to the list style
         bull.paragraph_format.left_indent = Inches(0.5)
         bull.paragraph_format.first_line_indent = Inches(-0.25)
         bull.paragraph_format.space_before = Pt(0) 
@@ -224,18 +236,18 @@ class WordGenerator:
             r1.cells[0].text = edu.get('display_degree', '')
             if r1.cells[0].paragraphs[0].runs:
                 r1.cells[0].paragraphs[0].runs[0].bold = True
-                r1.cells[0].paragraphs[0].runs[0].font.name = 'Arial'
+                self._apply_font(r1.cells[0].paragraphs[0].runs[0])
             
             r1.cells[1].text = date_str
             r1.cells[1].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
             if r1.cells[1].paragraphs[0].runs:
-                r1.cells[1].paragraphs[0].runs[0].font.name = 'Arial'
+                self._apply_font(r1.cells[1].paragraphs[0].runs[0])
             
             r2 = table.rows[1]
             r2.cells[0].text = edu.get('institution', '')
             if r2.cells[0].paragraphs[0].runs:
                 r2.cells[0].paragraphs[0].runs[0].italic = True
-                r2.cells[0].paragraphs[0].runs[0].font.name = 'Arial'
+                self._apply_font(r2.cells[0].paragraphs[0].runs[0])
 
             self._format_cell_p(r1.cells[0])
             self._format_cell_p(r1.cells[1])
@@ -255,10 +267,10 @@ class WordGenerator:
             p.paragraph_format.line_spacing = 1.0
             t = p.add_run(f"{cat}: ")
             t.bold = True
-            t.font.name = 'Arial'
+            self._apply_font(t)
             
             r = p.add_run(", ".join(skills))
-            r.font.name = 'Arial'
+            self._apply_font(r)
 
     def _add_projects(self, doc, cv_data, title):
         if not cv_data.get('projects'): return
@@ -276,29 +288,27 @@ class WordGenerator:
             table.columns[0].width = Inches(6.0)
             table.columns[1].width = Inches(1.5)
             
-            # Row 1: Title (Left) | Date (Right)
             r1 = table.rows[0]
             r1.cells[0].text = proj.get('title', '')
             if r1.cells[0].paragraphs[0].runs:
                 r1.cells[0].paragraphs[0].runs[0].bold = True
-                r1.cells[0].paragraphs[0].runs[0].font.name = 'Arial'
+                self._apply_font(r1.cells[0].paragraphs[0].runs[0])
             
             date_str = self._prepare_date(proj.get('formatted_date'))
             r1.cells[1].text = date_str
             r1.cells[1].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
             if r1.cells[1].paragraphs[0].runs:
-                r1.cells[1].paragraphs[0].runs[0].font.name = 'Arial'
+                self._apply_font(r1.cells[1].paragraphs[0].runs[0])
 
             self._format_cell_p(r1.cells[0])
             self._format_cell_p(r1.cells[1])
             
-            # Row 2 (Optional): Context (Left)
             if context:
                 r2 = table.rows[1]
                 r2.cells[0].text = context
                 if r2.cells[0].paragraphs[0].runs:
                     r2.cells[0].paragraphs[0].runs[0].italic = True
-                    r2.cells[0].paragraphs[0].runs[0].font.name = 'Arial'
+                    self._apply_font(r2.cells[0].paragraphs[0].runs[0])
                 self._format_cell_p(r2.cells[0])
                 self._format_cell_p(r2.cells[1])
 
@@ -321,30 +331,28 @@ class WordGenerator:
             date_str = self._prepare_date(exp.get('formatted_date'))
             loc_str = exp.get('location', '')
             
-            # Row 1: Title (Left) | Date (Right)
             r1 = table.rows[0]
             r1.cells[0].text = exp.get('title', '')
             if r1.cells[0].paragraphs[0].runs:
                 r1.cells[0].paragraphs[0].runs[0].bold = True
-                r1.cells[0].paragraphs[0].runs[0].font.name = 'Arial'
+                self._apply_font(r1.cells[0].paragraphs[0].runs[0])
             
             r1.cells[1].text = date_str
             r1.cells[1].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
             if r1.cells[1].paragraphs[0].runs:
-                r1.cells[1].paragraphs[0].runs[0].font.name = 'Arial'
+                self._apply_font(r1.cells[1].paragraphs[0].runs[0])
             
-            # Row 2: Company (Left) | Location (Right)
             r2 = table.rows[1]
             r2.cells[0].text = exp.get('company', '')
             if r2.cells[0].paragraphs[0].runs:
                 r2.cells[0].paragraphs[0].runs[0].italic = True
-                r2.cells[0].paragraphs[0].runs[0].font.name = 'Arial'
+                self._apply_font(r2.cells[0].paragraphs[0].runs[0])
             
             r2.cells[1].text = loc_str
             r2.cells[1].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
             if r2.cells[1].paragraphs[0].runs:
                 r2.cells[1].paragraphs[0].runs[0].italic = True
-                r2.cells[1].paragraphs[0].runs[0].font.name = 'Arial'
+                self._apply_font(r2.cells[1].paragraphs[0].runs[0])
             
             self._format_cell_p(r1.cells[0])
             self._format_cell_p(r1.cells[1])
@@ -368,7 +376,7 @@ class WordGenerator:
             p.paragraph_format.line_spacing = 1.0
             run = p.add_run(hobby.get('name', ''))
             run.bold = True
-            run.font.name = 'Arial'
+            self._apply_font(run)
 
             for ach in hobby.get('achievements', []):
                 self._add_bullet(doc, ach['text'])
