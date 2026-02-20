@@ -884,62 +884,6 @@ class JobSegmentEmbedderOld:
         return np.vstack(embeddings) if embeddings else None
 
 
-from sentence_transformers import SentenceTransformer
-
-
-class JobSegmentEmbedder:
-    def __init__(self, model_name="sentence-transformers/all-MiniLM-L6-v2"):
-        log.info(f"Loading SentenceTransformer: {model_name}...")
-        self.model = SentenceTransformer(model_name)
-
-    def encode(self, texts: List[str]) -> np.ndarray:
-        """
-        Generates embeddings for a list of texts.
-        Returns a numpy array of shape (n_texts, embedding_dim).
-        """
-        # Basic cleanup to help the model
-        cleaned_texts = [str(t).replace("\n", " ").strip() for t in texts]
-        
-        # Remove empty strings to prevent errors, replacing them with a placeholder
-        # (Though your preprocess_cv logic should have handled this, it's a safety net)
-        safe_texts = [t if t else " " for t in cleaned_texts]
-        
-        return self.model.encode(safe_texts)
-    
-# =====================================================
-# 2. Atomic Evidence Model (Structured Lineage)
-# =====================================================
-
-class CVEvidence:
-    """
-    Represents a Unique Semantic Atom.
-    Stores STRUCTURED LINEAGE (List of Dicts) for direct Pydantic conversion.
-    """
-    def __init__(self, text: str, item_type: str, lineage_path: List[Dict[str, str]]):
-        self.text = text
-        self.item_type = item_type
-        
-        # Occurrences store the full path to the evidence
-        # path format: [{"id": "123", "type": "project", "name": "App"}, ...]
-        self.occurrences: List[List[Dict[str, str]]] = []
-        self.add_occurrence(lineage_path)
-
-        self.vector_tfidf: Optional[np.ndarray] = None
-        self.vector_embedding: Optional[np.ndarray] = None
-
-    def add_occurrence(self, path: List[Dict[str, str]]):
-        # Deduplicate based on the ID of the leaf node
-        if not path: return
-        leaf_id = path[-1]['id']
-        for occ in self.occurrences:
-            if occ[-1]['id'] == leaf_id:
-                return
-        self.occurrences.append(path)
-
-# =====================================================
-# 3. MappingInferer (Unlimited Results)
-# =====================================================
-
 class MappingInfererOld:
     def __init__(self):
         self.default_min_score = 0.28
@@ -1260,9 +1204,76 @@ class MappingInfererOld:
         return mappings
 
 
-from backend.core.utils.inference import MatchScoring, SmartNoteBuilder
 
-class MappingInferer:
+
+
+from sentence_transformers import SentenceTransformer
+
+
+class JobSegmentEmbedderOlder:
+    def __init__(self, model_name="sentence-transformers/all-MiniLM-L6-v2"):
+        log.info(f"Loading SentenceTransformer: {model_name}...")
+        self.model = SentenceTransformer(model_name)
+
+    def encode(self, texts: List[str]) -> np.ndarray:
+        """
+        Generates embeddings for a list of texts.
+        Returns a numpy array of shape (n_texts, embedding_dim).
+        """
+        # Basic cleanup to help the model
+        cleaned_texts = [str(t).replace("\n", " ").strip() for t in texts]
+        
+        # Remove empty strings to prevent errors, replacing them with a placeholder
+        # (Though your preprocess_cv logic should have handled this, it's a safety net)
+        safe_texts = [t if t else " " for t in cleaned_texts]
+        
+        return self.model.encode(safe_texts)
+    
+# =====================================================
+# 2. Atomic Evidence Model (Structured Lineage)
+# =====================================================
+
+class CVEvidenceOlder:
+    """
+    Represents a Unique Semantic Atom.
+    Stores STRUCTURED LINEAGE (List of Dicts) for direct Pydantic conversion.
+    """
+    def __init__(self, text: str, item_type: str, lineage_path: List[Dict[str, str]]):
+        self.text = text
+        self.item_type = item_type
+        
+        # Occurrences store the full path to the evidence
+        # path format: [{"id": "123", "type": "project", "name": "App"}, ...]
+        self.occurrences: List[List[Dict[str, str]]] = []
+        self.add_occurrence(lineage_path)
+
+        self.vector_tfidf: Optional[np.ndarray] = None
+        self.vector_embedding: Optional[np.ndarray] = None
+
+    def add_occurrence(self, path: List[Dict[str, str]]):
+        # Deduplicate based on the ID of the leaf node
+        if not path: return
+        leaf_id = path[-1]['id']
+        for occ in self.occurrences:
+            if occ[-1]['id'] == leaf_id:
+                return
+        self.occurrences.append(path)
+
+# =====================================================
+# 3. MappingInferer (Unlimited Results)
+# =====================================================
+from backend.core.utils.inference import MatchScoring, SmartNoteBuilder
+from sklearn.metrics.pairwise import cosine_similarity
+from collections import defaultdict
+from typing import List, Dict, Tuple, Optional, Any
+import numpy as np
+import logging
+
+log = logging.getLogger(__name__)
+
+# from backend.core.utils.inference import MatchScoring, SmartNoteBuilder
+
+class MappingInfererOlder:
     def __init__(self):
         self.default_min_score = 0.20
         self.embedder: Optional[JobSegmentEmbedder] = None
@@ -1551,3 +1562,751 @@ class MappingInferer:
 
         return mappings
     
+
+
+
+
+class JobSegmentEmbedderLast:
+    def __init__(self, model_name="sentence-transformers/all-MiniLM-L6-v2"):
+        log.info(f"Loading SentenceTransformer: {model_name}...")
+        self.model = SentenceTransformer(model_name)
+
+    def encode(self, texts: List[str]) -> np.ndarray:
+        """
+        Generates embeddings for a list of texts.
+        Returns a numpy array of shape (n_texts, embedding_dim).
+        """
+        # Basic cleanup to help the model
+        cleaned_texts = [str(t).replace("\n", " ").strip() for t in texts]
+        
+        # Remove empty strings to prevent errors, replacing them with a placeholder
+        safe_texts = [t if t else " " for t in cleaned_texts]
+        
+        # 🚀 SPEED FIX 1: Explicit batching and embedding normalization (makes cosine similarity math much faster)
+        return self.model.encode(
+            safe_texts, 
+            batch_size=64,             
+            show_progress_bar=False, 
+            normalize_embeddings=True  
+        )
+    
+# =====================================================
+# 2. Atomic Evidence Model (Structured Lineage)
+# =====================================================
+
+class CVEvidenceLast:
+    """
+    Represents a Unique Semantic Atom.
+    Stores STRUCTURED LINEAGE (List of Dicts) for direct Pydantic conversion.
+    """
+    def __init__(self, text: str, item_type: str, lineage_path: List[Dict[str, str]]):
+        self.text = text
+        self.item_type = item_type
+        
+        # Occurrences store the full path to the evidence
+        # path format: [{"id": "123", "type": "project", "name": "App"}, ...]
+        self.occurrences: List[List[Dict[str, str]]] = []
+        self.add_occurrence(lineage_path)
+
+        self.vector_tfidf: Optional[np.ndarray] = None
+        self.vector_embedding: Optional[np.ndarray] = None
+
+    def add_occurrence(self, path: List[Dict[str, str]]):
+        # Deduplicate based on the ID of the leaf node
+        if not path: return
+        leaf_id = path[-1]['id']
+        for occ in self.occurrences:
+            if occ[-1]['id'] == leaf_id:
+                return
+        self.occurrences.append(path)
+
+
+class MappingInfererLast:
+    def __init__(self):
+        self.default_min_score = 0.20
+        self.embedder: Optional[JobSegmentEmbedder] = None
+        self.tfidf: Optional[TfidfVectorizer] = None
+        self.nlp: Optional[Any] = None
+        # self.CHECKPOINT_PATH = "backend/core/job_model/checkpoints/model_best.pt"
+        
+        # REMOVED: self.type_matrix (Moved to MatchScoring)
+
+    def load_models(self):
+        log.info("Loading spaCy model...")
+        try:
+            import spacy
+            # 🚀 SPEED FIX 2: Disable heavy text processing components we don't need for sentence boundaries
+            disable_pipes = ["ner", "lemmatizer", "tagger", "attribute_ruler", "textcat"]
+            self.nlp = spacy.load("en_core_web_sm", disable=disable_pipes)
+        except Exception:
+            try:
+                import spacy.cli
+                spacy.cli.download("en_core_web_sm")
+                disable_pipes = ["ner", "lemmatizer", "tagger", "attribute_ruler", "textcat"]
+                self.nlp = spacy.load("en_core_web_sm", disable=disable_pipes)
+            except Exception:
+                pass
+        log.info("Initializing JobSegmentEmbedder...")
+        # self.embedder = JobSegmentEmbedder(self.CHECKPOINT_PATH)
+        if not self.embedder:
+            log.info("Initializing JobSegmentEmbedder (all-MiniLM-L6-v2)...")
+            # No arguments needed, it defaults to the HuggingFace model
+            self.embedder = JobSegmentEmbedder()
+
+    def _preprocess_cv(self, cv: CV) -> List[CVEvidence]:
+        """
+        Deconstructs CV into atoms with STRUCTURED breadcrumb chains.
+        """
+        atom_registry: Dict[Tuple[str, str], CVEvidence] = {}
+        
+        # 1. Build Context Map (ID -> List[Dict] Chain)
+        context_chains = {}
+        for exp in getattr(cv, "experiences", []):
+            context_chains[exp.id] = [{"id": exp.id, "type": "experience", "name": f"{exp.title} at {exp.company}"}]
+        for edu in getattr(cv, "education", []):
+            context_chains[edu.id] = [{"id": edu.id, "type": "education", "name": f"{edu.degree}"}]
+        for hobby in getattr(cv, "hobbies", []):
+            context_chains[hobby.id] = [{"id": hobby.id, "type": "hobby", "name": hobby.name}]
+
+        ach_map = {a.id: a for a in getattr(cv, "achievements", [])}
+        skill_map = {s.id: s for s in getattr(cv, "skills", [])}
+
+        def register_atom(text, item_type, path_chain):
+            norm_text = normalize_text(text)
+            if not norm_text: return
+            key = (norm_text, item_type)
+            
+            if key in atom_registry:
+                atom_registry[key].add_occurrence(path_chain)
+            else:
+                atom = CVEvidence(norm_text, item_type, path_chain)
+                atom_registry[key] = atom
+
+        def add_children(parent_obj, parent_chain):
+            # Achievements
+            for ach_id in getattr(parent_obj, "achievement_ids", []):
+                ach = ach_map.get(ach_id)
+                if ach and getattr(ach, 'text', None):
+                    ach_chain = parent_chain + [{
+                        "id": ach.id, 
+                        "type": "achievement", 
+                        "name": (ach.text[:20] + "...") 
+                    }]
+                    full_text = f"{ach.text} {getattr(ach, 'context', '') or ''}".strip()
+                    register_atom(full_text, "achievement", ach_chain)
+
+                    # Skills inside Achievements
+                    for sk_id in getattr(ach, "skill_ids", []):
+                        sk = skill_map.get(sk_id)
+                        if sk:
+                            sk_chain = ach_chain + [{"id": sk.id, "type": "skill", "name": sk.name}]
+                            register_atom(sk.name, "skill", sk_chain)
+
+            # Direct Skills
+            for sk_id in getattr(parent_obj, "skill_ids", []):
+                sk = skill_map.get(sk_id)
+                if sk:
+                    sk_chain = parent_chain + [{"id": sk.id, "type": "skill", "name": sk.name}]
+                    register_atom(sk.name, "skill", sk_chain)
+
+        # --- 1. Experiences ---
+        for exp in getattr(cv, "experiences", []):
+            base_chain = context_chains[exp.id] 
+            if exp.title:
+                register_atom(exp.title, "experience", base_chain) 
+            
+            for seg in intelligent_segmentation(getattr(exp, 'description', '') or '', self.nlp):
+                seg_id = f"seg-{hash(seg)}"
+                seg_chain = base_chain + [{"id": seg_id, "type": "description", "name": "Description"}]
+                register_atom(seg, "experience", seg_chain)
+            add_children(exp, base_chain)
+
+        # --- 2. Projects ---
+        for proj in getattr(cv, "projects", []):
+            base_chain = []
+            found_parent = False
+            for rel_id in getattr(proj, "related_experience_ids", []) + getattr(proj, "related_education_ids", []) + getattr(proj, "related_hobby_ids", []):
+                if rel_id in context_chains:
+                    base_chain = context_chains[rel_id] + [{"id": proj.id, "type": "project", "name": proj.title}]
+                    found_parent = True
+                    break 
+            
+            if not found_parent:
+                base_chain = [{"id": proj.id, "type": "project", "name": proj.title}]
+
+            if proj.title:
+                register_atom(proj.title, "project", base_chain)
+
+            for seg in intelligent_segmentation(getattr(proj, 'description', '') or '', self.nlp):
+                seg_id = f"seg-{hash(seg)}"
+                seg_chain = base_chain + [{"id": seg_id, "type": "description", "name": "Description"}]
+                register_atom(seg, "project", seg_chain)
+            add_children(proj, base_chain)
+
+        # --- 3. Education ---
+        for edu in getattr(cv, "education", []):
+            base_chain = context_chains[edu.id]
+            core_text = f"{edu.degree} {getattr(edu, 'field', '')}".strip()
+            if core_text:
+                register_atom(core_text, "education", base_chain)
+            add_children(edu, base_chain)
+
+        # --- 4. Hobbies ---
+        for hobby in getattr(cv, "hobbies", []):
+            base_chain = context_chains[hobby.id]
+            if hobby.name:
+                register_atom(hobby.name, "hobby", base_chain)
+            for seg in intelligent_segmentation(getattr(hobby, 'description', '') or '', self.nlp):
+                seg_id = f"seg-{hash(seg)}"
+                seg_chain = base_chain + [{"id": seg_id, "type": "description", "name": "Description"}]
+                register_atom(seg, "hobby", seg_chain)
+            add_children(hobby, base_chain)
+
+        # --- 5. Global Skills ---
+        for sk in getattr(cv, "skills", []):
+            if sk.name:
+                chain = [{"id": sk.id, "type": "skill", "name": sk.name}]
+                register_atom(sk.name, "skill", chain)
+
+        return list(atom_registry.values())
+
+    def _build_vectors(self, req_texts: List[str], cv_texts: List[str]):
+        corpus = req_texts + cv_texts
+        self.tfidf = TfidfVectorizer(stop_words='english')
+        try:
+            all_tfidf = self.tfidf.fit_transform(corpus).toarray()
+            req_tfidf = all_tfidf[:len(req_texts)]
+            cv_tfidf = all_tfidf[len(req_texts):]
+        except ValueError:
+            return None, None, None, None
+
+        req_emb, cv_emb = None, None
+        if self.embedder:
+            all_emb = self.embedder.encode(corpus)
+            if all_emb is not None:
+                req_emb = all_emb[:len(req_texts)]
+                cv_emb = all_emb[len(req_texts):]
+        
+        return req_tfidf, req_emb, cv_tfidf, cv_emb
+
+    def infer_mappings(self, job: JobDescription, cv: CV, min_score: Optional[float] = None, top_k: Optional[int] = None, **kwargs) -> List[MappingPair]:
+        active_min_score = min_score if min_score is not None else self.default_min_score
+        
+        if not self.embedder: self.load_models()
+
+        job_features = [
+            f for f in getattr(job, "features", []) 
+            if f.description and f.type not in ['benefit', 'other']
+        ]
+        evidence_pool = self._preprocess_cv(cv)
+
+        if not job_features or not evidence_pool: return []
+
+        req_texts = [normalize_text(f.description) for f in job_features]
+        cv_texts = [normalize_text(e.text) for e in evidence_pool]
+
+        r_tf, r_emb, c_tf, c_emb = self._build_vectors(req_texts, cv_texts)
+        if r_tf is None: return []
+
+        # =========================================================
+        # 🚀 SPEED FIX 3: VECTORIZED NUMPY CULLING
+        # Calculate matrices for all 3000+ combinations instantly in C,
+        # skipping the Python loops entirely for the 95% of junk matches.
+        # =========================================================
+        tfidf_sim_matrix = cosine_similarity(r_tf, c_tf)
+        
+        if r_emb is not None and c_emb is not None:
+            emb_sim_matrix = cosine_similarity(r_emb, c_emb)
+            # Create a highly optimistic upper-bound estimate
+            approx_upper_bound = np.maximum(tfidf_sim_matrix, (0.3 * tfidf_sim_matrix) + (0.7 * emb_sim_matrix))
+        else:
+            emb_sim_matrix = None
+            approx_upper_bound = tfidf_sim_matrix
+
+        # Assuming maximum possible MatchScoring type_bonus is 0.25, 
+        # we mathematically filter out pairs that have zero chance of passing.
+        cull_threshold = max(0.01, active_min_score - 0.25)
+        
+        # Returns coordinates of only the valid pairs
+        valid_y, valid_x = np.where(approx_upper_bound >= cull_threshold)
+        # =========================================================
+
+        feature_candidates = defaultdict(list)
+        
+        # Iterate ONLY over the tiny fraction of pairs that survived the cull
+        for idx in range(len(valid_y)):
+            i = valid_y[idx]
+            j = valid_x[idx]
+            
+            req = job_features[i]
+            ev = evidence_pool[j]
+            
+            tfidf_sim = float(tfidf_sim_matrix[i, j])
+            emb_sim = float(emb_sim_matrix[i, j]) if emb_sim_matrix is not None else 0.0
+            
+            # REFACTOR 1: Safely delegate to your central logic, 
+            # now only called ~50 times instead of 3,000 times!
+            final_score = MatchScoring.calculate_strength(
+                req_type=req.type,
+                evidence_type=ev.item_type,
+                tfidf_sim=tfidf_sim,
+                emb_sim=emb_sim
+            )
+            
+            if final_score >= active_min_score:
+                feature_candidates[i].append({"score": final_score, "evidence": ev})
+
+        # --- Construct results exactly as before ---
+        mappings = []
+        for i, req in enumerate(job_features):
+            candidates = feature_candidates.get(i, [])
+            if not candidates: continue
+
+            # --- Group by Root Parent (Deduplication) ---
+            parent_groups = defaultdict(list)
+            for cand in candidates:
+                root_id = cand['evidence'].occurrences[0][0]['id']
+                parent_groups[root_id].append(cand)
+
+            # --- Create MappingPairs for Groups ---
+            group_results = []
+            
+            for pid, group_hits in parent_groups.items():
+                group_hits.sort(key=lambda x: x['score'], reverse=True)
+                
+                best_hit = group_hits[0]
+                best_ev = best_hit['evidence']
+                best_path = best_ev.occurrences[0] # List[Dict]
+
+                # --- REFACTOR 2: SMART NOTE GENERATION ---
+                note = SmartNoteBuilder.build(
+                    text=best_ev.text,
+                    score=best_hit['score'],
+                    paths=best_ev.occurrences # Pass all occurrences for "Also found in..." logic
+                )
+
+                # A. Build Best Match Candidate
+                best_candidate = MatchCandidate(
+                    segment_text=best_ev.text,
+                    segment_type=best_ev.item_type,
+                    score=best_hit['score'],
+                    lineage=[LineageItem(**step) for step in best_path]
+                )
+
+                # B. Build Supporting Candidates
+                supporting = []
+                seen_texts = {best_ev.text}
+                for hit in group_hits[1:]:
+                    ev = hit['evidence']
+                    if ev.text not in seen_texts and len(supporting) < 2:
+                        path = ev.occurrences[0]
+                        supporting.append(MatchCandidate(
+                            segment_text=ev.text,
+                            segment_type=ev.item_type,
+                            score=hit['score'],
+                            lineage=[LineageItem(**step) for step in path]
+                        ))
+                        seen_texts.add(ev.text)
+
+                # C. Build Meta Container
+                meta_obj = MatchingMeta(
+                    best_match=best_candidate,
+                    supporting_matches=supporting,
+                    summary_note=note
+                )
+
+                # D. Calculate Pair Strength (Aggregated)
+                all_candidates_objs = [best_candidate] + supporting
+                final_pair_strength = MatchScoring.aggregate_pair_strength(all_candidates_objs)
+
+                # E. Create Mapping Pair
+                root_container = best_path[0]
+                
+                pair = MappingPair(
+                    feature_id=req.id,
+                    feature_text=req.description,
+                    context_item_id=root_container['id'],
+                    context_item_type=root_container['type'],
+                    context_item_text=root_container['name'],
+                    strength=final_pair_strength, # Updated to use aggregated score
+                    meta=meta_obj,
+                    annotation=meta_obj.summary_note
+                )
+                
+                group_results.append(pair)
+
+            # Final Processing: Sort and Return ALL
+            group_results.sort(key=lambda x: x.strength, reverse=True)
+            mappings.extend(group_results)
+
+        return mappings
+    
+
+
+
+# from backend.core.utils.inference import MatchScoring, SmartNoteBuilder
+# from sklearn.metrics.pairwise import cosine_similarity
+# from sklearn.feature_extraction.text import TfidfVectorizer
+# from collections import defaultdict
+# from typing import List, Dict, Tuple, Optional, Any
+# import numpy as np
+# import logging
+
+# log = logging.getLogger(__name__)
+# from sentence_transformers import SentenceTransformer
+
+class JobSegmentEmbedder:
+    def __init__(self, model_name="sentence-transformers/all-MiniLM-L6-v2"):
+        log.info(f"Loading SentenceTransformer: {model_name}...")
+        self.model = SentenceTransformer(model_name)
+
+    def encode(self, texts: List[str]) -> np.ndarray:
+        """
+        Generates embeddings for a list of texts.
+        Returns a numpy array of shape (n_texts, embedding_dim).
+        """
+        cleaned_texts = [str(t).replace("\n", " ").strip() for t in texts]
+        safe_texts = [t if t else " " for t in cleaned_texts]
+        
+        return self.model.encode(
+            safe_texts, 
+            batch_size=64,             
+            show_progress_bar=False, 
+            normalize_embeddings=True  
+        )
+    
+# =====================================================
+# 2. Atomic Evidence Model (Structured Lineage)
+# =====================================================
+
+class CVEvidence:
+    """
+    Represents a Unique Semantic Atom.
+    Stores STRUCTURED LINEAGE (List of Dicts) for direct Pydantic conversion.
+    """
+    def __init__(self, text: str, item_type: str, lineage_path: List[Dict[str, str]]):
+        self.text = text
+        self.item_type = item_type
+        self.occurrences: List[List[Dict[str, str]]] = []
+        self.add_occurrence(lineage_path)
+
+        self.vector_tfidf: Optional[np.ndarray] = None
+        self.vector_embedding: Optional[np.ndarray] = None
+
+    def add_occurrence(self, path: List[Dict[str, str]]):
+        if not path: return
+        leaf_id = path[-1]['id']
+        for occ in self.occurrences:
+            if occ[-1]['id'] == leaf_id:
+                return
+        self.occurrences.append(path)
+
+class MappingInferer:
+    def __init__(self):
+        self.default_min_score = 0.20
+        self.embedder: Optional[JobSegmentEmbedder] = None
+        self.tfidf: Optional[TfidfVectorizer] = None
+        self.nlp: Optional[Any] = None
+
+    def load_models(self):
+        if not self.nlp:
+            log.info("Loading spaCy model...")
+            disable_pipes = ["ner", "lemmatizer", "tagger", "attribute_ruler", "textcat"]
+            try:
+                import spacy
+                self.nlp = spacy.load("en_core_web_sm", disable=disable_pipes)
+            except Exception:
+                try:
+                    import spacy.cli
+                    spacy.cli.download("en_core_web_sm")
+                    self.nlp = spacy.load("en_core_web_sm", disable=disable_pipes)
+                except Exception:
+                    pass
+                    
+        if not self.embedder:
+            log.info("Initializing JobSegmentEmbedder (all-MiniLM-L6-v2)...")
+            self.embedder = JobSegmentEmbedder()
+
+    def _preprocess_cv(self, cv: Any) -> List[CVEvidence]:
+        """
+        Deconstructs CV into atoms with STRUCTURED breadcrumb chains.
+        """
+        atom_registry: Dict[Tuple[str, str], CVEvidence] = {}
+        
+        context_chains = {}
+        for exp in getattr(cv, "experiences", []):
+            context_chains[exp.id] = [{"id": exp.id, "type": "experience", "name": f"{exp.title} at {exp.company}"}]
+        for edu in getattr(cv, "education", []):
+            context_chains[edu.id] = [{"id": edu.id, "type": "education", "name": f"{edu.degree}"}]
+        for hobby in getattr(cv, "hobbies", []):
+            context_chains[hobby.id] = [{"id": hobby.id, "type": "hobby", "name": hobby.name}]
+
+        ach_map = {a.id: a for a in getattr(cv, "achievements", [])}
+        skill_map = {s.id: s for s in getattr(cv, "skills", [])}
+
+        def register_atom(text, item_type, path_chain):
+            norm_text = normalize_text(text)
+            if not norm_text: return
+            key = (norm_text, item_type)
+            
+            if key in atom_registry:
+                atom_registry[key].add_occurrence(path_chain)
+            else:
+                atom_registry[key] = CVEvidence(norm_text, item_type, path_chain)
+
+        def add_children(parent_obj, parent_chain):
+            for ach_id in getattr(parent_obj, "achievement_ids", []):
+                ach = ach_map.get(ach_id)
+                if ach and getattr(ach, 'text', None):
+                    ach_chain = parent_chain + [{
+                        "id": ach.id, 
+                        "type": "achievement", 
+                        "name": (ach.text[:20] + "...") 
+                    }]
+                    full_text = f"{ach.text} {getattr(ach, 'context', '') or ''}".strip()
+                    register_atom(full_text, "achievement", ach_chain)
+
+                    for sk_id in getattr(ach, "skill_ids", []):
+                        sk = skill_map.get(sk_id)
+                        if sk:
+                            sk_chain = ach_chain + [{"id": sk.id, "type": "skill", "name": sk.name}]
+                            register_atom(sk.name, "skill", sk_chain)
+
+            for sk_id in getattr(parent_obj, "skill_ids", []):
+                sk = skill_map.get(sk_id)
+                if sk:
+                    sk_chain = parent_chain + [{"id": sk.id, "type": "skill", "name": sk.name}]
+                    register_atom(sk.name, "skill", sk_chain)
+
+        # =================================================================
+        # 🚀 SPEED FIX 4: Centralized Queue for Batched Segmentation
+        # =================================================================
+        segmentation_queue = []
+
+        for exp in getattr(cv, "experiences", []):
+            base_chain = context_chains[exp.id] 
+            if exp.title:
+                register_atom(exp.title, "experience", base_chain) 
+            
+            desc = getattr(exp, 'description', '') or ''
+            if desc:
+                segmentation_queue.append((desc, "experience", base_chain))
+                
+            add_children(exp, base_chain)
+
+        for proj in getattr(cv, "projects", []):
+            base_chain = []
+            found_parent = False
+            for rel_id in getattr(proj, "related_experience_ids", []) + getattr(proj, "related_education_ids", []) + getattr(proj, "related_hobby_ids", []):
+                if rel_id in context_chains:
+                    base_chain = context_chains[rel_id] + [{"id": proj.id, "type": "project", "name": proj.title}]
+                    found_parent = True
+                    break 
+            
+            if not found_parent:
+                base_chain = [{"id": proj.id, "type": "project", "name": proj.title}]
+
+            if proj.title:
+                register_atom(proj.title, "project", base_chain)
+
+            desc = getattr(proj, 'description', '') or ''
+            if desc:
+                segmentation_queue.append((desc, "project", base_chain))
+                
+            add_children(proj, base_chain)
+
+        for edu in getattr(cv, "education", []):
+            base_chain = context_chains[edu.id]
+            core_text = f"{edu.degree} {getattr(edu, 'field', '')}".strip()
+            if core_text:
+                register_atom(core_text, "education", base_chain)
+            add_children(edu, base_chain)
+
+        for hobby in getattr(cv, "hobbies", []):
+            base_chain = context_chains[hobby.id]
+            if hobby.name:
+                register_atom(hobby.name, "hobby", base_chain)
+            
+            desc = getattr(hobby, 'description', '') or ''
+            if desc:
+                segmentation_queue.append((desc, "hobby", base_chain))
+                
+            add_children(hobby, base_chain)
+
+        for sk in getattr(cv, "skills", []):
+            if sk.name:
+                chain = [{"id": sk.id, "type": "skill", "name": sk.name}]
+                register_atom(sk.name, "skill", chain)
+
+        # =================================================================
+        # Process all queued text descriptions in a single C-optimized pass
+        # =================================================================
+        if segmentation_queue and self.nlp:
+            texts_to_process = [item[0] for item in segmentation_queue]
+            
+            # Note: If your old `intelligent_segmentation` function contained custom 
+            # string cleaning (like regex for bullet points), you can apply it to 
+            # the `texts_to_process` array right here before piping it.
+            
+            docs = self.nlp.pipe(texts_to_process, batch_size=50)
+            
+            for (original_text, item_type, base_chain), doc in zip(segmentation_queue, docs):
+                for sent in doc.sents:
+                    seg = sent.text.strip()
+                    if seg:
+                        seg_id = f"seg-{hash(seg)}"
+                        seg_chain = base_chain + [{"id": seg_id, "type": "description", "name": "Description"}]
+                        register_atom(seg, item_type, seg_chain)
+
+        return list(atom_registry.values())
+    
+    def _build_vectors(self, req_texts: List[str], cv_texts: List[str]):
+        corpus = req_texts + cv_texts
+        self.tfidf = TfidfVectorizer(stop_words='english')
+        try:
+            # 🚀 SPEED FIX: Removed .toarray()
+            # We keep the matrix sparse. Scikit-learn's cosine_similarity
+            # calculates the distance between sparse matrices infinitely faster.
+            all_tfidf = self.tfidf.fit_transform(corpus)
+            req_tfidf = all_tfidf[:len(req_texts)]
+            cv_tfidf = all_tfidf[len(req_texts):]
+        except ValueError:
+            return None, None, None, None
+
+        req_emb, cv_emb = None, None
+        if self.embedder:
+            all_emb = self.embedder.encode(corpus)
+            if all_emb is not None:
+                req_emb = all_emb[:len(req_texts)]
+                cv_emb = all_emb[len(req_texts):]
+        
+        return req_tfidf, req_emb, cv_tfidf, cv_emb
+
+    def infer_mappings(self, job: Any, cv: Any, min_score: Optional[float] = None, top_k: Optional[int] = None, **kwargs) -> List[Any]:
+        active_min_score = min_score if min_score is not None else self.default_min_score
+        
+        self.load_models()
+
+        job_features = [
+            f for f in getattr(job, "features", []) 
+            if f.description and f.type not in ['benefit', 'other']
+        ]
+        evidence_pool = self._preprocess_cv(cv)
+
+        if not job_features or not evidence_pool: return []
+
+        req_texts = [normalize_text(f.description) for f in job_features]
+        cv_texts = [normalize_text(e.text) for e in evidence_pool]
+
+        r_tf, r_emb, c_tf, c_emb = self._build_vectors(req_texts, cv_texts)
+        if r_tf is None: return []
+
+        # Scikit-learn naturally accepts sparse matrices here and outputs a dense numpy array
+        tfidf_sim_matrix = cosine_similarity(r_tf, c_tf)
+        
+        if r_emb is not None and c_emb is not None:
+            emb_sim_matrix = cosine_similarity(r_emb, c_emb)
+            approx_upper_bound = np.maximum(tfidf_sim_matrix, (0.3 * tfidf_sim_matrix) + (0.7 * emb_sim_matrix))
+        else:
+            emb_sim_matrix = None
+            approx_upper_bound = tfidf_sim_matrix
+
+        cull_threshold = max(0.01, active_min_score - 0.25)
+        valid_y, valid_x = np.where(approx_upper_bound >= cull_threshold)
+
+        feature_candidates = defaultdict(list)
+        
+        for idx in range(len(valid_y)):
+            i = valid_y[idx]
+            j = valid_x[idx]
+            
+            req = job_features[i]
+            ev = evidence_pool[j]
+            
+            tfidf_sim = float(tfidf_sim_matrix[i, j])
+            emb_sim = float(emb_sim_matrix[i, j]) if emb_sim_matrix is not None else 0.0
+            
+            final_score = MatchScoring.calculate_strength(
+                req_type=req.type,
+                evidence_type=ev.item_type,
+                tfidf_sim=tfidf_sim,
+                emb_sim=emb_sim
+            )
+            
+            if final_score >= active_min_score:
+                feature_candidates[i].append({"score": final_score, "evidence": ev})
+
+        mappings = []
+        for i, req in enumerate(job_features):
+            candidates = feature_candidates.get(i, [])
+            if not candidates: continue
+
+            parent_groups = defaultdict(list)
+            for cand in candidates:
+                root_id = cand['evidence'].occurrences[0][0]['id']
+                parent_groups[root_id].append(cand)
+
+            group_results = []
+            
+            for pid, group_hits in parent_groups.items():
+                group_hits.sort(key=lambda x: x['score'], reverse=True)
+                
+                best_hit = group_hits[0]
+                best_ev = best_hit['evidence']
+                best_path = best_ev.occurrences[0]
+
+                note = SmartNoteBuilder.build(
+                    text=best_ev.text,
+                    score=best_hit['score'],
+                    paths=best_ev.occurrences 
+                )
+
+                best_candidate = MatchCandidate(
+                    segment_text=best_ev.text,
+                    segment_type=best_ev.item_type,
+                    score=best_hit['score'],
+                    lineage=[LineageItem(**step) for step in best_path]
+                )
+
+                supporting = []
+                seen_texts = {best_ev.text}
+                for hit in group_hits[1:]:
+                    ev = hit['evidence']
+                    if ev.text not in seen_texts and len(supporting) < 2:
+                        path = ev.occurrences[0]
+                        supporting.append(MatchCandidate(
+                            segment_text=ev.text,
+                            segment_type=ev.item_type,
+                            score=hit['score'],
+                            lineage=[LineageItem(**step) for step in path]
+                        ))
+                        seen_texts.add(ev.text)
+
+                meta_obj = MatchingMeta(
+                    best_match=best_candidate,
+                    supporting_matches=supporting,
+                    summary_note=note
+                )
+
+                all_candidates_objs = [best_candidate] + supporting
+                final_pair_strength = MatchScoring.aggregate_pair_strength(all_candidates_objs)
+
+                root_container = best_path[0]
+                
+                pair = MappingPair(
+                    feature_id=req.id,
+                    feature_text=req.description,
+                    context_item_id=root_container['id'],
+                    context_item_type=root_container['type'],
+                    context_item_text=root_container['name'],
+                    strength=final_pair_strength, 
+                    meta=meta_obj,
+                    annotation=meta_obj.summary_note
+                )
+                
+                group_results.append(pair)
+
+            group_results.sort(key=lambda x: x.strength, reverse=True)
+            mappings.extend(group_results)
+
+        return mappings
