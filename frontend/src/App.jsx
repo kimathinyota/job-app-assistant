@@ -25,7 +25,6 @@ const JobDetails = lazy(() => import('./components/JobDetails'));
 const AppTrackerPage = lazy(() => import('./components/AppTrackerPage'));
 const ApplicationDashboard = lazy(() => import('./components/applications/ApplicationDashboard'));
 const RoleCasePage = lazy(() => import('./components/RoleCasePage'));
-const TailoredCVManager = lazy(() => import('./components/applications/TailoredCVManager'));
 const SupportingDocStudio = lazy(() => import('./components/applications/SupportingDocStudio'));
 
 // CV Management
@@ -33,6 +32,7 @@ const CVLibraryPage = lazy(() => import('./components/CVLibraryPage'));
 const CVWorkspace = lazy(() => import('./components/cv/CVWorkspace'));
 const CVDashboard = lazy(() => import('./components/cv/CVDashboard'));
 const CVSectionWrapper = lazy(() => import('./components/cv/CVSectionWrapper'));
+const QuickCVEditor = lazy(() => import('./components/cv/QuickCVEditor'));
 
 // CV Sections (Managers)
 // Note: We lazy load these too so opening the "Experience" tab doesn't load "Education" code yet.
@@ -84,6 +84,9 @@ function App() {
           {/* --- CV ROUTES --- */}
           <Route path="cvs" element={<CVLibraryPage />} />
 
+          {/* Quick Edit / Preview Route */}
+          <Route path="cv/:cvId/quick-edit" element={<QuickCVEditor />} />
+
           <Route path="cv/:cvId" element={<CVWorkspace />}>
               <Route index element={<CVDashboard />} />
               <Route path="experience" element={<CVSectionWrapper component={ExperienceManager} section="experiences" />} />
@@ -102,7 +105,10 @@ function App() {
           <Route path="applications" element={<AppTrackerPage />} />
           <Route path="application/:applicationId" element={<ApplicationDashboard />} />
           <Route path="application/:applicationId/rolecase" element={<RoleCasePage />} />
-          <Route path="application/:applicationId/tailored-cv" element={<TailoredCVManager />} />
+          
+          {/* Tailored CV Workspace */}
+          <Route path="application/:applicationId/tailored-cv" element={<QuickCVEditor />} />
+          
           <Route path="application/:applicationId/doc/:documentId" element={<SupportingDocStudio />} />
           
           <Route path="goals" element={<GoalTrackerPage />} />

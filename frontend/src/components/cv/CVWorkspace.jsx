@@ -103,6 +103,13 @@ const CVWorkspace = () => {
                                 <button onClick={handleStartEditHeader} className="btn btn-outline-secondary btn-sm d-flex align-items-center gap-2">
                                     <Edit2 size={14}/> Edit Header
                                 </button>
+
+                                <button 
+                                    className="btn btn-sm btn-outline-secondary" 
+                                    onClick={() => navigate(`/cv/${cv.id}/quick-edit`)}
+                                >
+                                    Preview
+                                </button>
                             </div>
                         </div>
 

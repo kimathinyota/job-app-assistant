@@ -332,6 +332,12 @@ const CVManagerPage = () => {
                                             <div className="d-flex gap-2 flex-shrink-0">
                                                 <button onClick={() => setShowExportModal(true)} className="btn btn-outline-success btn-sm d-flex align-items-center gap-2"><Download size={14}/> Export</button>
                                                 <button onClick={handleStartEditHeader} className="btn btn-outline-secondary btn-sm d-flex align-items-center gap-2"><Edit2 size={14}/> Edit Header</button>
+                                                <button 
+                                                    className="btn btn-sm btn-outline-secondary" 
+                                                    onClick={() => navigate(`/cv/${cv.id}/quick-edit`)}
+                                                >
+                                                    Quick Edit / Preview
+                                                </button>
                                             </div>
                                         </div>
                                     ) : (
