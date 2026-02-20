@@ -38,6 +38,66 @@ q_parsing = Queue('q_parsing', connection=redis_conn)
 q_background = Queue('q_background', connection=redis_conn)
 
 
+# In backend/routes/cv.py
+
+@router.post("/{cv_id}/sync-to-base")
+def sync_derived_to_base(
+    cv_id: str, 
+    request: Request,
+    user: User = Depends(get_current_user)
+):
+    """Sync text edits from a Derived CV back to its Base CV."""
+    registry: Registry = request.app.state.registry
+    
+    # 1. Fetch the Derived CV
+    derived_cv = registry.get_cv(cv_id, user.id)
+    if not derived_cv or not getattr(derived_cv, 'base_cv_id', None):
+        raise HTTPException(400, "Only tailored (Derived) CVs can be synced to a Base CV.")
+        
+    # 2. Fetch the Base CV
+    base_cv = registry.get_cv(derived_cv.base_cv_id, user.id)
+    if not base_cv:
+        raise HTTPException(404, "Original Base CV no longer exists.")
+
+    # 3. Create Lookup Maps for Base CV items by ID
+    base_ach_map = {a.id: a for a in base_cv.achievements}
+    base_exp_map = {e.id: e for e in base_cv.experiences}
+    base_edu_map = {e.id: e for e in base_cv.education}
+    base_proj_map = {p.id: p for p in base_cv.projects}
+    base_skill_map = {s.id: s for s in base_cv.skills}
+
+    # 4. Sync updates from Derived to Base (Overwriting fields)
+    for ach in derived_cv.achievements:
+        if ach.id in base_ach_map:
+            base_ach_map[ach.id].text = ach.text
+            
+    for exp in derived_cv.experiences:
+        if exp.id in base_exp_map:
+            b_exp = base_exp_map[exp.id]
+            b_exp.title = exp.title
+            b_exp.company = exp.company
+            b_exp.location = exp.location
+            b_exp.start_date = exp.start_date
+            b_exp.end_date = exp.end_date
+            
+    for edu in derived_cv.education:
+        if edu.id in base_edu_map:
+            b_edu = base_edu_map[edu.id]
+            b_edu.institution = edu.institution
+            b_edu.degree = edu.degree
+            b_edu.field = edu.field
+            
+    for proj in derived_cv.projects:
+        if proj.id in base_proj_map:
+            b_proj = base_proj_map[proj.id]
+            b_proj.title = proj.title
+            b_proj.description = proj.description
+
+    # 5. Save the updated Base CV
+    registry.save_cv(user.id, base_cv)
+    
+    return {"status": "success", "message": "Changes synced to Base CV"}
+
 @router.put("/{cv_id}/tailored-content", response_model=DerivedCV)
 def update_tailored_cv_content(
     cv_id: str,
@@ -867,33 +927,48 @@ def export_cv(cv_id: str, payload: CVExportRequest, request: Request, user: User
     
     base_filename = f"{cv.first_name}_{cv.last_name}_CV".replace(" ", "_")
 
+    # Reusable kwargs for generators
+    pdf_kwargs = {
+        "context": {"cv": cv_dict, "skill_groups": skill_groups},
+        "section_order": payload.section_order,
+        "section_titles": payload.section_titles,
+        "font_size": payload.font_size,
+        "font_family": payload.font_family
+    }
+    
+    docx_kwargs = {
+        "cv_data": cv_dict, 
+        "skill_groups": skill_groups, 
+        "section_order": payload.section_order, 
+        "section_titles": payload.section_titles,
+        "font_size": payload.font_size,
+        "font_family": payload.font_family
+    }
+
     try:
         if payload.file_format == "pdf":
-            pdf_bytes = pdf_gen.render_cv(
-                context={"cv": cv_dict, "skill_groups": skill_groups},
-                section_order=payload.section_order,
-                section_titles=payload.section_titles
-            )
+            pdf_bytes = pdf_gen.render_cv(**pdf_kwargs)
             return Response(content=pdf_bytes, media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={base_filename}.pdf"})
             
         elif payload.file_format == "docx":
-            docx_path = docx_gen.create_docx(
-                cv_data=cv_dict, skill_groups=skill_groups, section_order=payload.section_order, section_titles=payload.section_titles
-            )
+            docx_path = docx_gen.create_docx(**docx_kwargs)
             with open(docx_path, "rb") as f: docx_bytes = f.read()
             os.remove(docx_path)
             return Response(content=docx_bytes, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", headers={"Content-Disposition": f"attachment; filename={base_filename}.docx"})
             
         elif payload.file_format == "tex":
-            tex_context = {"cv": cv_dict, "skill_groups": skill_groups, "section_order": [s.lower() for s in payload.section_order], "section_titles": payload.section_titles}
+            # Just extract the raw tex string using the PDF generator's context formatting
+            tex_context = pdf_gen._build_context(**pdf_kwargs)
             tex_source = pdf_gen.env.get_template('cv_template.tex').render(**tex_context)
             return Response(content=tex_source, media_type="application/x-tex", headers={"Content-Disposition": f"attachment; filename={base_filename}.tex"})
             
-        else:
-            pdf_bytes = pdf_gen.render_cv(context={"cv": cv_dict, "skill_groups": skill_groups}, section_order=payload.section_order, section_titles=payload.section_titles)
-            tex_context = {"cv": cv_dict, "skill_groups": skill_groups, "section_order": [s.lower() for s in payload.section_order], "section_titles": payload.section_titles}
+        else: # ZIP Bundle
+            pdf_bytes = pdf_gen.render_cv(**pdf_kwargs)
+            
+            tex_context = pdf_gen._build_context(**pdf_kwargs)
             tex_source = pdf_gen.env.get_template('cv_template.tex').render(**tex_context)
-            docx_path = docx_gen.create_docx(cv_data=cv_dict, skill_groups=skill_groups, section_order=payload.section_order, section_titles=payload.section_titles)
+            
+            docx_path = docx_gen.create_docx(**docx_kwargs)
             with open(docx_path, "rb") as f: docx_bytes = f.read()
             os.remove(docx_path)
 
@@ -909,7 +984,7 @@ def export_cv(cv_id: str, payload: CVExportRequest, request: Request, user: User
     except Exception as e:
         import logging
         logging.getLogger(__name__).error(f"Export Error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Generation failed: {str(e)}")   
+        raise HTTPException(status_code=500, detail=f"Generation failed: {str(e)}")
 
 @router.put("/primary")
 def set_primary_cv(
