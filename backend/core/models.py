@@ -224,7 +224,12 @@ class CV(UserOwnedEntity):
     # --- NEW FIELDS FOR BACKGROUND TASKS ---
     is_importing: Optional[bool] = False
     import_task_id: Optional[str] = None
+    just_imported: Optional[bool] = None
     # ---------------------------------------
+
+    section_order: Optional[List[str]] = Field(
+        default=["summary", "education", "skills", "projects", "experiences", "hobbies"]
+    )
 
     # --- Helpers ---
     def add_skill(self, name: str, category: str = "technical", **kwargs) -> Skill:
@@ -449,9 +454,9 @@ class DerivedCV(CV):
 # ---------------------------------------------------------------------
 
 class CVExportRequest(BaseModel):
-    # Added "hobbies" to default list
-    section_order: List[str] = ["education", "skills", "projects", "experience", "hobbies"]
+    section_order: List[str] = ["summary", "experience", "education", "projects", "skills", "hobbies"]
     section_titles: Dict[str, str] = {
+        "summary": "Professional Summary",
         "education": "Education",
         "skills": "Technical Skills",
         "projects": "Academic & Research Projects",
@@ -459,6 +464,9 @@ class CVExportRequest(BaseModel):
         "hobbies": "Interests & Hobbies"
     }
     file_format: Literal["pdf", "docx", "tex", "zip"] = "pdf"
+    font_size: int = 11
+    font_family: str = "Arial"
+
 
 
 class CVImportRequest(BaseModel):
@@ -957,6 +965,9 @@ class CVUpdate(BaseModel):
     title: Optional[str] = None
     summary: Optional[str] = None
     contact_info: Optional[Dict[str, str]] = None
+    just_imported: Optional[bool] = None
+
+    section_order: Optional[List[str]] = None
     
     # Nested Lists - Replacing the list entirely is usually safer for reordering
     experiences: Optional[List[Experience]] = None
