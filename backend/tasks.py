@@ -211,7 +211,7 @@ def task_infer_mapping_suggestions(user_id: str, mapping_id: str, mode: str = "b
         _publish_inference_update(user_id, "MAPPING_FAILED", {"mapping_id": mapping_id, "error": str(e)})
         raise e
 
-
+import time
 # --- 5. [NEW] PREVIEW MATCH (Job Card Dropdown) ---
 def task_preview_job_match(user_id: str, job_id: str, cv_id: str):
     """
@@ -220,6 +220,8 @@ def task_preview_job_match(user_id: str, job_id: str, cv_id: str):
     if inference_bot is None: initialize_inference_worker()
     
     print(f"🚀 TASK: Preview Match Job {job_id} <> CV {cv_id}")
+    t_start_total = time.perf_counter()
+    
     try:
         registry = Registry()
         service = ScoringService(registry, inferer=inference_bot)
@@ -228,18 +230,36 @@ def task_preview_job_match(user_id: str, job_id: str, cv_id: str):
         cv = registry.get_cv(cv_id, user_id)
 
         # 1. Run Logic (Saves Mapping, but NOT Job)
+        t_start_mapping = time.perf_counter()
         mapping = service._get_or_create_smart_mapping(user_id, job, cv)
+        t_end_mapping = time.perf_counter()
         
         # 2. Calculate Stats
+        t_start_forensics = time.perf_counter()
         analysis = service.forensics.calculate(job, mapping)
+        t_end_forensics = time.perf_counter()
         
+        t_end_total = time.perf_counter()
+        
+        # --- TIMING DIAGNOSTICS LOG ---
+        print("-" * 45)
+        print(f"⏱️ TIMING DIAGNOSTICS (Job {job_id[:6]}):")
+        print(f"  * Smart Mapping (Inference): {t_end_mapping - t_start_mapping:.4f} sec")
+        print(f"  * Forensic Calculation:      {t_end_forensics - t_start_forensics:.4f} sec")
+        print(f"  * Total Execution Time:      {t_end_total - t_start_total:.4f} sec")
+        print("-" * 45)
+
         # 3. NOTIFY with FULL PREVIEW DATA
         _publish_inference_update(user_id, "MATCH_PREVIEW_GENERATED", {
             "job_id": job_id,
             "cv_id": cv_id,
             "score": analysis.stats.overall_match_score,
             "grade": analysis.suggested_grade,
-            "badges": analysis.suggested_badges # <--- FULL BADGES
+            "badges": analysis.suggested_badges, # <--- FULL BADGES
+            "_meta": {
+                "inference_time_sec": round(t_end_mapping - t_start_mapping, 4),
+                "total_time_sec": round(t_end_total - t_start_total, 4)
+            }
         })
         
         return {"status": "success"}
